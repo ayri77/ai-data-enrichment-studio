@@ -1,0 +1,21 @@
+name: Feature request
+description: Suggest a new user-facing capability
+title: "[Feature] "
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: User problem
+      description: What problem should the feature solve?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Expected outcome and acceptance criteria
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: MVP scope and out-of-scope notes

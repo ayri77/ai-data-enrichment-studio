@@ -1,0 +1,1 @@
+"""Capabilities package — to be implemented in upcoming milestones."""

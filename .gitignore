@@ -1,0 +1,31 @@
+# Python and tooling
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.pyright/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local secrets and runtime artifacts
+.env
+.env.*
+!.env.example
+artifacts/
+outputs/
+.cache/
+*.sqlite
+*.sqlite3
+
+# Note: uv.lock MUST be committed.

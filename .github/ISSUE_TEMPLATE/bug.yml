@@ -1,0 +1,23 @@
+name: Bug report
+description: Report a reproducible defect
+title: "[Bug] "
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: What is wrong?
+      description: Describe observed and expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. ...\n2. ..."
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs (without secrets)
+      render: text

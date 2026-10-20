@@ -1,0 +1,24 @@
+name: Engineering task
+description: Internal refactoring, CI, tests, docs or maintenance
+title: "[Task] "
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Definition of done
+    validations:
+      required: true
+  - type: dropdown
+    id: effort
+    attributes:
+      label: Rough effort
+      options:
+        - S (hours)
+        - M (up to 2 days)
+        - L (split into sub-issues)
