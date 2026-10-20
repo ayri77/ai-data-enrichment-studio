@@ -1,6 +1,8 @@
 name: Engineering task
 description: Internal refactoring, CI, tests, docs or maintenance
 title: "[Task] "
+labels:
+  - "type:chore"
 body:
   - type: textarea
     id: goal
