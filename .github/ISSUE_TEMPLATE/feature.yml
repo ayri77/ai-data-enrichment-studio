@@ -1,6 +1,8 @@
 name: Feature request
 description: Suggest a new user-facing capability
 title: "[Feature] "
+labels:
+  - "type:feature"
 body:
   - type: textarea
     id: need
