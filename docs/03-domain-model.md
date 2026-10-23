@@ -78,6 +78,9 @@ The following diagram illustrates the primary domain entities and their logical 
 ```mermaid
 flowchart TD
     Job["EnrichmentJob"]
+    Source["DataSourceSpec"]
+    Adapter["Source Adapter"]
+    Records["RecordStream"]
     Profile["DatasetProfile"]
     Policy["ExecutionPolicy"]
     Plan["EnrichmentPlan"]
@@ -91,7 +94,12 @@ flowchart TD
     Row["RowResult"]
     Result["JobResult"]
 
+    Job -->|references| Source
     Job -->|references| Profile
+    Source -->|configures| Adapter
+    Adapter -->|produces metadata| Profile
+    Adapter -->|provides records| Records
+    Records -->|supplies input records| Operation
     Job -->|uses| Policy
     Job -->|contains| Plan
 
@@ -116,14 +124,15 @@ flowchart TD
     classDef quality fill:#fef3c7,stroke:#d97706,color:#78350f
     classDef results fill:#f3e8ff,stroke:#9333ea,color:#581c87
 
-    class Profile,Plan,Step,Capability planning
-    class Job,Policy,Provider,Operation execution
+    class Source,Profile,Plan,Step,Capability planning
+    class Adapter,Records,Job,Policy,Provider,Operation execution
     class Validation,Evidence quality
     class Field,Row,Result results
 ```
 
 **Relationship interpretation:**
 
+- **Data access:** A source adapter derives planning metadata separately from the records later consumed during execution.
 - **Planning:** A job uses a dataset profile to construct an enrichment plan consisting of reusable capability-based steps.
 - **Execution:** Registered providers implement capabilities and produce operation results under an execution policy.
 - **Quality:** Validation policies evaluate operation results, while evidence records preserve data provenance.
@@ -174,40 +183,57 @@ The exact lifecycle and state transitions will be specified in the workflow desi
 
 ---
 
-### 3.2 DatasetProfile
+### 3.2 DatasetProfile and Source Separation
 
-**Purpose:** Describe the logical structure and relevant characteristics of the input dataset.
+**Purpose:** Describe the structure and observed characteristics of **one logical tabular dataset** in a source-independent form.
 
-The DatasetProfile provides context for planning without requiring the LLM to inspect every input row.
+A DatasetProfile is metadata for planning, **not** the dataset's complete records, a database connection, an ingestion configuration, or an output destination. The LLM Planner receives a compact, bounded profile rather than the full source data.
 
-Conceptual attributes:
+A logical dataset may be an Excel worksheet, a CSV table, a result of a preconfigured read-only SQL query, or a structured text table. A single source can expose multiple logical datasets (for example, multiple worksheets). Profiling must produce the same domain contract regardless of source format.
+
+**DatasetProfile — conceptual attributes:**
 
 | Attribute | Description |
 |---|---|
-| `dataset_id` | Dataset identifier |
-| `source_format` | Input format, initially XLSX |
-| `datasets` | Available logical tables or worksheets |
-| `columns` | Column profiles |
-| `row_count` | Number of records |
-| `sample_records` | Representative data samples |
-| `missing_value_summary` | Missing-value statistics |
-| `schema_warnings` | Structural issues or uncertainties |
+| `dataset_id` | Identifier of the logical dataset |
+| `name` | Human-readable logical dataset name |
+| `row_count` | Number of records, or unknown when an exact count is not available |
+| `columns` | Ordered collection of ColumnProfiles |
+| `sample_records` | Bounded representative records used as planning context |
+| `schema_warnings` | Structural issues, ambiguities, or profiling limitations |
 
-Each ColumnProfile may include:
+A DatasetProfile may also record how many rows were inspected, so that inferred types and data-quality observations are not mistaken for guarantees about uninspected records. Per-column statistics provide missing-value details without requiring a duplicate dataset-level summary.
 
-- Column identifier.
-- Original column name.
-- Inferred data type.
-- Missing-value count.
-- Unique-value count.
-- Representative values.
-- Potential semantic role.
+**ColumnProfile — conceptual attributes:**
 
-Semantic roles are suggestions, not established facts.
+| Attribute | Description |
+|---|---|
+| `name` | Original column name used for source-field mapping |
+| `source_type` | Declared/native source type, when available; otherwise unknown |
+| `inferred_type` | Canonical primitive type inferred from observed values |
+| `nullable` | Whether the source schema permits nulls, when declared |
+| `null_count` | Observed missing-value count, with analysis coverage made clear |
+| `sample_values` | Bounded representative values |
+| `warnings` | Type inconsistencies, ambiguous inference, or other quality observations |
 
-Examples include entity name, country, geographic coordinate, target attribute, and contextual identifier.
+The initial canonical primitive types are `Text`, `Integer`, `Number`, `Boolean`, `Date`, `DateTime`, `Unknown`, and `Mixed`. These are **dataset profiling types**, not the semantic capability value types (`EntityRef`, `GeoPoint`, `Quantity`) defined for planning and execution. Compatibility between column types and capability inputs is checked later by the Plan Validator.
 
-**Invariant:** Profiling must not modify the input dataset.
+Type inference is advisory. For example, a string column containing digits might hold postal codes or identifiers rather than numbers. Missing-value conventions may differ between sources; a token such as `N/A` is not automatically a null without an applicable parsing rule. A declared source type, an inferred type, and an observed anomaly are separate facts.
+
+**Related responsibilities (separate from DatasetProfile):**
+
+- **DataSourceSpec:** Describes where and how a source is accessed, including format and source-specific configuration. For SQL, the initial prospective boundary is a user-provided or otherwise approved read-only query whose result is treated as one logical table. Connection secrets must not be exposed to the Planner.
+- **Source adapter:** Inspects source-specific structure and produces source-independent profiles. Only an XLSX profiling adapter is implemented in M1; CSV, structured TXT, and SQL adapters are future extensions.
+- **Dataset records / RecordStream:** Supplies the actual records or batches to the Execution Engine, separately from the planning profile. Its general contract and implementation are deferred.
+- **ExecutionPolicy and output destination:** Define processing limits, pagination/batching behavior where applicable, and where results are written. They are not attributes of the DatasetProfile. An eventual output-destination contract must not be confused with the Capability `OutputSpec`.
+
+**Profiling boundaries and invariants:**
+
+- Profiling is read-only and must not modify the source artifact.
+- Sample count, per-value length, and overall model-facing payload must be bounded.
+- Structural warnings and uncertainty must be visible; inferred schema is not a promise of data correctness.
+- The existing lightweight `inspect_workbook()` interface should remain compatible while XLSX profiling is extended in Issue #8.
+- Full dataset streaming, general SQL/TXT/CSV ingestion, and data writing are outside Issue #8.
 
 ---
 
