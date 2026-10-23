@@ -160,6 +160,8 @@ Initial conceptual contract:
 | `execution` | Execution characteristics |
 | `validation` | Reference to applicable validation rules |
 
+Capability IDs and input/parameter names must follow lowercase snake_case, start with a letter, contain only ASCII lowercase letters, digits, and single underscores between segments, and have a maximum length of 64 characters. Capability IDs must be unique within the registry.
+
 Example:
 
 ```yaml
