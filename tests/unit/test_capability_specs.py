@@ -12,6 +12,21 @@ from ai_data_enrichment.domain.capability import (
 )
 
 
+@pytest.fixture
+def valid_capability_data() -> dict[str, object]:
+    """Provide valid capability data for validation tests."""
+    return {
+        "id": "geocode",
+        "version": "1.0",
+        "description": "Resolve geographic coordinates",
+        "inputs": {},
+        "output": {
+            "type": "GeoPoint",
+            "description": "Resolved geographical coordinates",
+        },
+    }
+
+
 @pytest.mark.parametrize(
     ("model_class", "extra_fields", "expected_error"),
     [
@@ -264,24 +279,18 @@ def test_capability_spec_rejects_invalid_nested_parameter() -> None:
 
 
 @pytest.mark.parametrize("field_name", ["id", "version", "description"])
-def test_capability_spec_rejects_empty_text_fields(field_name: str) -> None:
+def test_capability_spec_rejects_empty_text_fields(
+    field_name: str,
+    valid_capability_data: dict[str, object],
+) -> None:
     """CapabilitySpec should reject empty required text fields."""
-    data = {
-        "id": "geocode",
-        "version": "1.0",
-        "description": "Resolve geographic coordinates",
-        "inputs": {},
-        "output": {
-            "type": "GeoPoint",
-            "description": "Resolved geographical coordinates",
-        },
-    }
+    valid_capability_data[field_name] = ""
 
-    data[field_name] = ""
     with pytest.raises(ValidationError) as exc_info:
-        CapabilitySpec.model_validate(data)
+        CapabilitySpec.model_validate(valid_capability_data)
 
     errors = exc_info.value.errors()
+
     assert len(errors) == 1
     assert errors[0]["loc"] == (field_name,)
     assert errors[0]["type"] == "string_too_short"
@@ -291,23 +300,18 @@ def test_capability_spec_rejects_empty_text_fields(field_name: str) -> None:
     "field_name",
     ["id", "version", "description", "inputs", "output"],
 )
-def test_capability_spec_requires_mandatory_fields(field_name: str) -> None:
+def test_capability_spec_requires_mandatory_fields(
+    field_name: str,
+    valid_capability_data: dict[str, object],
+) -> None:
     """CapabilitySpec should reject missing mandatory fields."""
-    data = {
-        "id": "geocode",
-        "version": "1.0",
-        "description": "Resolve geographic coordinates",
-        "inputs": {},
-        "output": {
-            "type": "GeoPoint",
-            "description": "Resolved geographical coordinates",
-        },
-    }
-    data.pop(field_name)
+    valid_capability_data.pop(field_name)
+
     with pytest.raises(ValidationError) as exc_info:
-        CapabilitySpec.model_validate(data)
+        CapabilitySpec.model_validate(valid_capability_data)
 
     errors = exc_info.value.errors()
+
     assert len(errors) == 1
     assert errors[0]["loc"] == (field_name,)
     assert errors[0]["type"] == "missing"

@@ -12,6 +12,21 @@ from ai_data_enrichment.domain.capability import (
 )
 
 
+@pytest.fixture
+def sample_geocode_spec() -> CapabilitySpec:
+    """Provide a valid geocode capability specification."""
+    return CapabilitySpec(
+        id="geocode",
+        version="1.0",
+        description="Resolve geographical coordinates",
+        inputs={},
+        output=OutputSpec(
+            type=DataType.GEO_POINT,
+            description="Resolved coordinates",
+        ),
+    )
+
+
 def test_registry_get_unknown_capability() -> None:
     """Registry should return None for an unknown capability."""
     registry = CapabilityRegistry()
@@ -19,40 +34,23 @@ def test_registry_get_unknown_capability() -> None:
     assert registry.get("unknown") is None
 
 
-def test_registry_register_and_get_capability() -> None:
+def test_registry_register_and_get_capability(
+    sample_geocode_spec: CapabilitySpec,
+) -> None:
     """Registry should store and retrieve a registered capability."""
     registry = CapabilityRegistry()
 
-    spec = CapabilitySpec(
-        id="geocode",
-        version="1.0",
-        description="Resolve geographical coordinates",
-        inputs={},
-        output=OutputSpec(
-            type=DataType.GEO_POINT,
-            description="Resolved coordinates",
-        ),
-    )
+    registry.register(sample_geocode_spec)
 
-    registry.register(spec)
-
-    assert registry.get("geocode") == spec
+    assert registry.get("geocode") == sample_geocode_spec
 
 
-def test_registry_rejects_duplicate_id() -> None:
+def test_registry_rejects_duplicate_id(
+    sample_geocode_spec: CapabilitySpec,
+) -> None:
     """Registry should reject a capability with a duplicate ID."""
     registry = CapabilityRegistry()
-
-    spec = CapabilitySpec(
-        id="geocode",
-        version="1.0",
-        description="Resolve geographical coordinates",
-        inputs={},
-        output=OutputSpec(
-            type=DataType.GEO_POINT,
-            description="Resolved coordinates",
-        ),
-    )
+    spec = sample_geocode_spec
 
     registry.register(spec)
 
@@ -65,20 +63,13 @@ def test_registry_rejects_duplicate_id() -> None:
     assert registry.get("geocode") is spec
 
 
-def test_registry_list_all_capabilities() -> None:
+def test_registry_list_all_capabilities(
+    sample_geocode_spec: CapabilitySpec,
+) -> None:
     """Registry should return all registered capabilities."""
     registry = CapabilityRegistry()
 
-    spec1 = CapabilitySpec(
-        id="geocode",
-        version="1.0",
-        description="Resolve geographical coordinates",
-        inputs={},
-        output=OutputSpec(
-            type=DataType.GEO_POINT,
-            description="Resolved coordinates",
-        ),
-    )
+    spec1 = sample_geocode_spec
 
     spec2 = CapabilitySpec(
         id="geodesic_distance",
@@ -112,20 +103,13 @@ def test_registry_list_all_capabilities() -> None:
     }
 
 
-def test_registry_list_all_returns_independent_list() -> None:
+def test_registry_list_all_returns_independent_list(
+    sample_geocode_spec: CapabilitySpec,
+) -> None:
     """Registry should return an independent list of capabilities."""
     registry = CapabilityRegistry()
 
-    spec = CapabilitySpec(
-        id="geocode",
-        version="1.0",
-        description="Resolve geographical coordinates",
-        inputs={},
-        output=OutputSpec(
-            type=DataType.GEO_POINT,
-            description="Resolved coordinates",
-        ),
-    )
+    spec = sample_geocode_spec
 
     registry.register(spec)
 
