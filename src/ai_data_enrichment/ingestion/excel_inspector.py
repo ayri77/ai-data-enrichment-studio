@@ -34,12 +34,14 @@ def inspect_workbook(path: Path) -> WorkbookSummary:
         raise FileNotFoundError(f"Workbook not found: {path}")
 
     summaries: list[WorksheetSummary] = []
+    # Inspect formula cells as populated rather than relying on cached results.
     workbook = load_workbook(path, read_only=True, data_only=False)
     try:
         for worksheet in workbook.worksheets:
             rows = worksheet.iter_rows(values_only=True)
             header = next(rows, ())
             columns = tuple(str(value).strip() if value is not None else "" for value in header)
+            # Exclude blank or whitespace-only rows from the data count.
             row_count = sum(
                 1 for row in rows if any(value is not None and str(value).strip() for value in row)
             )
