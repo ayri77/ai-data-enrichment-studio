@@ -2,12 +2,18 @@
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, JsonValue, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 from ai_data_enrichment.domain.capability import Identifier
 
 
-class ColumnReference(BaseModel):
+class PlanContract(BaseModel):
+    """Base model for strict enrichment plan contracts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ColumnReference(PlanContract):
     """Reference a column in the input dataset."""
 
     kind: Literal["column"]
@@ -22,14 +28,14 @@ class ColumnReference(BaseModel):
         return value
 
 
-class StepOutputReference(BaseModel):
+class StepOutputReference(PlanContract):
     """Reference the output of another plan step."""
 
     kind: Literal["step_output"]
     step_id: Identifier
 
 
-class LiteralValue(BaseModel):
+class LiteralValue(PlanContract):
     """Represent a JSON-compatible constant used as a plan input."""
 
     kind: Literal["literal"]
@@ -42,7 +48,7 @@ InputReference = Annotated[
 ]
 
 
-class PlanStep(BaseModel):
+class PlanStep(PlanContract):
     """Describe a single capability invocation in an enrichment plan."""
 
     id: Identifier
@@ -51,7 +57,7 @@ class PlanStep(BaseModel):
     parameters: dict[Identifier, JsonValue]
 
 
-class OutputMapping(BaseModel):
+class OutputMapping(PlanContract):
     """Map a step output field to a target dataset column."""
 
     step_id: Identifier
@@ -67,7 +73,7 @@ class OutputMapping(BaseModel):
         return value
 
 
-class EnrichmentPlan(BaseModel):
+class EnrichmentPlan(PlanContract):
     """Describe a versioned, source-independent enrichment plan."""
 
     version: str = Field(min_length=1)
@@ -82,5 +88,3 @@ class EnrichmentPlan(BaseModel):
         if not value.strip():
             raise ValueError("Version must not be empty")
         return value
-
-

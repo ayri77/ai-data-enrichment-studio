@@ -635,3 +635,30 @@ def test_output_mapping_rejects_invalid_identifiers(
     assert len(errors) == 1
     assert errors[0]["loc"] == (field_name,)
     assert errors[0]["type"] == "string_pattern_mismatch"
+
+
+def test_enrichment_plan_rejects_unknown_nested_fields() -> None:
+    """Enrichment plans should reject unknown fields in nested models."""
+    data = {
+        "version": "1.0",
+        "steps": [
+            {
+                "id": "origin",
+                "capability": "geocode",
+                "inputs": {},
+                "parameters": {},
+                "unexpected": True,
+            }
+        ],
+        "outputs": [],
+        "assumptions": [],
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        EnrichmentPlan.model_validate(data)
+
+    errors = exc_info.value.errors()
+
+    assert len(errors) == 1
+    assert errors[0]["loc"] == ("steps", 0, "unexpected")
+    assert errors[0]["type"] == "extra_forbidden"
