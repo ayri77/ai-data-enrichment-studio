@@ -45,6 +45,15 @@ uv run ruff format .
 uv run ruff check . --fix
 ```
 
+## Code readability and maintainability
+
+- Keep module, class, and function docstrings concise; describe responsibility and non-obvious contracts.
+- Add short English comments only for domain rules, safety constraints, surprising behavior, and design trade-offs. Explain **why**, not what a self-explanatory line does.
+- Prefer descriptive names and focused tests over narrating each statement or assertion.
+- Organize production code and tests by responsibility. Split large files when navigation or ownership becomes difficult, rather than imposing arbitrary line-count limits.
+- After a coherent feature, review for duplication and growing responsibilities, refactor without behavior changes, and rerun the quality gates.
+- Prefer separate PRs for documentation-only cleanup and functional changes.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on pushes to `main`, pull requests, and manual dispatch. The workflow has no external LLM calls and does not require API keys.
