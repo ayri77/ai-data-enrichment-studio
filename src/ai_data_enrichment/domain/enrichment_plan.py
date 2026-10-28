@@ -10,6 +10,7 @@ from ai_data_enrichment.domain.capability import Identifier
 class PlanContract(BaseModel):
     """Base model for strict enrichment plan contracts."""
 
+    # Do not silently discard unexpected fields in generated plans.
     model_config = ConfigDict(extra="forbid")
 
 
@@ -42,6 +43,7 @@ class LiteralValue(PlanContract):
     value: JsonValue
 
 
+# The discriminator selects one reference shape without ambiguous union parsing.
 InputReference = Annotated[
     ColumnReference | StepOutputReference | LiteralValue,
     Field(discriminator="kind"),

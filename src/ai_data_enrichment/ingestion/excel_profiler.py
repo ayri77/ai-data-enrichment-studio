@@ -54,6 +54,7 @@ def _infer_value_type(
     if value is None:
         return PrimitiveType.UNKNOWN
 
+    # bool is an int subclass, so infer it before numeric types.
     if isinstance(value, bool):
         return PrimitiveType.BOOLEAN
 
@@ -87,6 +88,7 @@ def _resolve_column_type(
     if len(observed_types) == 1:
         return next(iter(observed_types))
 
+    # Integer and floating-point observations share the Number type.
     if observed_types == {PrimitiveType.INTEGER, PrimitiveType.NUMBER}:
         return PrimitiveType.NUMBER
 
@@ -144,6 +146,7 @@ def profile_worksheet(
     effective_limits = limits if limits is not None else ProfilingLimits()
 
     try:
+        # Read cached formula results without evaluating formulas or changing the file.
         workbook = load_workbook(path, read_only=True, data_only=True)
 
     except InvalidFileException as exc:
@@ -189,6 +192,7 @@ def profile_worksheet(
 
         # Process all data rows.
         for row in rows:
+            # Entirely empty rows do not count toward records or null statistics.
             if all(cell.value is None for cell in row):
                 continue
 
@@ -209,6 +213,7 @@ def profile_worksheet(
                 if value is None:
                     null_counts[index] += 1
 
+                # Keep Excel error cells out of ordinary type inference.
                 elif cell.data_type == "e":
                     excel_error_counts[index] += 1
 

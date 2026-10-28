@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints
 
+# Use one identifier grammar for capabilities, plan steps, and argument names.
 Identifier = Annotated[
     str,
     StringConstraints(
