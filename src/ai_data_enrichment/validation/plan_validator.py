@@ -398,7 +398,26 @@ class PlanValidator:
 
             target_type = _PRIMITIVE_TYPE_MAP.get(target_column.inferred_type)
 
-            if target_type is not None and output_type != target_type:
+            if target_type is None:
+                # Unknown or mixed types defer compatibility checks to execution.
+                if target_column.inferred_type not in (
+                    PrimitiveType.UNKNOWN,
+                    PrimitiveType.MIXED,
+                ):
+                    errors.append(
+                        ValidationDiagnostic(
+                            code="UNSUPPORTED_OUTPUT_TARGET_TYPE",
+                            message=(
+                                f"Target column '{output.target_column}' has unsupported "
+                                f"type {target_column.inferred_type.value}."
+                            ),
+                            step_id=output.step_id,
+                            field=f"outputs[{index}].target_column",
+                        )
+                    )
+                continue
+
+            if output_type != target_type:
                 errors.append(
                     ValidationDiagnostic(
                         code="OUTPUT_TYPE_MISMATCH",
