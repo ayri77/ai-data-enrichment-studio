@@ -46,6 +46,11 @@ class PlanValidationPolicy:
     protected_columns: frozenset[str] = field(default_factory=frozenset)
     max_steps: int | None = None
 
+    def __post_init__(self) -> None:
+        """Reject negative limits before plan validation begins."""
+        if self.max_steps is not None and self.max_steps < 0:
+            raise ValueError("max_steps must be non-negative")
+
 
 class PlanValidator:
     """Validate enrichment plans against available contracts."""
