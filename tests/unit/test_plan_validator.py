@@ -2,33 +2,27 @@
 
 import pytest
 
-from ai_data_enrichment.validation.models import (
-    ValidationDiagnostic,
-    ValidationResult,
-)
-from ai_data_enrichment.domain.enrichment_plan import (
-    EnrichmentPlan,
-    PlanStep,
-    StepOutputReference,
-    OutputMapping,
-)
-from ai_data_enrichment.capabilities.registry import CapabilityRegistry
-from ai_data_enrichment.domain.dataset_profile import DatasetProfile
-from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan, PlanStep
-from ai_data_enrichment.validation.plan_validator import PlanValidator, PlanValidationPolicy
-from ai_data_enrichment.domain.dataset_profile import (
-    ColumnProfile,
-    DatasetProfile,
-    PrimitiveType,
-)
-from ai_data_enrichment.domain.enrichment_plan import ColumnReference
 from ai_data_enrichment.capabilities.definitions import (
     get_geocode_spec,
     get_lookup_property_spec,
     get_resolve_entity_spec,
 )
-from ai_data_enrichment.domain.enrichment_plan import LiteralValue
-
+from ai_data_enrichment.capabilities.registry import CapabilityRegistry
+from ai_data_enrichment.domain.dataset_profile import (
+    ColumnProfile,
+    DatasetProfile,
+    PrimitiveType,
+)
+from ai_data_enrichment.domain.enrichment_plan import (
+    ColumnReference,
+    EnrichmentPlan,
+    LiteralValue,
+    OutputMapping,
+    PlanStep,
+    StepOutputReference,
+)
+from ai_data_enrichment.validation.models import ValidationDiagnostic, ValidationResult
+from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy, PlanValidator
 
 def test_validation_result_validity_depends_on_errors() -> None:
     """Validation result validity should be derived from diagnostics."""
@@ -845,12 +839,6 @@ def test_plan_validator_validates_parameter_values(
 
     result = validator.validate(plan)
 
-    errors = [
-        error
-        for error in result.errors
-        if error.code == expected_code
-    ]
-
     if expected_code is None:
         assert result.valid is True
         assert result.errors == []
@@ -963,12 +951,6 @@ def test_plan_validator_validates_output_fields(
     )
 
     result = validator.validate(plan)
-
-    errors = [
-        error
-        for error in result.errors
-        if error.code == "UNKNOWN_OUTPUT_FIELD"
-    ]
 
     if expected_code is None:
         assert result.valid is True
