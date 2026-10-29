@@ -915,6 +915,11 @@ def test_plan_validator_validates_output_fields(
         ("value", PrimitiveType.INTEGER, None),
         ("unit", PrimitiveType.TEXT, None),
         ("value", None, None),
+        ("value", PrimitiveType.UNKNOWN, None),
+        ("value", PrimitiveType.MIXED, None),
+        ("value", PrimitiveType.BOOLEAN, "UNSUPPORTED_OUTPUT_TARGET_TYPE"),
+        ("value", PrimitiveType.DATE, "UNSUPPORTED_OUTPUT_TARGET_TYPE"),
+        ("value", PrimitiveType.DATETIME, "UNSUPPORTED_OUTPUT_TARGET_TYPE"),
     ],
 )
 def test_plan_validator_validates_output_target_types(
