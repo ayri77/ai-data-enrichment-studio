@@ -107,6 +107,10 @@ def test_builtin_capabilities_include_lookup_property() -> None:
     assert lookup_property_capability.output == OutputSpec(
         type=DataType.QUANTITY,
         description="Resolved property value",
+        fields={
+            "value": DataType.NUMBER,
+            "unit": DataType.TEXT,
+        },
     )
 
 
@@ -138,4 +142,8 @@ def test_builtin_capabilities_include_geodesic_distance() -> None:
     assert geodesic_distance_capability.output == OutputSpec(
         type=DataType.QUANTITY,
         description="Geodesic distance",
+        fields={
+            "value": DataType.NUMBER,
+            "unit": DataType.TEXT,
+        },
     )
