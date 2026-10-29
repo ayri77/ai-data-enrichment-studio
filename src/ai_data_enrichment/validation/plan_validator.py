@@ -1,7 +1,7 @@
 """Deterministic validation of enrichment plans."""
 
-from graphlib import CycleError, TopologicalSorter
 from dataclasses import dataclass, field
+from graphlib import CycleError, TopologicalSorter
 from typing import Literal
 
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
@@ -58,12 +58,8 @@ class PlanValidator:
     ) -> None:
         self._registry = registry
         self._dataset_profile = dataset_profile
-        self._columns_by_name = {
-            column.name: column
-            for column in dataset_profile.columns
-        } 
+        self._columns_by_name = {column.name: column for column in dataset_profile.columns}
         self._policy = policy if policy is not None else PlanValidationPolicy()
-
 
     def validate(self, plan: EnrichmentPlan) -> ValidationResult:
         """Validate a plan and collect diagnostics."""
@@ -191,7 +187,7 @@ class PlanValidator:
         capability: CapabilitySpec,
         steps_by_id: dict[str, PlanStep],
     ) -> list[ValidationDiagnostic]:
-        """Validate input names against the capability contract."""
+        """Validate declared input names, presence, and semantic types."""
         errors: list[ValidationDiagnostic] = []
 
         for input_name, input_spec in capability.inputs.items():
@@ -271,7 +267,7 @@ class PlanValidator:
                         step_id=step.id,
                         field=f"inputs.{input_name}",
                     )
-                )            
+                )
         return errors
 
     def _validate_parameters(
@@ -279,7 +275,7 @@ class PlanValidator:
         step: PlanStep,
         capability: CapabilitySpec,
     ) -> list[ValidationDiagnostic]:
-        """Validate parameter names and allowed values."""
+        """Validate parameter names, types, and allowed values."""
         errors: list[ValidationDiagnostic] = []
 
         for parameter_name, parameter_value in step.parameters.items():
@@ -334,12 +330,13 @@ class PlanValidator:
         self,
         plan: EnrichmentPlan,
     ) -> list[ValidationDiagnostic]:
-        """Validate output step references and selected fields."""
+        """Validate output targets, source step references, and field paths."""
         errors: list[ValidationDiagnostic] = []
         steps_by_id = {step.id: step for step in plan.steps}
         seen_targets: set[str] = set()
 
         for index, output in enumerate(plan.outputs):
+            # Target-policy violations are independent of source-step validity.
             if output.target_column in seen_targets:
                 errors.append(
                     ValidationDiagnostic(
@@ -366,8 +363,8 @@ class PlanValidator:
                         step_id=output.step_id,
                         field=f"outputs[{index}].target_column",
                     )
-                )            
-            
+                )
+
             source_step = steps_by_id.get(output.step_id)
 
             if source_step is None:
@@ -432,6 +429,7 @@ class PlanValidator:
             return TypeResolution(status="unsupported")
 
         if isinstance(reference, StepOutputReference):
+            # Step references carry the full semantic value, not a selected output field.
             source_step = steps_by_id.get(reference.step_id)
 
             if source_step is None:
