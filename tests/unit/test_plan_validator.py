@@ -907,6 +907,70 @@ def test_plan_validator_validates_output_fields(
         assert result.valid is False
 
 
+def test_plan_validator_rejects_incompatible_output_target_type() -> None:
+    """Reject a text output field mapped to an existing numeric column."""
+    registry = CapabilityRegistry()
+    registry.register(get_resolve_entity_spec())
+    registry.register(get_lookup_property_spec())
+
+    plan = EnrichmentPlan(
+        version="1.0",
+        steps=[
+            PlanStep(
+                id="resolve",
+                capability="resolve_entity",
+                inputs={
+                    "name": LiteralValue(kind="literal", value="Everest"),
+                    "country": LiteralValue(kind="literal", value="Nepal"),
+                },
+                parameters={"entity_type": "mountain"},
+            ),
+            PlanStep(
+                id="elevation",
+                capability="lookup_property",
+                inputs={
+                    "entity": StepOutputReference(
+                        kind="step_output",
+                        step_id="resolve",
+                    ),
+                },
+                parameters={"property": "elevation"},
+            ),
+        ],
+        outputs=[
+            OutputMapping(
+                step_id="elevation",
+                value_field="unit",
+                target_column="height",
+            ),
+        ],
+        assumptions=[],
+    )
+
+    validator = PlanValidator(
+        registry=registry,
+        dataset_profile=DatasetProfile(
+            dataset_id="test",
+            name="Test dataset",
+            columns=[
+                ColumnProfile(
+                    name="height",
+                    inferred_type=PrimitiveType.NUMBER,
+                    null_count=0,
+                ),
+            ],
+        ),
+    )
+
+    result = validator.validate(plan)
+
+    assert len(result.errors) == 1
+    assert result.errors[0].code == "OUTPUT_TYPE_MISMATCH"
+    assert result.errors[0].step_id == "elevation"
+    assert result.errors[0].field == "outputs[0].target_column"
+    assert result.valid is False
+
+
 def test_plan_validator_rejects_duplicate_output_target() -> None:
     """Reject multiple output mappings targeting the same column."""
     registry = CapabilityRegistry()
