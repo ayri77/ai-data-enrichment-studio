@@ -375,7 +375,8 @@ class PlanValidator:
             if capability is None:
                 continue
 
-            if output.value_field not in capability.output.fields:
+            output_type = capability.output.fields.get(output.value_field)
+            if output_type is None:
                 errors.append(
                     ValidationDiagnostic(
                         code="UNKNOWN_OUTPUT_FIELD",
@@ -385,6 +386,29 @@ class PlanValidator:
                         ),
                         step_id=output.step_id,
                         field=f"outputs[{index}].value_field",
+                    )
+                )
+                continue
+
+            target_column = self._columns_by_name.get(output.target_column)
+
+            # New columns do not have a declared dataset type to compare against.
+            if target_column is None:
+                continue
+
+            target_type = _PRIMITIVE_TYPE_MAP.get(target_column.inferred_type)
+
+            if target_type is not None and output_type != target_type:
+                errors.append(
+                    ValidationDiagnostic(
+                        code="OUTPUT_TYPE_MISMATCH",
+                        message=(
+                            f"Output field '{output.value_field}' has type "
+                            f"{output_type.value}, but target column "
+                            f"'{output.target_column}' expects {target_type.value}."
+                        ),
+                        step_id=output.step_id,
+                        field=f"outputs[{index}].target_column",
                     )
                 )
 
