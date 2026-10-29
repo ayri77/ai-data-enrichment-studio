@@ -24,6 +24,7 @@ from ai_data_enrichment.domain.enrichment_plan import (
 from ai_data_enrichment.validation.models import ValidationDiagnostic, ValidationResult
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy, PlanValidator
 
+
 @pytest.mark.parametrize("max_steps", [-1, -10])
 def test_plan_validation_policy_rejects_negative_step_limit(max_steps: int) -> None:
     """Reject invalid policies rather than reporting misleading plan errors."""
@@ -83,11 +84,7 @@ def test_plan_validator_rejects_duplicate_step_ids() -> None:
 
     result = validator.validate(plan)
 
-    duplicates = [
-        error
-        for error in result.errors
-        if error.code == "DUPLICATE_STEP_ID"
-    ]
+    duplicates = [error for error in result.errors if error.code == "DUPLICATE_STEP_ID"]
 
     assert result.valid is False
     assert len(duplicates) == 1
@@ -126,10 +123,7 @@ def test_plan_validator_allows_repeated_capability_with_unique_step_ids() -> Non
 
     result = validator.validate(plan)
 
-    assert not any(
-        error.code == "DUPLICATE_STEP_ID"
-        for error in result.errors
-    )
+    assert not any(error.code == "DUPLICATE_STEP_ID" for error in result.errors)
 
 
 def test_plan_validator_rejects_missing_step_reference() -> None:
@@ -163,11 +157,7 @@ def test_plan_validator_rejects_missing_step_reference() -> None:
 
     result = validator.validate(plan)
 
-    errors = [
-        error
-        for error in result.errors
-        if error.code == "MISSING_STEP_REFERENCE"
-    ]
+    errors = [error for error in result.errors if error.code == "MISSING_STEP_REFERENCE"]
 
     assert len(errors) == 1
     assert errors[0].step_id == "retrieve_elevation"
@@ -217,10 +207,7 @@ def test_plan_validator_detects_cycles(step_ids: list[str]) -> None:
 
     result = validator.validate(plan)
 
-    cycles = [
-        error for error in result.errors
-        if error.code == "CYCLE_DETECTED"
-    ]
+    cycles = [error for error in result.errors if error.code == "CYCLE_DETECTED"]
 
     assert len(cycles) == 1
 
@@ -274,10 +261,7 @@ def test_plan_validator_accepts_acyclic_dependencies() -> None:
 
     result = validator.validate(plan)
 
-    assert not any(
-        error.code == "CYCLE_DETECTED"
-        for error in result.errors
-    )
+    assert not any(error.code == "CYCLE_DETECTED" for error in result.errors)
 
 
 def test_plan_validator_rejects_missing_column_reference() -> None:
@@ -324,11 +308,7 @@ def test_plan_validator_rejects_missing_column_reference() -> None:
 
     result = validator.validate(plan)
 
-    errors = [
-        error
-        for error in result.errors
-        if error.code == "MISSING_COLUMN_REFERENCE"
-    ]
+    errors = [error for error in result.errors if error.code == "MISSING_COLUMN_REFERENCE"]
 
     assert len(errors) == 1
     assert errors[0].step_id == "resolve_mountain"
@@ -362,11 +342,7 @@ def test_plan_validator_rejects_unsupported_capability() -> None:
 
     result = validator.validate(plan)
 
-    errors = [
-        error
-        for error in result.errors
-        if error.code == "UNSUPPORTED_CAPABILITY"
-    ]
+    errors = [error for error in result.errors if error.code == "UNSUPPORTED_CAPABILITY"]
 
     assert len(errors) == 1
     assert errors[0].step_id == "mystery"
@@ -407,11 +383,7 @@ def test_plan_validator_rejects_missing_required_input() -> None:
 
     result = validator.validate(plan)
 
-    errors = [
-        error
-        for error in result.errors
-        if error.code == "MISSING_REQUIRED_INPUT"
-    ]
+    errors = [error for error in result.errors if error.code == "MISSING_REQUIRED_INPUT"]
 
     assert len(errors) == 1
     assert errors[0].step_id == "origin"
@@ -460,11 +432,7 @@ def test_plan_validator_rejects_unknown_input() -> None:
 
     result = validator.validate(plan)
 
-    errors = [
-        error
-        for error in result.errors
-        if error.code == "UNKNOWN_INPUT"
-    ]
+    errors = [error for error in result.errors if error.code == "UNKNOWN_INPUT"]
 
     assert len(errors) == 1
     assert errors[0].step_id == "origin"
@@ -515,11 +483,7 @@ def test_plan_validator_rejects_incompatible_step_output_type() -> None:
 
     result = validator.validate(plan)
 
-    errors = [
-        error
-        for error in result.errors
-        if error.code == "INPUT_TYPE_MISMATCH"
-    ]
+    errors = [error for error in result.errors if error.code == "INPUT_TYPE_MISMATCH"]
 
     assert len(errors) == 1
     assert errors[0].step_id == "retrieve_property"
@@ -578,11 +542,7 @@ def test_plan_validator_rejects_incompatible_column_type() -> None:
 
     result = validator.validate(plan)
 
-    errors = [
-        error
-        for error in result.errors
-        if error.code == "INPUT_TYPE_MISMATCH"
-    ]
+    errors = [error for error in result.errors if error.code == "INPUT_TYPE_MISMATCH"]
 
     assert len(errors) == 1
     assert errors[0].step_id == "origin"
@@ -629,11 +589,7 @@ def test_plan_validator_rejects_incompatible_literal_type() -> None:
 
     result = validator.validate(plan)
 
-    errors = [
-        error
-        for error in result.errors
-        if error.code == "INPUT_TYPE_MISMATCH"
-    ]
+    errors = [error for error in result.errors if error.code == "INPUT_TYPE_MISMATCH"]
 
     assert len(errors) == 1
     assert errors[0].step_id == "origin"
@@ -680,11 +636,7 @@ def test_plan_validator_rejects_unsupported_literal_type() -> None:
 
     result = validator.validate(plan)
 
-    errors = [
-        error
-        for error in result.errors
-        if error.code == "UNSUPPORTED_INPUT_TYPE"
-    ]
+    errors = [error for error in result.errors if error.code == "UNSUPPORTED_INPUT_TYPE"]
 
     assert len(errors) == 1
     assert errors[0].step_id == "origin"
@@ -742,11 +694,7 @@ def test_plan_validator_rejects_unknown_column_type() -> None:
 
     result = validator.validate(plan)
 
-    errors = [
-        error
-        for error in result.errors
-        if error.code == "UNRESOLVED_INPUT_TYPE"
-    ]
+    errors = [error for error in result.errors if error.code == "UNRESOLVED_INPUT_TYPE"]
 
     assert len(errors) == 1
     assert errors[0].step_id == "origin"
@@ -786,11 +734,7 @@ def test_plan_validator_rejects_unknown_parameter() -> None:
 
     result = validator.validate(plan)
 
-    errors = [
-        error
-        for error in result.errors
-        if error.code == "UNKNOWN_PARAMETER"
-    ]
+    errors = [error for error in result.errors if error.code == "UNKNOWN_PARAMETER"]
 
     assert len(errors) == 1
     assert errors[0].step_id == "origin"
@@ -850,11 +794,7 @@ def test_plan_validator_validates_parameter_values(
         assert result.valid is True
         assert result.errors == []
     else:
-        errors = [
-            error
-            for error in result.errors
-            if error.code == expected_code
-        ]
+        errors = [error for error in result.errors if error.code == expected_code]
 
         assert len(errors) == 1
         assert errors[0].step_id == "resolve"
@@ -887,11 +827,7 @@ def test_plan_validator_rejects_missing_output_step() -> None:
 
     result = validator.validate(plan)
 
-    errors = [
-        error
-        for error in result.errors
-        if error.code == "MISSING_STEP_REFERENCE"
-    ]
+    errors = [error for error in result.errors if error.code == "MISSING_STEP_REFERENCE"]
 
     assert len(errors) == 1
     assert errors[0].field == "outputs[0].step_id"
@@ -963,11 +899,7 @@ def test_plan_validator_validates_output_fields(
         assert result.valid is True
         assert result.errors == []
     else:
-        errors = [
-            error
-            for error in result.errors
-            if error.code == expected_code
-        ]
+        errors = [error for error in result.errors if error.code == expected_code]
 
         assert len(errors) == 1
         assert errors[0].step_id == "elevation"
@@ -1030,11 +962,7 @@ def test_plan_validator_rejects_duplicate_output_target() -> None:
 
     result = validator.validate(plan)
 
-    errors = [
-        error
-        for error in result.errors
-        if error.code == "DUPLICATE_OUTPUT_TARGET"
-    ]
+    errors = [error for error in result.errors if error.code == "DUPLICATE_OUTPUT_TARGET"]
 
     assert len(errors) == 1
     assert errors[0].step_id == "elevation"

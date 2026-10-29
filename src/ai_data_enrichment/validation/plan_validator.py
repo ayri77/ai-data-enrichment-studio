@@ -23,7 +23,6 @@ from ai_data_enrichment.validation.models import (
     ValidationResult,
 )
 
-
 _PRIMITIVE_TYPE_MAP: dict[PrimitiveType, DataType] = {
     PrimitiveType.TEXT: DataType.TEXT,
     PrimitiveType.INTEGER: DataType.NUMBER,
@@ -69,10 +68,7 @@ class PlanValidator:
     def validate(self, plan: EnrichmentPlan) -> ValidationResult:
         """Validate a plan and collect diagnostics."""
         errors: list[ValidationDiagnostic] = []
-        if (
-            self._policy.max_steps is not None
-            and len(plan.steps) > self._policy.max_steps
-        ):
+        if self._policy.max_steps is not None and len(plan.steps) > self._policy.max_steps:
             errors.append(
                 ValidationDiagnostic(
                     code="STEP_LIMIT_EXCEEDED",
@@ -112,12 +108,8 @@ class PlanValidator:
                     )
                 )
             else:
-                errors.extend(
-                    self._validate_inputs(step, capability, steps_by_id)
-                )
-                errors.extend(
-                    self._validate_parameters(step, capability)
-                )
+                errors.extend(self._validate_inputs(step, capability, steps_by_id))
+                errors.extend(self._validate_parameters(step, capability))
 
         # Validate input references.
         for step in plan.steps:
@@ -165,8 +157,7 @@ class PlanValidator:
             step.id: {
                 reference.step_id
                 for reference in step.inputs.values()
-                if isinstance(reference, StepOutputReference)
-                and reference.step_id in step_ids
+                if isinstance(reference, StepOutputReference) and reference.step_id in step_ids
             }
             for step in plan.steps
         }
@@ -200,10 +191,7 @@ class PlanValidator:
                 errors.append(
                     ValidationDiagnostic(
                         code="MISSING_REQUIRED_INPUT",
-                        message=(
-                            f"Capability '{step.capability}' requires "
-                            f"input '{input_name}'."
-                        ),
+                        message=(f"Capability '{step.capability}' requires input '{input_name}'."),
                         step_id=step.id,
                         field=f"inputs.{input_name}",
                     )
@@ -217,8 +205,7 @@ class PlanValidator:
                     ValidationDiagnostic(
                         code="UNKNOWN_INPUT",
                         message=(
-                            f"Capability '{step.capability}' does not "
-                            f"accept input '{input_name}'."
+                            f"Capability '{step.capability}' does not accept input '{input_name}'."
                         ),
                         step_id=step.id,
                         field=f"inputs.{input_name}",
@@ -347,8 +334,7 @@ class PlanValidator:
                     ValidationDiagnostic(
                         code="DUPLICATE_OUTPUT_TARGET",
                         message=(
-                            f"Multiple output mappings target column "
-                            f"'{output.target_column}'."
+                            f"Multiple output mappings target column '{output.target_column}'."
                         ),
                         step_id=output.step_id,
                         field=f"outputs[{index}].target_column",
@@ -376,10 +362,7 @@ class PlanValidator:
                 errors.append(
                     ValidationDiagnostic(
                         code="MISSING_STEP_REFERENCE",
-                        message=(
-                            f"Output mapping references missing step "
-                            f"'{output.step_id}'."
-                        ),
+                        message=(f"Output mapping references missing step '{output.step_id}'."),
                         step_id=output.step_id,
                         field=f"outputs[{index}].step_id",
                     )

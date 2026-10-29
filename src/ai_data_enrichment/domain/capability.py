@@ -43,6 +43,7 @@ class OutputSpec(BaseModel):
         description="Named output fields available for mapping",
     )
 
+
 class ParameterSpec(BaseModel):
     """Describe a configurable parameter accepted by a capability."""
 
