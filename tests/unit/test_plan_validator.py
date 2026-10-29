@@ -24,6 +24,13 @@ from ai_data_enrichment.domain.enrichment_plan import (
 from ai_data_enrichment.validation.models import ValidationDiagnostic, ValidationResult
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy, PlanValidator
 
+@pytest.mark.parametrize("max_steps", [-1, -10])
+def test_plan_validation_policy_rejects_negative_step_limit(max_steps: int) -> None:
+    """Reject invalid policies rather than reporting misleading plan errors."""
+    with pytest.raises(ValueError, match="max_steps must be non-negative"):
+        PlanValidationPolicy(max_steps=max_steps)
+
+
 def test_validation_result_validity_depends_on_errors() -> None:
     """Validation result validity should be derived from diagnostics."""
     valid_result = ValidationResult(errors=[])
