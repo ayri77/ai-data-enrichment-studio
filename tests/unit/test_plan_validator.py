@@ -907,8 +907,22 @@ def test_plan_validator_validates_output_fields(
         assert result.valid is False
 
 
-def test_plan_validator_rejects_incompatible_output_target_type() -> None:
-    """Reject a text output field mapped to an existing numeric column."""
+@pytest.mark.parametrize(
+    ("value_field", "target_type", "expected_code"),
+    [
+        ("unit", PrimitiveType.NUMBER, "OUTPUT_TYPE_MISMATCH"),
+        ("value", PrimitiveType.NUMBER, None),
+        ("value", PrimitiveType.INTEGER, None),
+        ("unit", PrimitiveType.TEXT, None),
+        ("value", None, None),
+    ],
+)
+def test_plan_validator_validates_output_target_types(
+    value_field: str,
+    target_type: PrimitiveType | None,
+    expected_code: str | None,
+) -> None:
+    """Reject incompatible mappings while allowing compatible and new targets."""
     registry = CapabilityRegistry()
     registry.register(get_resolve_entity_spec())
     registry.register(get_lookup_property_spec())
@@ -940,7 +954,7 @@ def test_plan_validator_rejects_incompatible_output_target_type() -> None:
         outputs=[
             OutputMapping(
                 step_id="elevation",
-                value_field="unit",
+                value_field=value_field,
                 target_column="height",
             ),
         ],
@@ -952,23 +966,31 @@ def test_plan_validator_rejects_incompatible_output_target_type() -> None:
         dataset_profile=DatasetProfile(
             dataset_id="test",
             name="Test dataset",
-            columns=[
-                ColumnProfile(
-                    name="height",
-                    inferred_type=PrimitiveType.NUMBER,
-                    null_count=0,
-                ),
-            ],
+            columns=(
+                [
+                    ColumnProfile(
+                        name="height",
+                        inferred_type=target_type,
+                        null_count=0,
+                    ),
+                ]
+                if target_type is not None
+                else []
+            ),
         ),
     )
 
     result = validator.validate(plan)
 
-    assert len(result.errors) == 1
-    assert result.errors[0].code == "OUTPUT_TYPE_MISMATCH"
-    assert result.errors[0].step_id == "elevation"
-    assert result.errors[0].field == "outputs[0].target_column"
-    assert result.valid is False
+    if expected_code is None:
+        assert result.valid is True
+        assert result.errors == []
+    else:
+        assert len(result.errors) == 1
+        assert result.errors[0].code == expected_code
+        assert result.errors[0].step_id == "elevation"
+        assert result.errors[0].field == "outputs[0].target_column"
+        assert result.valid is False
 
 
 def test_plan_validator_rejects_duplicate_output_target() -> None:
