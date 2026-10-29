@@ -33,6 +33,7 @@ def test_inspector_handles_two_sheets_and_preserves_file(tmp_path: Path) -> None
     second.append(["version", 1])
     workbook.save(path)
 
+    # Compare file bytes, not just parsed values, to guard the read-only contract.
     before = _sha256(path)
     summary = inspect_workbook(path)
 
