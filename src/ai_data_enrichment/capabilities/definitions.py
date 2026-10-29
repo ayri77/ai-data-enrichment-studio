@@ -86,6 +86,10 @@ def get_lookup_property_spec() -> CapabilitySpec:
         output=OutputSpec(
             type=DataType.QUANTITY,
             description="Resolved property value",
+            fields={
+                "value": DataType.NUMBER,
+                "unit": DataType.TEXT,
+            },
         ),
     )
 
@@ -116,6 +120,10 @@ def get_geodesic_distance_spec() -> CapabilitySpec:
         output=OutputSpec(
             type=DataType.QUANTITY,
             description="Geodesic distance",
+            fields={
+                "value": DataType.NUMBER,
+                "unit": DataType.TEXT,
+            },
         ),
     )
 

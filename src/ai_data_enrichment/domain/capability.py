@@ -38,7 +38,10 @@ class OutputSpec(BaseModel):
 
     type: DataType = Field(description="Semantic type of the output value")
     description: str = Field(min_length=1, description="Human-readable description of the output")
-
+    fields: dict[Identifier, DataType] = Field(
+        default_factory=dict,
+        description="Named output fields available for mapping",
+    )
 
 class ParameterSpec(BaseModel):
     """Describe a configurable parameter accepted by a capability."""
