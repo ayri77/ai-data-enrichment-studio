@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Evidence-driven agentic data enrichment for structured datasets"
 requires-python = ">=3.12"
 dependencies = [
+    "openai>=3.41,<4",
     "openpyxl>=3.1,<4",
     "pydantic>=2.10,<3",
     "typer>=0.15,<1",

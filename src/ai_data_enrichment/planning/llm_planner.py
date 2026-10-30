@@ -4,6 +4,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from pydantic import ValidationError
+
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
 from ai_data_enrichment.domain.dataset_profile import DatasetProfile
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan
@@ -30,6 +32,10 @@ class PlanGenerationResult:
 
     plan: EnrichmentPlan
     validation: ValidationResult
+
+
+class PlanGenerationError(RuntimeError):
+    """Error raised when the model response cannot be processed."""
 
 
 class LLMPlanner:
@@ -76,7 +82,15 @@ class LLMPlanner:
             messages=messages,
             response_schema=EnrichmentPlan.model_json_schema(),
         )
-        plan = EnrichmentPlan.model_validate_json(response)
+        try:
+            payload = json.loads(response)
+        except json.JSONDecodeError as exc:
+            raise PlanGenerationError("Invalid JSON response from LLM") from exc
+
+        try:
+            plan = EnrichmentPlan.model_validate(payload)
+        except ValidationError as exc:
+            raise PlanGenerationError("Invalid plan schema from LLM") from exc
         validation = PlanValidator(
             registry=self._registry,
             dataset_profile=dataset_profile,
