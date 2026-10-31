@@ -74,7 +74,13 @@ def test_llm_planner_generates_and_validates_mountain_plan() -> None:
         ],
         "assumptions": [],
     }
-    client = FakePlanClient(response=candidate)
+    client = FakePlanClient(
+        response={
+            "status": "ready",
+            "plan": candidate,
+            "reason": None,
+        }
+    )
     planner = LLMPlanner(client=client, registry=registry)
 
     result = planner.generate(
@@ -82,7 +88,11 @@ def test_llm_planner_generates_and_validates_mountain_plan() -> None:
         dataset_profile=profile,
     )
 
-    assert result.plan == EnrichmentPlan.model_validate(candidate)
+    assert result.response.status == "ready"
+    assert result.response.plan == EnrichmentPlan.model_validate(candidate)
+    assert result.response.reason is None
+
+    assert result.validation is not None
     assert result.validation.valid is True
     assert len(client.calls) == 1
 
@@ -90,7 +100,9 @@ def test_llm_planner_generates_and_validates_mountain_plan() -> None:
     prompt = " ".join(message["content"] for message in messages)
     for expected in ("elevation", "Mountain", "Country", "resolve_entity", "lookup_property"):
         assert expected in prompt
-    assert "steps" in response_schema["properties"]
+    assert "status" in response_schema["properties"]
+    assert "plan" in response_schema["properties"]
+    assert "reason" in response_schema["properties"]
 
 
 def test_llm_planner_reports_invalid_json() -> None:
@@ -127,10 +139,14 @@ def test_llm_planner_reports_invalid_plan_schema() -> None:
 
     client = FakePlanClient(
         response={
-            "version": "1.0",
-            "steps": "not a list",
-            "outputs": [],
-            "assumptions": [],
+            "status": "ready",
+            "plan": {
+                "version": "1.0",
+                "steps": "not a list",
+                "outputs": [],
+                "assumptions": [],
+            },
+            "reason": None,
         }
     )
 
@@ -144,7 +160,10 @@ def test_llm_planner_reports_invalid_plan_schema() -> None:
         name="Test dataset",
     )
 
-    with pytest.raises(PlanGenerationError, match="Invalid plan schema"):
+    with pytest.raises(
+        PlanGenerationError,
+        match="Invalid planning response schema",
+    ):
         planner.generate(
             instruction="Enrich the dataset.",
             dataset_profile=profile,
@@ -169,7 +188,13 @@ def test_llm_planner_returns_invalid_plan_with_diagnostics() -> None:
     }
 
     planner = LLMPlanner(
-        client=FakePlanClient(response=candidate),
+        client=FakePlanClient(
+            response={
+                "status": "ready",
+                "plan": candidate,
+                "reason": None,
+            }
+        ),
         registry=CapabilityRegistry(),
     )
 
@@ -183,7 +208,11 @@ def test_llm_planner_returns_invalid_plan_with_diagnostics() -> None:
         dataset_profile=profile,
     )
 
-    assert result.plan == EnrichmentPlan.model_validate(candidate)
+    assert result.response.status == "ready"
+    assert result.response.plan == EnrichmentPlan.model_validate(candidate)
+    assert result.response.reason is None
+
+    assert result.validation is not None
     assert result.validation.valid is False
 
     assert any(error.code == "UNSUPPORTED_CAPABILITY" for error in result.validation.errors)
@@ -249,7 +278,13 @@ def test_llm_planner_generates_and_validates_capitals_plan() -> None:
         "assumptions": ["Straight-line distance means geodesic distance."],
     }
 
-    client = FakePlanClient(response=candidate)
+    client = FakePlanClient(
+        response={
+            "status": "ready",
+            "plan": candidate,
+            "reason": None,
+        }
+    )
     planner = LLMPlanner(client=client, registry=registry)
 
     result = planner.generate(
@@ -257,9 +292,15 @@ def test_llm_planner_generates_and_validates_capitals_plan() -> None:
         dataset_profile=profile,
     )
 
+    assert result.response.status == "ready"
+    assert result.response.plan == EnrichmentPlan.model_validate(candidate)
+    assert result.response.reason is None
+
+    assert result.validation is not None
     assert result.validation.valid, result.validation.errors
-    assert result.plan == EnrichmentPlan.model_validate(candidate)
-    assert len(result.plan.steps) == 3
+
+    assert result.response.plan is not None
+    assert len(result.response.plan.steps) == 3
 
     messages, _ = client.calls[0]
     prompt = " ".join(message["content"] for message in messages)
@@ -267,3 +308,134 @@ def test_llm_planner_generates_and_validates_capitals_plan() -> None:
     assert "Capital_From" in prompt
     assert "Capital_To" in prompt
     assert "geodesic_distance" in prompt
+
+
+def test_llm_planner_rejects_empty_plan() -> None:
+    """Report an empty enrichment plan as semantically invalid."""
+
+    candidate = {
+        "version": "1.0",
+        "steps": [],
+        "outputs": [],
+        "assumptions": [],
+    }
+
+    planner = LLMPlanner(
+        client=FakePlanClient(
+            response={
+                "status": "ready",
+                "plan": candidate,
+                "reason": None,
+            }
+        ),
+        registry=CapabilityRegistry(),
+    )
+
+    profile = DatasetProfile(
+        dataset_id="test",
+        name="Test dataset",
+    )
+
+    result = planner.generate(
+        instruction="Enrich the dataset.",
+        dataset_profile=profile,
+    )
+
+    assert result.response.status == "ready"
+    assert result.response.plan == EnrichmentPlan.model_validate(candidate)
+    assert result.response.reason is None
+
+    assert result.validation is not None
+    assert result.validation.valid is False
+
+    error_codes = {error.code for error in result.validation.errors}
+
+    assert "EMPTY_PLAN_STEPS" in error_codes
+    assert "EMPTY_PLAN_OUTPUTS" in error_codes
+
+
+def test_llm_planner_instructs_model_to_report_unplannable_requests() -> None:
+    """Require explicit reporting of unsupported or ambiguous requests."""
+
+    client = FakePlanClient(
+        response={
+            "status": "unsupported",
+            "plan": None,
+            "reason": "Driving routes are not supported.",
+        }
+    )
+
+    planner = LLMPlanner(
+        client=client,
+        registry=CapabilityRegistry(),
+    )
+
+    result = planner.generate(
+        instruction="Calculate driving distances between cities.",
+        dataset_profile=DatasetProfile(
+            dataset_id="routes",
+            name="City routes",
+        ),
+    )
+
+    assert result.response.status == "unsupported"
+    assert result.response.plan is None
+    assert result.response.reason == "Driving routes are not supported."
+    assert result.validation is None
+
+    messages, response_schema = client.calls[0]
+    system_prompt = messages[0]["content"].lower()
+
+    assert "unsupported" in system_prompt
+    assert "ambiguous" in system_prompt
+    assert "status" in system_prompt
+    assert "plan" in system_prompt
+    assert "reason" in system_prompt
+    assert "do not invent" in system_prompt
+
+    assert {"status", "plan", "reason"} <= set(response_schema["properties"])
+
+
+@pytest.mark.parametrize(
+    ("status", "reason"),
+    [
+        ("unsupported", "Driving routes are not supported."),
+        ("ambiguous", "The requested distance type is unclear."),
+    ],
+)
+def test_llm_planner_returns_unplannable_decision(
+    status: str,
+    reason: str,
+) -> None:
+    """Return an explicit planning decision without validating a missing plan."""
+
+    client = FakePlanClient(
+        response={
+            "status": status,
+            "plan": None,
+            "reason": reason,
+        }
+    )
+
+    planner = LLMPlanner(
+        client=client,
+        registry=CapabilityRegistry(),
+    )
+
+    profile = DatasetProfile(
+        dataset_id="test",
+        name="Test dataset",
+    )
+
+    result = planner.generate(
+        instruction="Calculate distances.",
+        dataset_profile=profile,
+    )
+
+    assert result.response.status == status
+    assert result.response.plan is None
+    assert result.response.reason == reason
+    assert result.validation is None
+
+    _, response_schema = client.calls[0]
+    assert "status" in response_schema["properties"]

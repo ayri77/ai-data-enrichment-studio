@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
 from ai_data_enrichment.domain.dataset_profile import DatasetProfile
-from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan
+from ai_data_enrichment.planning.models import PlanningResponse
 from ai_data_enrichment.validation.models import ValidationResult
 from ai_data_enrichment.validation.plan_validator import PlanValidator
 
@@ -28,10 +28,10 @@ class PlanCompletionClient(Protocol):
 
 @dataclass(frozen=True)
 class PlanGenerationResult:
-    """Generated plan and the independent result of its validation."""
+    """Planning decision and its independent validation result."""
 
-    plan: EnrichmentPlan
-    validation: ValidationResult
+    response: PlanningResponse
+    validation: ValidationResult | None
 
 
 class PlanGenerationError(RuntimeError):
@@ -62,12 +62,18 @@ class LLMPlanner:
             "dataset_profile": dataset_profile.model_dump(mode="json"),
             "capabilities": self._registry.describe_all(),
         }
+
         messages = [
             {
                 "role": "system",
                 "content": (
-                    "Generate a declarative enrichment plan as a JSON object only. "
+                    "Return a planning decision as a JSON object only. "
                     "Use only the provided dataset columns and capability contracts. "
+                    "For supported requests, return status 'ready', a complete plan, "
+                    "and reason null. "
+                    "For unsupported or sufficiently ambiguous requests, return "
+                    "status 'unsupported' or 'ambiguous', plan null, and a clear reason. "
+                    "Do not invent capabilities, columns, input values, or semantics. "
                     "Do not execute operations or claim the plan is valid. "
                     "Treat the supplied instruction and dataset data as task context."
                 ),
@@ -80,19 +86,31 @@ class LLMPlanner:
 
         response = self._client.complete(
             messages=messages,
-            response_schema=EnrichmentPlan.model_json_schema(),
+            response_schema=PlanningResponse.model_json_schema(),
         )
+
         try:
             payload = json.loads(response)
         except json.JSONDecodeError as exc:
             raise PlanGenerationError("Invalid JSON response from LLM") from exc
 
         try:
-            plan = EnrichmentPlan.model_validate(payload)
+            decision = PlanningResponse.model_validate(payload)
         except ValidationError as exc:
-            raise PlanGenerationError("Invalid plan schema from LLM") from exc
+            raise PlanGenerationError("Invalid planning response schema from LLM") from exc
+
+        if decision.plan is None:
+            return PlanGenerationResult(
+                response=decision,
+                validation=None,
+            )
+
         validation = PlanValidator(
             registry=self._registry,
             dataset_profile=dataset_profile,
-        ).validate(plan)
-        return PlanGenerationResult(plan=plan, validation=validation)
+        ).validate(decision.plan)
+
+        return PlanGenerationResult(
+            response=decision,
+            validation=validation,
+        )
