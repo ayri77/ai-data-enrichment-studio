@@ -125,7 +125,7 @@ def generate_plan(
 ) -> None:
     """Generate, validate, and save an enrichment plan."""
 
-# Resolve aliases/symlinks first: output JSON must never overwrite the input workbook.
+    # Resolve aliases/symlinks first: output JSON must never overwrite the input workbook.
     try:
         input_path = path.resolve()
         plan_path = output.resolve()
