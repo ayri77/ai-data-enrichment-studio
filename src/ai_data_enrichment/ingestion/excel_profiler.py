@@ -107,12 +107,13 @@ def _enforce_profile_size(
     if serialized_size() <= max_bytes:
         return profile
 
+    # Keep the profile small enough to send to an LLM; this does not trim the workbook.
     profile.schema_warnings.append("Sample data truncated to fit max_profile_bytes")
 
     while serialized_size() > max_bytes:
         trimmed = False
 
-        # Remove column samples first.
+        # Drop column-only examples before aligned row records to preserve relationships.
         for column in profile.columns:
             if column.sample_values:
                 column.sample_values.pop()
@@ -146,7 +147,8 @@ def profile_worksheet(
     effective_limits = limits if limits is not None else ProfilingLimits()
 
     try:
-        # Read cached formula results without evaluating formulas or changing the file.
+        # Excel formulas are not calculated here; only cached results are visible.
+        # read_only keeps profiling independent from workbook writing.
         workbook = load_workbook(path, read_only=True, data_only=True)
 
     except InvalidFileException as exc:
@@ -162,7 +164,7 @@ def profile_worksheet(
         worksheet = workbook[sheet_name]
         rows = worksheet.iter_rows(values_only=False)
 
-        # Read and validate column headers.
+        # Header names become column identifiers in generated plans; duplicates are ambiguous.
         raw_header = next(rows, ())
 
         if not raw_header:
@@ -181,7 +183,7 @@ def profile_worksheet(
 
             headers.append(name)
 
-        # Initialize profiling state.
+        # Scan every nonempty row for counts/types, but retain only a bounded sample.
         row_count = 0
         null_counts = [0] * len(headers)
         time_only_counts = [0] * len(headers)
@@ -190,7 +192,7 @@ def profile_worksheet(
         observed_types: list[set[PrimitiveType]] = [set() for _ in headers]
         column_samples: list[list[JsonValue]] = [[] for _ in headers]
 
-        # Process all data rows.
+        # Streaming rows avoids loading the entire sheet into the planning context.
         for row in rows:
             # Entirely empty rows do not count toward records or null statistics.
             if all(cell.value is None for cell in row):
@@ -199,6 +201,7 @@ def profile_worksheet(
             if len(row) > len(headers):
                 raise ValueError(f"Row has {len(row)} columns, but header has {len(headers)}")
 
+            # Pad short rows so each value still aligns with its declared header.
             if len(row) < len(headers):
                 row = (
                     *row,
@@ -213,7 +216,7 @@ def profile_worksheet(
                 if value is None:
                     null_counts[index] += 1
 
-                # Keep Excel error cells out of ordinary type inference.
+                # Formula/error cells have their own counter, not a normal inferred type.
                 elif cell.data_type == "e":
                     excel_error_counts[index] += 1
 
@@ -230,7 +233,7 @@ def profile_worksheet(
                             )
                         )
 
-            # Collect only the configured number of sample records.
+            # Row samples preserve which values occurred together across columns.
             if len(sample_records) < effective_limits.max_sample_records:
                 record = {
                     name: _to_json_value(
@@ -242,7 +245,7 @@ def profile_worksheet(
                 }
                 sample_records.append(record)
 
-        # Build column profiles after processing all rows.
+        # Type inference uses the complete scan, never just the collected examples.
         column_profiles: list[ColumnProfile] = []
 
         for index, name in enumerate(headers):

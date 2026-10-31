@@ -29,6 +29,7 @@ from ai_data_enrichment.validation.plan_validator import PlanValidator
 
 app = typer.Typer(help="Evidence-driven AI Data Enrichment Studio.", no_args_is_help=True)
 
+# Planning commands stop at the plan boundary: row-level execution is a later stage.
 plan_app = typer.Typer(help="Generate and validate enrichment plans.")
 app.add_typer(plan_app, name="plan")
 
@@ -72,6 +73,7 @@ def validate_plan(
 ) -> None:
     """Validate a saved enrichment plan without calling an LLM."""
 
+    # Pydantic parses JSON shape; the validator below checks actual references and types.
     try:
         plan = EnrichmentPlan.model_validate_json(path.read_text(encoding="utf-8"))
         dataset_profile = DatasetProfile.model_validate_json(profile.read_text(encoding="utf-8"))
@@ -123,7 +125,7 @@ def generate_plan(
 ) -> None:
     """Generate, validate, and save an enrichment plan."""
 
-    # Reject path collisions before profiling or calling the LLM.
+    # Resolve aliases/symlinks first: output JSON must never overwrite the input workbook.
     try:
         input_path = path.resolve()
         plan_path = output.resolve()
@@ -143,6 +145,7 @@ def generate_plan(
         )
         raise typer.Exit(code=2)
 
+    # Send the planner bounded schema statistics and samples, not the whole worksheet.
     try:
         dataset_profile = profile_worksheet(
             path=path,
@@ -155,6 +158,7 @@ def generate_plan(
 
     registry = _build_registry()
 
+    # Keep model transport separate from plan construction and deterministic validation.
     try:
         client = OpenAIPlanClient(
             api=OpenAI(timeout=30.0, max_retries=0),
@@ -176,6 +180,7 @@ def generate_plan(
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=2) from exc
 
+    # An ambiguous or unsupported request is a valid planning decision, not a network error.
     if result.response.status != "ready":
         typer.echo(
             f"Planning {result.response.status}: {result.response.reason}",
@@ -190,6 +195,7 @@ def generate_plan(
         typer.echo("Error: Generated plan failed validation.", err=True)
         raise typer.Exit(code=1)
 
+    # Persist only accepted plans; saving JSON never executes capabilities or edits Excel.
     try:
         if profile_output is not None:
             profile_output.write_text(
@@ -223,7 +229,7 @@ def evaluate_plan(
 ) -> None:
     """Evaluate plan validity and scenario correctness."""
 
-    # Validate the requested evaluation scenario.
+    # These names select fixed academic benchmarks, not arbitrary enrichment instructions.
     selected_scenario: Literal["mountains", "capitals"]
 
     if scenario == "mountains":
@@ -242,7 +248,7 @@ def evaluate_plan(
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=2) from exc
 
-    # Evaluate both dimensions independently.
+    # A plan can satisfy capability contracts yet solve the wrong scenario (or vice versa).
     report = evaluate_planning_case(
         plan=plan,
         dataset_profile=dataset_profile,
@@ -250,7 +256,7 @@ def evaluate_plan(
         scenario=selected_scenario,
     )
 
-    # Produce a machine-readable report.
+    # Keep both verdicts in JSON so CI and other consumers can diagnose failures.
     output = {
         "validation": report.validation.model_dump(mode="json"),
         "scenario": asdict(report.scenario),

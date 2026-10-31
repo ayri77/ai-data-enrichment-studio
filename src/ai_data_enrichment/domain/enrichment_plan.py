@@ -30,7 +30,7 @@ class ColumnReference(PlanContract):
 
 
 class StepOutputReference(PlanContract):
-    """Reference the output of another plan step."""
+    """Reference the complete typed result of another DAG step."""
 
     kind: Literal["step_output"]
     step_id: Identifier
@@ -51,16 +51,17 @@ InputReference = Annotated[
 
 
 class PlanStep(PlanContract):
-    """Describe a single capability invocation in an enrichment plan."""
+    """Describe one DAG node; inputs refer to columns, prior results, or literals."""
 
     id: Identifier
     capability: Identifier
+    # Inputs express dependencies; their semantic types are checked by PlanValidator.
     inputs: dict[Identifier, InputReference]
     parameters: dict[Identifier, JsonValue]
 
 
 class OutputMapping(PlanContract):
-    """Map a step output field to a target dataset column."""
+    """Describe a proposed destination column, not an immediate Excel write."""
 
     step_id: Identifier
     value_field: Identifier
@@ -76,9 +77,10 @@ class OutputMapping(PlanContract):
 
 
 class EnrichmentPlan(PlanContract):
-    """Describe a versioned, source-independent enrichment plan."""
+    """Describe a declarative plan to validate first and execute separately."""
 
     version: str = Field(min_length=1)
+    # List order need not be execution order; step references define the DAG.
     steps: list[PlanStep]
     outputs: list[OutputMapping]
     assumptions: list[str]

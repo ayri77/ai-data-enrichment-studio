@@ -34,10 +34,12 @@ class OpenAIPlanClient:
         response_schema: dict[str, Any],
     ) -> str:
         """Request a JSON response matching the supplied plan schema."""
+        # JSON mode requests well-formed output; Pydantic validates the schema later.
         schema_prompt = "Return a JSON object matching this JSON Schema:\n" + json.dumps(
             response_schema, ensure_ascii=False
         )
 
+        # Do not store planning responses at the provider; execution is not part of this call.
         response = self._api.responses.create(
             model=self._model,
             input=[
@@ -49,6 +51,7 @@ class OpenAIPlanClient:
             max_output_tokens=self._max_output_tokens,
         )
 
+        # Truncated/incomplete responses are failures, not partially usable plans.
         if response.status != "completed":
             raise OpenAICompletionError(f"OpenAI response not completed: {response.status}")
 
@@ -57,4 +60,5 @@ class OpenAIPlanClient:
         if not output_text or not output_text.strip():
             raise OpenAICompletionError("OpenAI response contains empty output text")
 
+        # Return raw text so the planner can parse and validate it independently.
         return output_text
