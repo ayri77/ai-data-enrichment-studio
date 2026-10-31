@@ -57,12 +57,14 @@ class LLMPlanner:
         dataset_profile: DatasetProfile,
     ) -> PlanGenerationResult:
         """Request a plan, parse its schema and validate its references and types."""
+        # The model sees declared capabilities and a bounded profile, not executable code.
         context = {
             "instruction": instruction,
             "dataset_profile": dataset_profile.model_dump(mode="json"),
             "capabilities": self._registry.describe_all(),
         }
 
+        # A decision wrapper lets the model report ambiguity instead of inventing a plan.
         messages = [
             {
                 "role": "system",
@@ -84,6 +86,7 @@ class LLMPlanner:
             },
         ]
 
+        # JSON Schema constrains syntax/shape, but cannot guarantee valid DAG references.
         response = self._client.complete(
             messages=messages,
             response_schema=PlanningResponse.model_json_schema(),
@@ -99,12 +102,14 @@ class LLMPlanner:
         except ValidationError as exc:
             raise PlanGenerationError("Invalid planning response schema from LLM") from exc
 
+        # Unsupported or ambiguous decisions contain no DAG to validate or execute.
         if decision.plan is None:
             return PlanGenerationResult(
                 response=decision,
                 validation=None,
             )
 
+        # Never trust a model's "ready" status as proof of semantic correctness.
         validation = PlanValidator(
             registry=self._registry,
             dataset_profile=dataset_profile,
