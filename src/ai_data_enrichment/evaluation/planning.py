@@ -1,0 +1,245 @@
+"""Independent scenario-level evaluation of enrichment plans."""
+
+from collections import Counter
+from dataclasses import dataclass
+from typing import Literal
+
+from ai_data_enrichment.capabilities.registry import CapabilityRegistry
+from ai_data_enrichment.domain.dataset_profile import DatasetProfile
+from ai_data_enrichment.domain.enrichment_plan import (
+    ColumnReference,
+    EnrichmentPlan,
+    PlanStep,
+    StepOutputReference,
+)
+from ai_data_enrichment.validation.models import ValidationResult
+from ai_data_enrichment.validation.plan_validator import PlanValidator
+
+
+@dataclass(frozen=True)
+class ScenarioEvaluation:
+    """Represent scenario correctness independently of plan validation."""
+
+    correct: bool
+    errors: list[str]
+
+
+@dataclass(frozen=True)
+class PlanningEvaluationReport:
+    """Combine plan validation and scenario correctness results."""
+
+    validation: ValidationResult
+    scenario: ScenarioEvaluation
+
+
+def _find_geocode_step(
+    plan: EnrichmentPlan,
+    city_column: str,
+    country_column: str,
+) -> PlanStep | None:
+    """Find a geocode step using the expected source columns."""
+
+    expected_city = ColumnReference(kind="column", name=city_column)
+    expected_country = ColumnReference(kind="column", name=country_column)
+
+    return next(
+        (
+            step
+            for step in plan.steps
+            if step.capability == "geocode"
+            and step.inputs.get("city") == expected_city
+            and step.inputs.get("country") == expected_country
+        ),
+        None,
+    )
+
+
+def _check_scenario_shape(
+    plan: EnrichmentPlan,
+    *,
+    expected_capabilities: dict[str, int],
+    expected_output_column: str,
+) -> list[str]:
+    """Check the exact operation and output shape of a benchmark plan."""
+
+    errors: list[str] = []
+
+    actual_capabilities = Counter(step.capability for step in plan.steps)
+
+    if actual_capabilities != Counter(expected_capabilities):
+        errors.append(
+            "Unexpected capability composition: "
+            f"expected {expected_capabilities}, "
+            f"got {dict(actual_capabilities)}."
+        )
+
+    if (
+        len(plan.outputs) != 1
+        or plan.outputs[0].target_column != expected_output_column
+        or plan.outputs[0].value_field != "value"
+    ):
+        errors.append(
+            f"Expected exactly one output mapping from 'value' to '{expected_output_column}'."
+        )
+
+    return errors
+
+
+def evaluate_capitals_plan(plan: EnrichmentPlan) -> ScenarioEvaluation:
+    """Evaluate whether a plan calculates capital distances in kilometers."""
+
+    errors = _check_scenario_shape(
+        plan,
+        expected_capabilities={
+            "geocode": 2,
+            "geodesic_distance": 1,
+        },
+        expected_output_column="distance",
+    )
+    origin = _find_geocode_step(
+        plan,
+        "Capital_From",
+        "Country_From",
+    )
+    destination = _find_geocode_step(
+        plan,
+        "Capital_To",
+        "Country_To",
+    )
+
+    if origin is None:
+        errors.append("Missing geocode step for Capital_From and Country_From.")
+
+    if destination is None:
+        errors.append("Missing geocode step for Capital_To and Country_To.")
+
+    distance_steps = [
+        step
+        for step in plan.steps
+        if step.capability == "geodesic_distance"
+        and any(
+            output.step_id == step.id
+            and output.value_field == "value"
+            and output.target_column == "distance"
+            for output in plan.outputs
+        )
+    ]
+
+    if len(distance_steps) != 1:
+        errors.append("Expected exactly one geodesic_distance step mapped to the distance column.")
+    else:
+        distance = distance_steps[0]
+
+        if distance.parameters.get("unit") != "km":
+            errors.append("Geodesic distance must be calculated in kilometers.")
+
+        if origin is not None and destination is not None:
+            point_a = distance.inputs.get("point_a")
+            point_b = distance.inputs.get("point_b")
+
+            if not (
+                isinstance(point_a, StepOutputReference)
+                and isinstance(point_b, StepOutputReference)
+                and {point_a.step_id, point_b.step_id} == {origin.id, destination.id}
+                and origin.id != destination.id
+            ):
+                errors.append(
+                    "Distance inputs must reference the distinct "
+                    "origin and destination geocode steps."
+                )
+
+    return ScenarioEvaluation(
+        correct=not errors,
+        errors=errors,
+    )
+
+
+def evaluate_mountains_plan(plan: EnrichmentPlan) -> ScenarioEvaluation:
+    """Evaluate whether a plan retrieves mountain elevations."""
+
+    errors = _check_scenario_shape(
+        plan,
+        expected_capabilities={
+            "resolve_entity": 1,
+            "lookup_property": 1,
+        },
+        expected_output_column="height",
+    )
+
+    # Find the entity resolution step using the expected source columns.
+    resolve_steps = [
+        step
+        for step in plan.steps
+        if step.capability == "resolve_entity"
+        and step.inputs.get("name") == ColumnReference(kind="column", name="Mountain")
+        and step.inputs.get("country") == ColumnReference(kind="column", name="Country")
+        and step.parameters.get("entity_type") == "mountain"
+    ]
+
+    if len(resolve_steps) != 1:
+        errors.append(
+            "Expected exactly one resolve_entity step using "
+            "Mountain and Country with entity_type='mountain'."
+        )
+
+    # Find the elevation lookup mapped to the expected output column.
+    elevation_steps = [
+        step
+        for step in plan.steps
+        if step.capability == "lookup_property"
+        and any(
+            output.step_id == step.id
+            and output.value_field == "value"
+            and output.target_column == "height"
+            for output in plan.outputs
+        )
+    ]
+
+    if len(elevation_steps) != 1:
+        errors.append("Expected exactly one lookup_property step mapped to the height column.")
+    else:
+        elevation = elevation_steps[0]
+
+        if elevation.parameters.get("property") != "elevation":
+            errors.append("Property lookup must retrieve elevation.")
+
+        if len(resolve_steps) == 1:
+            entity_reference = elevation.inputs.get("entity")
+
+            if entity_reference != StepOutputReference(
+                kind="step_output",
+                step_id=resolve_steps[0].id,
+            ):
+                errors.append("Elevation lookup must reference the mountain resolution step.")
+
+    return ScenarioEvaluation(
+        correct=not errors,
+        errors=errors,
+    )
+
+
+def evaluate_planning_case(
+    *,
+    plan: EnrichmentPlan,
+    dataset_profile: DatasetProfile,
+    registry: CapabilityRegistry,
+    scenario: Literal["mountains", "capitals"],
+) -> PlanningEvaluationReport:
+    """Evaluate plan validity and scenario correctness independently."""
+
+    validation = PlanValidator(
+        registry=registry,
+        dataset_profile=dataset_profile,
+    ).validate(plan)
+
+    if scenario == "mountains":
+        scenario_result = evaluate_mountains_plan(plan)
+    elif scenario == "capitals":
+        scenario_result = evaluate_capitals_plan(plan)
+    else:
+        raise ValueError(f"Unsupported evaluation scenario: {scenario}")
+
+    return PlanningEvaluationReport(
+        validation=validation,
+        scenario=scenario_result,
+    )
