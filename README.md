@@ -5,7 +5,12 @@
 [![CI](https://github.com/ayri77/ai-data-enrichment-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/ayri77/ai-data-enrichment-studio/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.12%2B-blue)
 
-> **Status: early development.** The Python package, Excel inspection CLI, tests, and CI are implemented. AI planning, enrichment execution, validation, and the web interface are planned but **not yet available**.
+
+> **Status: active development — M1 Planner & Validator.**
+> Dataset profiling, LLM-based plan generation, deterministic validation,
+> plan serialization, and scenario-level planning evaluation are implemented.
+> Enrichment execution and Excel output generation are not yet available.
+
 
 ## Why this project?
 
@@ -58,13 +63,25 @@ These are **design goals**, not claims about the capabilities of the current boo
 
 Implemented:
 
-- Installable Python 3.12+ package managed with **uv**.
-- `enrichment version` and read-only `enrichment inspect` commands.
-- Excel workbook inspection: worksheet names, column headers, and data-row counts.
-- Unit/integration test skeleton with **pytest**.
-- **Ruff**, **Pyright**, and automated **GitHub Actions CI** checks.
+- Installable Python 3.12+ package managed with uv.
+- Read-only Excel workbook inspection and bounded worksheet profiling.
+- Typed capability registry with four built-in semantic capabilities.
+- Structured EnrichmentPlan models with DAG dependencies.
+- Deterministic plan validation with structured diagnostics.
+- LLM-based plan generation using the OpenAI Responses API.
+- CLI commands for plan generation, export, revalidation, and evaluation.
+- Independent scenario-level planning evaluation for Mountains and Capitals.
+- Automated tests, Ruff, Pyright, and GitHub Actions CI.
 
-Not implemented yet: LLM plan generation, capability execution, external data lookups, enriched Excel export, evaluation metrics, persistent jobs, and UI.
+Not implemented yet:
+
+- Execution of generated enrichment plans.
+- External entity resolution and data retrieval providers.
+- Persistent caching, request deduplication, and execution recovery.
+- Enriched Excel workbook generation and result provenance.
+- Independent evaluation of enriched numeric values.
+- LangGraph orchestration and web application.
+
 
 ## Quick start
 
@@ -98,12 +115,65 @@ uv run pyright
 uv run pytest --cov=ai_data_enrichment --cov-report=term-missing
 ```
 
+
+### Plan generation and evaluation
+
+Inspect the workbook to identify the correct worksheet name:
+
+```bash
+uv run enrichment inspect samples/mountains.xlsx
+```
+
+Configure `OPENAI_API_KEY` and optionally `OPENAI_MODEL` in your
+environment. When using a local `.env` file, pass `--env-file .env`
+to `uv run`.
+
+Generate a plan and export its dataset profile:
+
+```bash
+uv run --env-file .env enrichment plan generate samples/mountains.xlsx \
+  --sheet Mountains \
+  --instruction "Find the elevation of each mountain." \
+  --output plan.json \
+  --profile-output profile.json
+```
+
+Replace `Mountains` with the actual worksheet name if different.
+
+Validate a saved or manually edited plan without calling an LLM:
+
+```bash
+uv run enrichment plan validate plan.json --profile profile.json
+```
+
+Evaluate structural validity and scenario correctness independently:
+
+```bash
+uv run enrichment plan evaluate plan.json \
+  --profile profile.json \
+  --scenario mountains
+```
+
+The evaluation CLI supports `mountains` and `capitals` as benchmark
+scenarios. These evaluations assess planning correctness, not the
+accuracy of enriched data values.
+
+CLI exit codes:
+
+- `0`: successful validation or evaluation.
+- `1`: invalid plan or failed scenario evaluation.
+- `2`: invalid input or technical failure.
+
+Plans are generated and validated only. Execution and workbook
+enrichment will be introduced in subsequent milestones.
+
+
 ## Roadmap
 
 | Milestone | Scope | Status |
 | --- | --- | --- |
 | Bootstrap | Package, Excel inspection, tests, CI | **Complete** |
-| **M1 — Planner & Validator** | Capability contracts, typed plans, deterministic plan validation, LLM planner | Planned |
+| **M1 — Planner & Validator** | Capability contracts, typed plans, deterministic plan validation, LLM planner | Implementation complete — pending review and merge |
 | **M2 — Execution Engine** | Providers, operation dependencies, caching, error handling | Planned |
 | **M3 — Excel & Evaluation** | Workbook-preserving output, independent benchmarks, mandatory MVP scenarios | Planned |
 | **M4 — Agentic Orchestration** | LangGraph, conditional recovery, bounded replanning | Planned |
