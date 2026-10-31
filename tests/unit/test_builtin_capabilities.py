@@ -1,6 +1,9 @@
 """Tests for the builtin capabilities."""
 
-from ai_data_enrichment.capabilities.definitions import get_builtin_capabilities
+from ai_data_enrichment.capabilities.definitions import (
+    get_builtin_capabilities,
+    get_geodesic_distance_spec,
+)
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
 from ai_data_enrichment.domain.capability import DataType, InputSpec, OutputSpec, ParameterSpec
 
@@ -147,3 +150,15 @@ def test_builtin_capabilities_include_geodesic_distance() -> None:
             "unit": DataType.TEXT,
         },
     )
+
+
+def test_geodesic_distance_description_explains_distance_semantics() -> None:
+    """Describe geodesic distance as a surface-based straight-line distance."""
+
+    capability = get_geodesic_distance_spec()
+    description = capability.description.lower()
+
+    assert "straight-line" in description
+    assert "surface" in description
+    assert "shortest" in description
+    assert "road" in description

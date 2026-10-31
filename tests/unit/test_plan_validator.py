@@ -756,6 +756,7 @@ def test_plan_validator_validates_parameter_values(
     """Accept valid parameters and reject invalid values or types."""
     registry = CapabilityRegistry()
     registry.register(get_resolve_entity_spec())
+    registry.register(get_lookup_property_spec())
 
     plan = EnrichmentPlan(
         version="1.0",
@@ -775,8 +776,25 @@ def test_plan_validator_validates_parameter_values(
                 },
                 parameters={"entity_type": parameter_value},
             ),
+            PlanStep(
+                id="elevation",
+                capability="lookup_property",
+                inputs={
+                    "entity": StepOutputReference(
+                        kind="step_output",
+                        step_id="resolve",
+                    ),
+                },
+                parameters={"property": "elevation"},
+            ),
         ],
-        outputs=[],
+        outputs=[
+            OutputMapping(
+                step_id="elevation",
+                value_field="value",
+                target_column="height",
+            ),
+        ],
         assumptions=[],
     )
 
@@ -790,16 +808,22 @@ def test_plan_validator_validates_parameter_values(
 
     result = validator.validate(plan)
 
-    if expected_code is None:
-        assert result.valid is True
-        assert result.errors == []
-    else:
-        errors = [error for error in result.errors if error.code == expected_code]
+    error_codes = {error.code for error in result.errors}
 
-        assert len(errors) == 1
-        assert errors[0].step_id == "resolve"
-        assert errors[0].field == "parameters.entity_type"
-        assert result.valid is False
+    expected_codes: set[str] = set()
+
+    if expected_code is not None:
+        expected_codes.add(expected_code)
+
+    assert error_codes == expected_codes
+    assert result.valid is (expected_code is None)
+
+    if expected_code is not None:
+        matching_errors = [error for error in result.errors if error.code == expected_code]
+
+        assert len(matching_errors) == 1
+        assert matching_errors[0].step_id == "resolve"
+        assert matching_errors[0].field == "parameters.entity_type"
 
 
 def test_plan_validator_rejects_missing_output_step() -> None:
@@ -1150,29 +1174,46 @@ def test_plan_validator_validates_step_limit(
 ) -> None:
     """Validate step count against the configured limit."""
     registry = CapabilityRegistry()
-    registry.register(get_geocode_spec())
+    registry.register(get_resolve_entity_spec())
+    registry.register(get_lookup_property_spec())
 
     plan = EnrichmentPlan(
         version="1.0",
         steps=[
             PlanStep(
-                id=f"geocode_{index}",
-                capability="geocode",
+                id="resolve",
+                capability="resolve_entity",
                 inputs={
-                    "city": LiteralValue(
+                    "name": LiteralValue(
                         kind="literal",
-                        value="Berlin",
+                        value="Everest",
                     ),
                     "country": LiteralValue(
                         kind="literal",
-                        value="Germany",
+                        value="Nepal",
                     ),
                 },
-                parameters={},
-            )
-            for index in range(2)
+                parameters={"entity_type": "mountain"},
+            ),
+            PlanStep(
+                id="elevation",
+                capability="lookup_property",
+                inputs={
+                    "entity": StepOutputReference(
+                        kind="step_output",
+                        step_id="resolve",
+                    ),
+                },
+                parameters={"property": "elevation"},
+            ),
         ],
-        outputs=[],
+        outputs=[
+            OutputMapping(
+                step_id="elevation",
+                value_field="value",
+                target_column="height",
+            ),
+        ],
         assumptions=[],
     )
 
@@ -1187,11 +1228,83 @@ def test_plan_validator_validates_step_limit(
 
     result = validator.validate(plan)
 
-    if expected_code is None:
-        assert result.valid is True
-        assert result.errors == []
-    else:
-        assert len(result.errors) == 1
-        assert result.errors[0].code == expected_code
-        assert result.errors[0].field == "steps"
-        assert result.valid is False
+    error_codes = {error.code for error in result.errors}
+
+    expected_codes: set[str] = set()
+
+    if expected_code is not None:
+        expected_codes.add(expected_code)
+
+    assert error_codes == expected_codes
+    assert result.valid is (expected_code is None)
+
+    if expected_code is not None:
+        matching_errors = [error for error in result.errors if error.code == expected_code]
+
+        assert len(matching_errors) == 1
+        assert matching_errors[0].field == "steps"
+        assert matching_errors[0].step_id is None
+
+
+def test_plan_validator_rejects_missing_outputs() -> None:
+    """Reject a plan containing operations but no output mappings."""
+    registry = CapabilityRegistry()
+    registry.register(get_resolve_entity_spec())
+
+    plan = EnrichmentPlan(
+        version="1.0",
+        steps=[
+            PlanStep(
+                id="resolve",
+                capability="resolve_entity",
+                inputs={
+                    "name": LiteralValue(kind="literal", value="Everest"),
+                    "country": LiteralValue(kind="literal", value="Nepal"),
+                },
+                parameters={"entity_type": "mountain"},
+            )
+        ],
+        outputs=[],
+        assumptions=[],
+    )
+
+    validator = PlanValidator(
+        registry=registry,
+        dataset_profile=DatasetProfile(dataset_id="test", name="Test"),
+    )
+
+    result = validator.validate(plan)
+
+    assert result.valid is False
+    assert {error.code for error in result.errors} == {"EMPTY_PLAN_OUTPUTS"}
+
+
+def test_plan_validator_rejects_missing_steps() -> None:
+    """Reject a plan containing output mappings but no operations."""
+    plan = EnrichmentPlan(
+        version="1.0",
+        steps=[],
+        outputs=[
+            OutputMapping(
+                step_id="missing",
+                value_field="value",
+                target_column="height",
+            )
+        ],
+        assumptions=[],
+    )
+
+    validator = PlanValidator(
+        registry=CapabilityRegistry(),
+        dataset_profile=DatasetProfile(dataset_id="test", name="Test"),
+    )
+
+    result = validator.validate(plan)
+
+    assert result.valid is False
+
+    error_codes = {error.code for error in result.errors}
+    assert error_codes == {
+        "EMPTY_PLAN_STEPS",
+        "MISSING_STEP_REFERENCE",
+    }

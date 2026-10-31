@@ -99,7 +99,11 @@ def get_geodesic_distance_spec() -> CapabilitySpec:
     return CapabilitySpec(
         id="geodesic_distance",
         version="1.0",
-        description="Calculate geodesic distance",
+        description=(
+            "Calculate the shortest geodesic distance between two geographic "
+            "points along the Earth's surface (often called straight-line or "
+            "as-the-crow-flies distance), not road or driving distance."
+        ),
         inputs={
             "point_a": InputSpec(
                 type=DataType.GEO_POINT,

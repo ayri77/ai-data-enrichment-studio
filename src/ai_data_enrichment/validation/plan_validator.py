@@ -68,6 +68,25 @@ class PlanValidator:
     def validate(self, plan: EnrichmentPlan) -> ValidationResult:
         """Validate a plan and collect diagnostics."""
         errors: list[ValidationDiagnostic] = []
+
+        if not plan.steps:
+            errors.append(
+                ValidationDiagnostic(
+                    code="EMPTY_PLAN_STEPS",
+                    message="Enrichment plan must contain at least one step.",
+                    field="steps",
+                )
+            )
+
+        if not plan.outputs:
+            errors.append(
+                ValidationDiagnostic(
+                    code="EMPTY_PLAN_OUTPUTS",
+                    message="Enrichment plan must contain at least one output mapping.",
+                    field="outputs",
+                )
+            )
+
         if self._policy.max_steps is not None and len(plan.steps) > self._policy.max_steps:
             errors.append(
                 ValidationDiagnostic(
