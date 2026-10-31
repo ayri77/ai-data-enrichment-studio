@@ -11,6 +11,8 @@ from pydantic import (
     model_validator,
 )
 
+from ai_data_enrichment.domain.capability import Identifier
+
 
 class GeoPoint(BaseModel):
     """Represent a geographic point with validated coordinates."""
@@ -125,5 +127,34 @@ class OperationResult(BaseModel):
 
             if not self.message or not self.message.strip():
                 raise ValueError("Failed operation must contain an error message")
+
+        return self
+
+
+class StepExecutionResult(BaseModel):
+    """Associate a plan step with its execution outcome."""
+
+    model_config = ConfigDict(frozen=True)
+
+    step_id: Identifier
+    result: OperationResult
+
+
+class RowExecutionResult(BaseModel):
+    """Preserve the ordered execution outcomes for one input row."""
+
+    model_config = ConfigDict(frozen=True)
+
+    # Tuple preserves execution order and prevents in-place modification.
+    steps: tuple[StepExecutionResult, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_unique_steps(self) -> Self:
+        """Reject repeated execution records for the same DAG step."""
+
+        step_ids = [step.step_id for step in self.steps]
+
+        if len(step_ids) != len(set(step_ids)):
+            raise ValueError("Step IDs must be unique within a row")
 
         return self
