@@ -23,6 +23,8 @@ from ai_data_enrichment.validation.models import (
     ValidationResult,
 )
 
+# Only supported scalar types can be checked statically against capability contracts.
+# Mixed, unknown, and richer Excel types need special handling later.
 _PRIMITIVE_TYPE_MAP: dict[PrimitiveType, DataType] = {
     PrimitiveType.TEXT: DataType.TEXT,
     PrimitiveType.INTEGER: DataType.NUMBER,
@@ -98,11 +100,12 @@ class PlanValidator:
                     field="steps",
                 )
             )
+        # Index every step up front: a DAG may reference a step listed later in JSON.
         seen_ids: set[str] = set()
 
         steps_by_id = {step.id: step for step in plan.steps}
 
-        # Validate step IDs and capability contracts.
+        # Validate each operation against the registry; IDs must be unique DAG node keys.
         for step in plan.steps:
             if step.id in seen_ids:
                 errors.append(
@@ -130,7 +133,7 @@ class PlanValidator:
                 errors.extend(self._validate_inputs(step, capability, steps_by_id))
                 errors.extend(self._validate_parameters(step, capability))
 
-        # Validate input references.
+        # Check reference existence separately to collect diagnostics beyond type errors.
         for step in plan.steps:
             for input_name, reference in step.inputs.items():
                 field = f"inputs.{input_name}"
@@ -160,7 +163,7 @@ class PlanValidator:
                             )
                         )
 
-        # Validate dependency graph.
+        # A cycle has no valid execution order, even when all referenced steps exist.
         errors.extend(self._validate_cycles(plan))
 
         # Validate output references.
@@ -181,6 +184,7 @@ class PlanValidator:
             for step in plan.steps
         }
 
+        # Edges point from each step to its prerequisites; prepare() detects cycles.
         try:
             TopologicalSorter(dependencies).prepare()
         except CycleError as exc:
@@ -205,6 +209,7 @@ class PlanValidator:
         """Validate declared input names, presence, and semantic types."""
         errors: list[ValidationDiagnostic] = []
 
+        # Missing required inputs are errors even if all provided inputs have valid types.
         for input_name, input_spec in capability.inputs.items():
             if input_spec.required and input_name not in step.inputs:
                 errors.append(
@@ -289,6 +294,7 @@ class PlanValidator:
         """Validate parameter names, types, and allowed values."""
         errors: list[ValidationDiagnostic] = []
 
+        # Current capability parameters are restricted to string choices, not free-form JSON.
         for parameter_name, parameter_value in step.parameters.items():
             parameter_spec = capability.parameters.get(parameter_name)
 
@@ -346,6 +352,7 @@ class PlanValidator:
         steps_by_id = {step.id: step for step in plan.steps}
         seen_targets: set[str] = set()
 
+        # Output mappings represent proposed writes; check targets before inspecting sources.
         for index, output in enumerate(plan.outputs):
             # Target-policy violations are independent of source-step validity.
             if output.target_column in seen_targets:
@@ -411,14 +418,14 @@ class PlanValidator:
 
             target_column = self._columns_by_name.get(output.target_column)
 
-            # New columns do not have a declared dataset type to compare against.
+            # Creating a new column is allowed: only existing targets have inferred types.
             if target_column is None:
                 continue
 
             target_type = _PRIMITIVE_TYPE_MAP.get(target_column.inferred_type)
 
             if target_type is None:
-                # Unknown or mixed types defer compatibility checks to execution.
+                # A mixed/unknown column cannot be reliably checked from profiling alone.
                 if target_column.inferred_type not in (
                     PrimitiveType.UNKNOWN,
                     PrimitiveType.MIXED,
@@ -479,7 +486,7 @@ class PlanValidator:
             return TypeResolution(status="unsupported")
 
         if isinstance(reference, StepOutputReference):
-            # Step references carry the full semantic value, not a selected output field.
+            # Step references carry the whole typed result (e.g., GeoPoint or EntityRef).
             source_step = steps_by_id.get(reference.step_id)
 
             if source_step is None:
@@ -504,6 +511,7 @@ class PlanValidator:
                     data_type=DataType.TEXT,
                 )
 
+            # Check booleans before numbers: bool inherits from int in Python.
             if isinstance(value, bool):
                 return TypeResolution(status="unsupported")
 
