@@ -11,11 +11,15 @@ from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from math import isfinite
 from time import sleep
-from typing import Literal, Self
+from typing import Literal, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
-from ai_data_enrichment.providers.http_transport import JsonTransport, JsonTransportError
+from ai_data_enrichment.providers.http_transport import (
+    JsonTransport,
+    JsonTransportError,
+    TransportFailureKind,
+)
 
 _RETRYABLE_HTTP_CODES = frozenset({408, 429, 500, 502, 503, 504})
 
@@ -54,7 +58,7 @@ class RetryDelayLimitExceeded(JsonTransportError):
     ) -> None:
         self.reason = reason
         super().__init__(
-            original.kind,
+            cast(TransportFailureKind, original.kind),
             status_code=original.status_code,
             retry_after=original.retry_after,
         )
