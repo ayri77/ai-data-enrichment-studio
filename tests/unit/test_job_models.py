@@ -87,7 +87,7 @@ def test_input_record_rejects_blank_column_names(column: str) -> None:
 @pytest.mark.parametrize("invalid", [float("nan"), float("inf"), -float("inf"), True])
 def test_input_record_rejects_unsafe_runtime_values(invalid: object) -> None:
     with pytest.raises(ValidationError):
-        InputRecord(record_id="row-1", values={"value": invalid})
+        InputRecord.model_validate({"record_id": "row-1", "values": {"value": invalid}})
 
 
 @pytest.mark.parametrize(
