@@ -82,6 +82,27 @@ Not implemented yet:
 - Independent evaluation of enriched numeric values.
 - LangGraph orchestration and web application.
 
+### In-memory execution (M2)
+
+The project includes a typed, in-memory DAG execution engine
+with explicit provider registration and dependency handling.
+
+Implemented providers:
+- Open-Meteo geocoding: city and country resolution to GeoPoint.
+- Local geodesic distance: Haversine calculation in kilometers.
+
+Open-Meteo integration:
+- Endpoint: https://geocoding-api.open-meteo.com/v1/search
+- Country filtering: ISO 3166-1 alpha-2
+- Request timeout: 10 seconds
+- Maximum search results: 10
+- No API key required
+- Explicit error outcomes and source evidence
+
+All automated provider tests use offline fixtures or mocked HTTP
+responses. Live geocoding is not required by CI.
+
+Execution through the CLI and Excel output are not yet implemented.
 
 ## Quick start
 
