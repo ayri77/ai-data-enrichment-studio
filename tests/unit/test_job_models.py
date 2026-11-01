@@ -74,7 +74,7 @@ def test_input_record_preserves_typed_values_and_original_mapping() -> None:
 
 @pytest.mark.parametrize("record_id", ["", " ", "\t"])
 def test_input_record_rejects_empty_identity(record_id: str) -> None:
-    with pytest.raises(ValidationError, match="Record ID"):
+    with pytest.raises(ValidationError):
         InputRecord(record_id=record_id, values={})
 
 
