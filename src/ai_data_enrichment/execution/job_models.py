@@ -114,7 +114,9 @@ class JobExecutionMetrics(BaseModel):
             self.executed_handler_calls + self.reused_operations + self.persistent_cache_hits
         )
         if accounted != self.logical_operations:
-            raise ValueError("Handler calls, memory reuse and SQLite hits must sum to logical_operations.")
+            raise ValueError(
+                "Handler calls, memory reuse and SQLite hits must sum to logical_operations."
+            )
         successful_sources = self.executed_handler_calls + self.persistent_cache_hits
         if self.memoized_results > successful_sources:
             raise ValueError("Retained memoized results cannot exceed successful result sources.")
