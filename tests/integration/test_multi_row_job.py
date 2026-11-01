@@ -28,7 +28,6 @@ from ai_data_enrichment.domain.enrichment_plan import (
 )
 from ai_data_enrichment.execution.job_executor import JobExecutor
 from ai_data_enrichment.execution.job_models import InputRecord, JobExecutionPolicy
-from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
 from ai_data_enrichment.execution.models import (
     EntityRef,
     Evidence,
@@ -37,6 +36,7 @@ from ai_data_enrichment.execution.models import (
     Quantity,
     RuntimeValue,
 )
+from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
 from ai_data_enrichment.providers.geodesic import GeodesicDistanceHandler
 from ai_data_enrichment.providers.registry import ProviderRegistry
 from ai_data_enrichment.validation.plan_validator import PlanValidator
