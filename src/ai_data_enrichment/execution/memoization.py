@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from ai_data_enrichment.execution.contracts import CapabilityHandler
 from ai_data_enrichment.execution.job_models import JobExecutionMetrics, JobExecutionPolicy
 from ai_data_enrichment.execution.models import OperationResult, RuntimeValue
-from ai_data_enrichment.execution.operation_keys import _operation_key
+from ai_data_enrichment.execution.operation_keys import _OperationKey, _operation_key
 
 
 class _MemoizingHandler:
