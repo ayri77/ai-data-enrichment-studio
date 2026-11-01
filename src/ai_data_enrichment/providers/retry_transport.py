@@ -176,17 +176,13 @@ class RetryingJsonTransport:
                     if hint > self._policy.max_retry_after_seconds:
                         self._failures += 1
                         self._rejected += 1
-                        raise RetryDelayLimitExceeded(
-                            error, reason="retry_after_limit"
-                        ) from error
+                        raise RetryDelayLimitExceeded(error, reason="retry_after_limit") from error
                     delay = max(delay, hint)
 
                 if waited + delay > self._policy.max_total_retry_delay_seconds:
                     self._failures += 1
                     self._rejected += 1
-                    raise RetryDelayLimitExceeded(
-                        error, reason="total_delay_limit"
-                    ) from error
+                    raise RetryDelayLimitExceeded(error, reason="total_delay_limit") from error
 
                 self._sleeper(delay)
                 waited += delay
