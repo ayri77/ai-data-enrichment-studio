@@ -230,6 +230,7 @@ The repository follows a **design-for-extension, implement-for-current-needs** a
 | [03 — Domain Model](docs/03-domain-model.md) | Entities, relationships, conceptual contracts |
 | [04 — Planning & Capabilities](docs/04-planning-and-capabilities.md) | Initial capabilities, plan schema, validation rules |
 | [05 — M2 Job Execution](docs/05-m2-job-execution.md) | Implemented bounded multi-row contract, job-scoped deduplication and metrics (#34) |
+| [06 — M2 SQLite Cache](docs/06-m2-persistent-cache.md) | Proposed cross-job cache keys, TTL, typed results and hit/miss metrics (#35) |
 
 Technical documentation and code are in **English**. Academic submission materials for Neoversity will be prepared in **Ukrainian**.
 

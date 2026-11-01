@@ -76,7 +76,7 @@ Job metrics must distinguish:
 
 For a fixed workload, `logical_operations = executed_handler_calls + reused_operations` when every reached operation is either invoked or reused. Report blocked operations separately if the implementation exposes them.
 
-**Do not claim that handler calls equal HTTP requests.** A single Wikidata resolution may issue several HTTP requests; provider-level network request/attempt metrics are added when instrumentation and budgets are introduced in #36. Similarly, persistent-cache hits are #35 metrics, separate from in-job reuse.
+**Do not claim that handler calls equal HTTP requests.** A single Wikidata resolution may issue several HTTP requests; provider-level network request/attempt metrics are added when instrumentation and budgets are introduced in #36. Persistent-cache hits are introduced by #35 and must be counted separately from within-job reuse; see the [persistent cache contract](06-m2-persistent-cache.md).
 
 ## 6. Verification plan for #34
 
@@ -94,7 +94,7 @@ Finish with Ruff lint/format, Pyright, full offline pytest and a reviewed PR bef
 
 | Issue | Not part of #34 |
 | --- | --- |
-| #35 | SQLite cross-job cache, TTL, cache invalidation, compatibility/versioning |
+| #35 | [Versioned SQLite cross-job cache](06-m2-persistent-cache.md), TTL, invalidation, compatibility/versioning and cache-specific metrics |
 | #36 | Retries/backoff, rate limits, real provider request budgets, controlled fallback |
 | #37 | Final M2 acceptance, measured benchmark, end-to-end provider quality audit |
 | #44 | Robustness against external API/semantic drift |
