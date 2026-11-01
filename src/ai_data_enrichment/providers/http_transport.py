@@ -7,7 +7,6 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-
 TransportFailureKind = Literal["timeout", "network", "http_status", "invalid_json"]
 
 
