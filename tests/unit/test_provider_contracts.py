@@ -1,11 +1,11 @@
 """Reusable result-contract checks across distinct capability handlers."""
 
 import pytest
+from tests.support.http import StubJsonTransport
 
 from ai_data_enrichment.execution.models import GeoPoint
 from ai_data_enrichment.providers.geodesic import GeodesicDistanceHandler
 from ai_data_enrichment.providers.open_meteo import OpenMeteoGeocodingHandler
-from tests.support.http import StubJsonTransport
 
 
 @pytest.mark.parametrize(
