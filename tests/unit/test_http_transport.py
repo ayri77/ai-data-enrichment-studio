@@ -52,9 +52,7 @@ def test_get_json_encodes_parameters_and_parses_response() -> None:
 
 def test_transport_sends_configured_http_headers() -> None:
     """Allow explicit user-agent configuration without changing provider calls."""
-    transport = UrllibJsonTransport(
-        headers={"User-Agent": "AI-Data-Enrichment-Studio/0.1"}
-    )
+    transport = UrllibJsonTransport(headers={"User-Agent": "AI-Data-Enrichment-Studio/0.1"})
 
     with patch(
         "ai_data_enrichment.providers.http_transport.urlopen",
@@ -85,9 +83,7 @@ def test_transport_classifies_connection_failures(
         side_effect=upstream_error,
     ):
         with pytest.raises(JsonTransportError) as captured:
-            UrllibJsonTransport().get_json(
-                url=GEOCODING_URL, params={}, timeout_seconds=5.0
-            )
+            UrllibJsonTransport().get_json(url=GEOCODING_URL, params={}, timeout_seconds=5.0)
 
     assert captured.value.kind == expected_kind
     assert captured.value.status_code is None
@@ -107,18 +103,14 @@ def test_transport_preserves_http_failure_metadata(
 ) -> None:
     """Capture status and retry hints without implementing retries yet."""
     headers = {"Retry-After": retry_after} if retry_after is not None else {}
-    upstream_error = HTTPError(
-        GEOCODING_URL, status_code, "HTTP error", headers, None
-    )
+    upstream_error = HTTPError(GEOCODING_URL, status_code, "HTTP error", headers, None)
 
     with patch(
         "ai_data_enrichment.providers.http_transport.urlopen",
         side_effect=upstream_error,
     ):
         with pytest.raises(JsonTransportError) as captured:
-            UrllibJsonTransport().get_json(
-                url=GEOCODING_URL, params={}, timeout_seconds=5.0
-            )
+            UrllibJsonTransport().get_json(url=GEOCODING_URL, params={}, timeout_seconds=5.0)
 
     assert captured.value.kind == "http_status"
     assert captured.value.status_code == status_code
@@ -133,8 +125,6 @@ def test_transport_rejects_invalid_json(body: bytes) -> None:
         return_value=BytesIO(body),
     ):
         with pytest.raises(JsonTransportError) as captured:
-            UrllibJsonTransport().get_json(
-                url=GEOCODING_URL, params={}, timeout_seconds=5.0
-            )
+            UrllibJsonTransport().get_json(url=GEOCODING_URL, params={}, timeout_seconds=5.0)
 
     assert captured.value.kind == "invalid_json"
