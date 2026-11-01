@@ -79,9 +79,7 @@ def invoke(wrapper: RetryingJsonTransport) -> object:
     ["timeout", "network"],
 )
 def test_transient_transport_error_recovers_and_preserves_parameters(kind: str) -> None:
-    transport = ScriptedTransport(
-        [JsonTransportError(kind), {"ok": True}]
-    )
+    transport = ScriptedTransport([JsonTransportError(kind), {"ok": True}])
     clock = FakeTime()
     retry = wrap(transport, clock=clock)
     assert invoke(retry) == {"ok": True}
@@ -278,9 +276,7 @@ def test_invalid_policy_is_rejected_before_any_transport_call(
 
 
 def test_success_does_not_retry_and_statistics_accumulate_across_calls() -> None:
-    transport = ScriptedTransport(
-        [{"ok": 1}, JsonTransportError("timeout"), {"ok": 2}]
-    )
+    transport = ScriptedTransport([{"ok": 1}, JsonTransportError("timeout"), {"ok": 2}])
     clock = FakeTime()
     retry = wrap(transport, clock=clock)
     assert invoke(retry) == {"ok": 1}
