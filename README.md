@@ -75,7 +75,7 @@ Implemented:
 
 Not implemented yet:
 
-- Execution of generated enrichment plans.
+- CLI-driven execution of generated enrichment plans.
 - External entity resolution and data retrieval providers.
 - Persistent caching, request deduplication, and execution recovery.
 - Enriched Excel workbook generation and result provenance.
