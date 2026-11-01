@@ -103,7 +103,7 @@ class JobExecutionMetrics(BaseModel):
         return self
 
 
-def _row_outcome(row: RowExecutionResult) -> str:
+def classify_row_outcome(row: RowExecutionResult) -> str:
     """Classify a row without hiding successes in partially failed DAGs."""
     successful_steps = sum(step.result.status == "success" for step in row.steps)
 
@@ -131,7 +131,7 @@ class JobExecutionResult(BaseModel):
         if self.metrics.total_rows != len(self.records):
             raise ValueError("Job metrics total_rows must match record count.")
 
-        actual = [_row_outcome(record.row_result) for record in self.records]
+        actual = [classify_row_outcome(record.row_result) for record in self.records]
         counts = {
             "success": self.metrics.successful_rows,
             "partial": self.metrics.partial_rows,

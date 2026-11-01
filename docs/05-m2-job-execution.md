@@ -1,11 +1,11 @@
 # M2 — Multi-row Job Execution Contract
 
-**Status:** Proposed design for [Issue #34](https://github.com/ayri77/ai-data-enrichment-studio/issues/34); not implemented yet.
+**Status:** Implemented in M2 [Issue #34](https://github.com/ayri77/ai-data-enrichment-studio/issues/34), across contracts, memoization, and multi-row job execution PRs. SQLite persistence and provider request policies are separate issues.
 **Boundary:** Source-independent, in-memory execution of a **validated** `EnrichmentPlan` over multiple records. This document refines the existing [architecture](02-architecture.md), [domain model](03-domain-model.md), and [planning contracts](04-planning-and-capabilities.md); it does not replace their conceptual `RowResult`/`JobResult`.
 
 ## 1. Goal and architectural placement
 
-Reuse the existing single-row `DAGExecutor.execute_row(plan, row)` unchanged if possible. Introduce a job-level coordinator (`JobExecutor`, provisional name) that processes a bounded collection of normalized input records. Each row keeps its own DAG outcomes, while **one shared, job-scoped memoization layer** wraps approved capability handlers for eligible repeat operations.
+The existing single-row `DAGExecutor.execute_row(plan, row)` is reused unchanged. `JobExecutor` in `execution/job_executor.py` processes bounded collections of normalized input records. Each row keeps its own DAG outcomes, while **one shared, job-scoped memoization layer** wraps approved capability handlers for eligible repeat operations.
 
 ```text
 Validated EnrichmentPlan + selected providers + input records
@@ -18,9 +18,9 @@ Validated EnrichmentPlan + selected providers + input records
 
 The engine does not import Excel, openpyxl, CLI, LangGraph, or provider-specific Wikidata/Open-Meteo structures. Provider choices and memoization eligibility are application-controlled, not LLM plan inputs.
 
-## 2. Proposed minimal contracts
+## 2. Implemented minimal contracts
 
-These are **design shapes, not existing Python APIs**. Names and field types should be finalized in the first implementation PR.
+The models below are implemented in `execution/job_models.py`. The `JobExecutor` entry point additionally requires approved `handlers`, `selected_providers`, non-secret `configuration_ids` and `policy`; call `execute(plan, records)` with a previously validated plan.
 
 | Contract | Responsibility | Required invariant |
 | --- | --- | --- |
@@ -80,13 +80,13 @@ For a fixed workload, `logical_operations = executed_handler_calls + reused_oper
 
 ## 6. Verification plan for #34
 
-Implement in coherent, reviewable slices:
+Implemented in three reviewed slices:
 
 1. **Contracts and policy:** record identity/order, policy validation, bounded row preflight, structured job outcomes/metrics; unit tests. No provider adapter changes.
 2. **Job-scoped memoizing handler:** deterministic typed key, explicit eligibility/provider identity, success-only reuse, evidence fidelity and capacity ceiling; offline unit tests, including different input types, parameters and providers.
 3. **Integration and scale:** run the two already approved DAGs over multi-row fixtures, row failure isolation, stable order across chunks, repeated operations across chunk boundaries, no source mutation, and **1,000 input rows** with observed handler-call savings.
 
-Suggested deterministic benchmark: 1,000 rows repeating 10 verified input identities through a two-step `resolve_entity -> lookup_property` DAG; with memoization enabled and sufficient capacity, expect 2,000 logical handler-boundary operations but only 20 actual handler invocations. Verify counts with instrumented offline handlers; this is **not** a claim about Wikidata HTTP request counts or real-world timing. Repeat with deduplication disabled to measure the baseline.
+**Verified offline workload:** 1,000 rows repeating 10 synthetic mountain identities through a two-step `resolve_entity -> lookup_property` DAG, with `batch_size=37`: 2,000 logical handler-boundary operations, **20 underlying handler invocations** and 1,980 reuse hits. A separate capitals DAG combines deterministic geocoding fixtures with the real local Haversine handler. These numbers count handler calls, **not** Wikidata HTTP requests or real provider performance. Baseline runtime measurements and external-provider request instrumentation remain part of #37/#36.
 
 Finish with Ruff lint/format, Pyright, full offline pytest and a reviewed PR before closing #34. Broader integration, timing benchmark and documentation verification remain part of #37.
 
