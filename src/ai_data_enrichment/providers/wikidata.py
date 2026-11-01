@@ -193,6 +193,7 @@ class WikidataElevationHandler:
             ),
         )
 
+
 class WikidataMountainResolver:
     """Resolve mountain names to Wikidata entity references."""
 
