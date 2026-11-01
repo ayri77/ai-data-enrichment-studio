@@ -85,9 +85,7 @@ def test_new_database_is_versioned_and_unknown_key_is_a_miss(tmp_path: Path) -> 
         Quantity(value=8848.86, unit="m"),
     ],
 )
-def test_success_and_evidence_survive_close_and_reopen(
-    tmp_path: Path, value: RuntimeValue
-) -> None:
+def test_success_and_evidence_survive_close_and_reopen(tmp_path: Path, value: RuntimeValue) -> None:
     path = tmp_path / "persist.sqlite3"
     original = success(value)
 
@@ -171,9 +169,7 @@ def test_corrupt_typed_value_is_rejected_without_being_returned(tmp_path: Path) 
 def test_storage_rejects_failures_without_overwriting_existing_success(tmp_path: Path) -> None:
     with SQLiteOperationCache(tmp_path / "only-success.db") as cache:
         store(cache, KEY_A)
-        failure = OperationResult(
-            status="failure", error_code="NOT_FOUND", message="No mountain."
-        )
+        failure = OperationResult(status="failure", error_code="NOT_FOUND", message="No mountain.")
         with pytest.raises(ValueError, match="Only successful"):
             store(cache, KEY_A, failure)
         assert cache.get(KEY_A).result == success()
@@ -219,9 +215,7 @@ def test_existing_unversioned_db_is_never_replaced(tmp_path: Path) -> None:
         SQLiteOperationCache(path)
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("SELECT value FROM sensitive_records").fetchone() == (
-            "keep me",
-        )
+        assert connection.execute("SELECT value FROM sensitive_records").fetchone() == ("keep me",)
 
 
 @pytest.mark.parametrize("version", [2, 999])
@@ -247,8 +241,7 @@ def test_altered_schema_is_rejected_without_recreation(tmp_path: Path) -> None:
         SQLiteOperationCache(path)
     with sqlite3.connect(path) as connection:
         assert any(
-            row[1] == "extra"
-            for row in connection.execute("PRAGMA table_info(operation_cache)")
+            row[1] == "extra" for row in connection.execute("PRAGMA table_info(operation_cache)")
         )
 
 
