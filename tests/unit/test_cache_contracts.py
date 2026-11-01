@@ -151,7 +151,13 @@ def test_blank_identity_fields_rejected(field: str) -> None:
     }
     values[field] = " "
     with pytest.raises(ValueError, match="not be blank"):
-        digest(**values)
+        digest(
+            capability=values["capability"],
+            capability_version=values["capability_version"],
+            provider=values["provider"],
+            provider_version=values["provider_version"],
+            configuration=values["configuration"],
+        )
 
 
 @pytest.mark.parametrize(
