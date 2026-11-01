@@ -74,9 +74,9 @@ Job metrics must distinguish:
 | `reused_operations` | Eligible logical operations satisfied by an earlier successful in-job result |
 | `memoized_results`, `memo_capacity_skips` | Retained successful keys and uncached successes due to capacity limit |
 
-For a fixed workload, `logical_operations = executed_handler_calls + reused_operations` when every reached operation is either invoked or reused. Report blocked operations separately if the implementation exposes them.
+Without SQLite, `logical_operations = executed_handler_calls + reused_operations`. With explicit persistent caching, the accounting becomes `logical_operations = executed_handler_calls + reused_operations + persistent_cache_hits`. Cache misses and writes are diagnostic counters, not additional operation outcomes. Report blocked operations separately if the implementation exposes them.
 
-**Do not claim that handler calls equal HTTP requests.** A single Wikidata resolution may issue several HTTP requests; provider-level network request/attempt metrics are added when instrumentation and budgets are introduced in #36. Persistent-cache hits are introduced by #35 and must be counted separately from within-job reuse; see the [persistent cache contract](06-m2-persistent-cache.md).
+**Do not claim that handler calls equal HTTP requests.** A single Wikidata resolution may issue several HTTP requests; provider-level network request/attempt metrics are added when instrumentation and budgets are introduced in #36. Persistent-cache hits are counted separately from within-job reuse; see the [persistent cache contract](06-m2-persistent-cache.md).
 
 ## 6. Verification plan for #34
 
