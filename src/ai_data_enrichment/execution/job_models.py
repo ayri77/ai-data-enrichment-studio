@@ -4,6 +4,7 @@ These models define the job boundary; they do not execute plans or cache calls.
 """
 
 from collections.abc import Iterable
+from math import isfinite
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -47,6 +48,8 @@ class JobExecutionPolicy(BaseModel):
     max_memoized_results: int = Field(default=1000, ge=0, strict=True)
     # Each tuple is an approved (capability_id, provider_id) binding.
     memoizable_providers: frozenset[tuple[str, str]] = Field(default_factory=frozenset)
+    # Persistent eligibility is opt-in per approved (capability, provider) pair.
+    persistent_cache_ttls: dict[tuple[str, str], float] = Field(default_factory=dict)
 
     @field_validator("memoizable_providers")
     @classmethod
@@ -56,6 +59,15 @@ class JobExecutionPolicy(BaseModel):
         if any(not capability.strip() or not provider.strip() for capability, provider in bindings):
             raise ValueError("Memoizable capability and provider IDs must not be blank.")
         return bindings
+
+    @model_validator(mode="after")
+    def validate_persistent_cache_ttls(self) -> Self:
+        for binding, ttl in self.persistent_cache_ttls.items():
+            if binding not in self.memoizable_providers:
+                raise ValueError("Persistent cache TTL requires an approved memoizable provider.")
+            if not isfinite(ttl) or ttl <= 0:
+                raise ValueError("Persistent cache TTL must be positive and finite.")
+        return self
 
 
 class RecordExecution(BaseModel):
@@ -87,6 +99,10 @@ class JobExecutionMetrics(BaseModel):
     logical_operations: int = Field(default=0, ge=0, strict=True)
     executed_handler_calls: int = Field(default=0, ge=0, strict=True)
     reused_operations: int = Field(default=0, ge=0, strict=True)
+    persistent_cache_hits: int = Field(default=0, ge=0, strict=True)
+    persistent_cache_misses: int = Field(default=0, ge=0, strict=True)
+    persistent_cache_writes: int = Field(default=0, ge=0, strict=True)
+    persistent_cache_invalid_entries: int = Field(default=0, ge=0, strict=True)
     memoized_results: int = Field(default=0, ge=0, strict=True)
     memo_capacity_skips: int = Field(default=0, ge=0, strict=True)
 
@@ -94,12 +110,20 @@ class JobExecutionMetrics(BaseModel):
     def validate_totals(self) -> Self:
         if self.successful_rows + self.partial_rows + self.failed_rows != self.total_rows:
             raise ValueError("Row outcome counts must sum to total_rows.")
-        if self.executed_handler_calls + self.reused_operations != self.logical_operations:
-            raise ValueError("Handler calls and reuse must sum to logical_operations.")
-        if self.memoized_results > self.executed_handler_calls:
-            raise ValueError("Retained memoized results cannot exceed handler calls.")
-        if self.memo_capacity_skips > self.executed_handler_calls:
-            raise ValueError("Memo capacity skips cannot exceed handler calls.")
+        accounted = (
+            self.executed_handler_calls + self.reused_operations + self.persistent_cache_hits
+        )
+        if accounted != self.logical_operations:
+            raise ValueError("Handler calls, memory reuse and SQLite hits must sum to logical_operations.")
+        successful_sources = self.executed_handler_calls + self.persistent_cache_hits
+        if self.memoized_results > successful_sources:
+            raise ValueError("Retained memoized results cannot exceed successful result sources.")
+        if self.memo_capacity_skips > successful_sources:
+            raise ValueError("Memo capacity skips cannot exceed successful result sources.")
+        if self.persistent_cache_invalid_entries > self.persistent_cache_misses:
+            raise ValueError("Invalid cache entries cannot exceed persistent cache misses.")
+        if self.persistent_cache_writes > self.executed_handler_calls:
+            raise ValueError("Persistent cache writes cannot exceed handler calls.")
         return self
 
 
