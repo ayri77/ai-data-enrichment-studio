@@ -212,7 +212,7 @@ Main operations:
 
 The execution engine must not depend on LangGraph-specific state objects or Excel-specific worksheet objects.
 
-**M2 implementation boundary (#34):** Keep the existing single-row `DAGExecutor` responsible for dependencies. A separate, source-independent `JobExecutor` enforces bounded input rows/batches and shares successful eligible operations through job-scoped memoizing handler wrappers. The [multi-row job execution contract](05-m2-job-execution.md) defines record identity, reuse eligibility, metrics and the separation from later SQLite caching and retry policies.
+**M2 implementation boundary (#34):** Keep the existing single-row `DAGExecutor` responsible for dependencies. A separate, source-independent `JobExecutor` enforces bounded input rows/batches and shares successful eligible operations through job-scoped memoizing handler wrappers. The [multi-row job execution contract](05-m2-job-execution.md) defines record identity, reuse eligibility and metrics. Persistent reuse is specified in [#35](06-m2-persistent-cache.md), while proposed request-level budgets, retries and source-safe fallback are defined in [#36](07-m2-provider-reliability.md).
 
 ### 3.7 Capability Registry
 

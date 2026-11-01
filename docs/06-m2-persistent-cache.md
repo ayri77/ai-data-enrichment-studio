@@ -144,7 +144,7 @@ lookup; expiration is rechecked on the next job's persistent lookup.
 
 ## 7. Explicitly deferred
 
-- #36: retries, HTTP rate limits, real network request/attempt accounting, provider fallback and budgets.
+- #36: [request-level retry, rate/budget accounting and approved fallback](07-m2-provider-reliability.md), kept separate from SQLite hit counters.
 - #37: final M2 performance benchmark against the planned scenarios and acceptance review.
 - #44: provider API/ontology drift and revised semantic validation.
 - M3: Excel writes and evaluation; M4/M5: LangGraph, web APIs, durable job orchestration, distributed workers.

@@ -95,7 +95,7 @@ Finish with Ruff lint/format, Pyright, full offline pytest and a reviewed PR bef
 | Issue | Not part of #34 |
 | --- | --- |
 | #35 | [Versioned SQLite cross-job cache](06-m2-persistent-cache.md), TTL, invalidation, compatibility/versioning and cache-specific metrics |
-| #36 | Retries/backoff, rate limits, real provider request budgets, controlled fallback |
+| #36 | [Provider reliability policies](07-m2-provider-reliability.md): bounded transport retries/backoff, HTTP request budgets, per-provider rate limits and approved fallback |
 | #37 | Final M2 acceptance, measured benchmark, end-to-end provider quality audit |
 | #44 | Robustness against external API/semantic drift |
 | M3 | XLSX writes, workbook preservation and evaluation of enriched numeric outputs |
