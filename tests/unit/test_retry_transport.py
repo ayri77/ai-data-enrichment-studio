@@ -1,13 +1,13 @@
 """Deterministic, offline retry classification and transport wrapper tests."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 
 import pytest
 from pydantic import ValidationError
 
-from ai_data_enrichment.providers.http_transport import JsonTransportError
+from ai_data_enrichment.providers.http_transport import JsonTransportError, TransportFailureKind
 from ai_data_enrichment.providers.retry_transport import (
     RetryDelayLimitExceeded,
     RetryingJsonTransport,
@@ -20,8 +20,8 @@ from ai_data_enrichment.providers.retry_transport import (
 class ScriptedTransport:
     """Count each actual get_json call and replay controlled outcomes."""
 
-    def __init__(self, outcomes: list[object]) -> None:
-        self.outcomes = outcomes
+    def __init__(self, outcomes: Sequence[object]) -> None:
+        self.outcomes = list(outcomes)
         self.calls: list[tuple[str, dict[str, str], float]] = []
 
     def get_json(
@@ -78,7 +78,9 @@ def invoke(wrapper: RetryingJsonTransport) -> object:
     "kind",
     ["timeout", "network"],
 )
-def test_transient_transport_error_recovers_and_preserves_parameters(kind: str) -> None:
+def test_transient_transport_error_recovers_and_preserves_parameters(
+    kind: TransportFailureKind,
+) -> None:
     transport = ScriptedTransport([JsonTransportError(kind), {"ok": True}])
     clock = FakeTime()
     retry = wrap(transport, clock=clock)
@@ -105,7 +107,9 @@ def test_transient_transport_error_recovers_and_preserves_parameters(kind: str) 
         ("http_status", None),
     ],
 )
-def test_permanent_transport_error_never_retries(kind: str, status: int | None) -> None:
+def test_permanent_transport_error_never_retries(
+    kind: TransportFailureKind, status: int | None
+) -> None:
     transport = ScriptedTransport([JsonTransportError(kind, status_code=status)])
     clock = FakeTime()
     retry = wrap(transport, clock=clock)
