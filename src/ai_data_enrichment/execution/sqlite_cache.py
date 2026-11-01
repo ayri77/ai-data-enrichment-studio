@@ -4,11 +4,11 @@ The adapter has no access to handlers, DAG plans, or provider credentials.
 Callers supply an explicitly approved operation digest and a positive TTL.
 """
 
+import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
-import sqlite3
 from time import time
 from typing import Literal, Self
 
