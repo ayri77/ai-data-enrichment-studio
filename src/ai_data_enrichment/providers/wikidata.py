@@ -15,18 +15,18 @@ from ai_data_enrichment.execution.models import (
 from ai_data_enrichment.providers.http_results import transport_failure_result
 from ai_data_enrichment.providers.http_transport import JsonTransport, JsonTransportError
 from ai_data_enrichment.providers.wikidata_constants import (
-    WIKIDATA_API_URL as WIKIDATA_API_URL,
-    WIKIDATA_CLASS_MAX_HOPS as WIKIDATA_CLASS_MAX_HOPS,
-    WIKIDATA_CLASS_MAX_NODES as WIKIDATA_CLASS_MAX_NODES,
-    WIKIDATA_MAX_SEARCH_PAGES as WIKIDATA_MAX_SEARCH_PAGES,
-    WIKIDATA_P_COUNTRY as WIKIDATA_P_COUNTRY,
-    WIKIDATA_P_ELEVATION as WIKIDATA_P_ELEVATION,
-    WIKIDATA_P_INSTANCE_OF as WIKIDATA_P_INSTANCE_OF,
-    WIKIDATA_P_ISO_COUNTRY_CODE as WIKIDATA_P_ISO_COUNTRY_CODE,
-    WIKIDATA_P_SUBCLASS_OF as WIKIDATA_P_SUBCLASS_OF,
-    WIKIDATA_Q_METRE as WIKIDATA_Q_METRE,
-    WIKIDATA_Q_MOUNTAIN as WIKIDATA_Q_MOUNTAIN,
-    WIKIDATA_SEARCH_PAGE_SIZE as WIKIDATA_SEARCH_PAGE_SIZE,
+    WIKIDATA_API_URL,
+    WIKIDATA_CLASS_MAX_HOPS,
+    WIKIDATA_CLASS_MAX_NODES,
+    WIKIDATA_MAX_SEARCH_PAGES,
+    WIKIDATA_P_COUNTRY,
+    WIKIDATA_P_ELEVATION,
+    WIKIDATA_P_INSTANCE_OF,
+    WIKIDATA_P_ISO_COUNTRY_CODE,
+    WIKIDATA_P_SUBCLASS_OF,
+    WIKIDATA_Q_METRE,
+    WIKIDATA_Q_MOUNTAIN,
+    WIKIDATA_SEARCH_PAGE_SIZE,
 )
 from ai_data_enrichment.providers.wikidata_country import verify_country
 from ai_data_enrichment.providers.wikidata_ontology import mountain_class_path
@@ -37,6 +37,25 @@ from ai_data_enrichment.providers.wikidata_parsing import (
     _ranked_entity_ids,
     _wikidata_api_failure,
 )
+
+
+# Stable public imports from the original providers.wikidata module.
+__all__ = [
+    "WikidataElevationHandler",
+    "WikidataMountainResolver",
+    "WIKIDATA_API_URL",
+    "WIKIDATA_CLASS_MAX_HOPS",
+    "WIKIDATA_CLASS_MAX_NODES",
+    "WIKIDATA_MAX_SEARCH_PAGES",
+    "WIKIDATA_P_COUNTRY",
+    "WIKIDATA_P_ELEVATION",
+    "WIKIDATA_P_INSTANCE_OF",
+    "WIKIDATA_P_ISO_COUNTRY_CODE",
+    "WIKIDATA_P_SUBCLASS_OF",
+    "WIKIDATA_Q_METRE",
+    "WIKIDATA_Q_MOUNTAIN",
+    "WIKIDATA_SEARCH_PAGE_SIZE",
+]
 
 
 class WikidataElevationHandler:
