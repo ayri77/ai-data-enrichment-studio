@@ -24,7 +24,7 @@ These are **design shapes, not existing Python APIs**. Names and field types sho
 
 | Contract | Responsibility | Required invariant |
 | --- | --- | --- |
-| `InputRecord(record_id, values)` | Source-independent input identity plus `Mapping[str, RuntimeValue | None]` | Stable, non-empty, unique `record_id` within a job |
+| `InputRecord(record_id, values)` | Source-independent input identity plus `Mapping[str, Optional[RuntimeValue]]` | Stable, non-empty, unique `record_id` within a job |
 | `JobExecutionPolicy` | Positive `max_rows`, positive `batch_size`, bounded `max_memoized_results` and explicitly eligible capabilities/providers | Enforced by deterministic Python, never by generated plan text |
 | `RecordExecution(record_id, row_result)` | Associate a `RowExecutionResult` with its input record | Same input record identity, in input order; no mutation of source values |
 | `JobExecutionResult(records, metrics)` | Ordered complete in-memory results and counters | Exactly one record outcome for each accepted input record |
