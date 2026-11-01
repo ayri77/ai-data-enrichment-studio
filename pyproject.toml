@@ -30,6 +30,7 @@ dev = [
 packages = ["src/ai_data_enrichment"]
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 markers = ["integration: tests across package boundaries"]

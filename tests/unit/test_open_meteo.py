@@ -1,32 +1,13 @@
 """Offline tests for Open-Meteo geocoding."""
 
-from collections.abc import Mapping
-
 import pytest
+from tests.support.http import StubJsonTransport as StubTransport
 
 from ai_data_enrichment.execution.models import GeoPoint
 from ai_data_enrichment.providers.open_meteo import (
     GEOCODING_URL,
     OpenMeteoGeocodingHandler,
 )
-
-
-class StubTransport:
-    """Return a fixed response and capture the HTTP request."""
-
-    def __init__(self, payload: object) -> None:
-        self.payload = payload
-        self.requests: list[tuple[str, dict[str, str], float]] = []
-
-    def get_json(
-        self,
-        *,
-        url: str,
-        params: Mapping[str, str],
-        timeout_seconds: float,
-    ) -> object:
-        self.requests.append((url, dict(params), timeout_seconds))
-        return self.payload
 
 
 def test_resolves_berlin_with_country_context() -> None:
@@ -293,22 +274,6 @@ def test_handles_provider_error_response() -> None:
     assert not result.evidence
 
 
-class FailingTransport:
-    """Simulate network failures without making HTTP requests."""
-
-    def __init__(self, error: OSError) -> None:
-        self.error = error
-
-    def get_json(
-        self,
-        *,
-        url: str,
-        params: Mapping[str, str],
-        timeout_seconds: float,
-    ) -> object:
-        raise self.error
-
-
 @pytest.mark.parametrize(
     "error",
     [
@@ -319,7 +284,7 @@ class FailingTransport:
 )
 def test_handles_transport_failure(error: OSError) -> None:
     """Convert transport failures into structured operation results."""
-    handler = OpenMeteoGeocodingHandler(transport=FailingTransport(error))
+    handler = OpenMeteoGeocodingHandler(transport=StubTransport(None, error=error))
 
     result = handler.execute(
         inputs={"city": "Berlin", "country": "Germany"},

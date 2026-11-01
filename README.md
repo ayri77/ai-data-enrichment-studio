@@ -100,6 +100,12 @@ Open-Meteo integration:
 - No API key required
 - Explicit error outcomes and source evidence
 
+HTTP-based providers share a JSON transport protocol and typed transport
+failures for timeout, network, HTTP status and malformed JSON. HTTP status
+and Retry-After metadata are retained at the transport boundary for later
+retry policies; no retry logic is enabled yet. Individual providers remain
+responsible for validating source-specific response data.
+
 All automated provider tests use offline fixtures or mocked HTTP
 responses. Live geocoding is not required by CI.
 

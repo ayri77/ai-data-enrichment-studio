@@ -2,7 +2,6 @@
 
 from collections.abc import Mapping
 from json import JSONDecodeError
-from typing import Protocol
 
 import pycountry
 from pydantic import ValidationError
@@ -13,20 +12,10 @@ from ai_data_enrichment.execution.models import (
     OperationResult,
     RuntimeValue,
 )
+from ai_data_enrichment.providers.http_results import transport_failure_result
+from ai_data_enrichment.providers.http_transport import JsonTransport, JsonTransportError
 
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
-
-
-class JsonTransport(Protocol):
-    """Fetch JSON without coupling the provider to an HTTP library."""
-
-    def get_json(
-        self,
-        *,
-        url: str,
-        params: Mapping[str, str],
-        timeout_seconds: float,
-    ) -> object: ...
 
 
 class OpenMeteoGeocodingHandler:
@@ -83,18 +72,8 @@ class OpenMeteoGeocodingHandler:
                 },
                 timeout_seconds=10.0,
             )
-        except OSError:
-            return OperationResult(
-                status="failure",
-                error_code="PROVIDER_ERROR",
-                message="Geocoding API request failed.",
-            )
-        except JSONDecodeError:
-            return OperationResult(
-                status="failure",
-                error_code="INVALID_RESPONSE",
-                message="Geocoding API returned malformed JSON.",
-            )
+        except (JsonTransportError, JSONDecodeError, OSError) as exc:
+            return transport_failure_result(exc, provider_label="Geocoding API")
 
         if not isinstance(payload, dict):
             return OperationResult(
