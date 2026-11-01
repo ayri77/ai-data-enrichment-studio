@@ -224,7 +224,7 @@ Type inference is advisory. For example, a string column containing digits might
 
 - **DataSourceSpec:** Describes where and how a source is accessed, including format and source-specific configuration. For SQL, the initial prospective boundary is a user-provided or otherwise approved read-only query whose result is treated as one logical table. Connection secrets must not be exposed to the Planner.
 - **Source adapter:** Inspects source-specific structure and produces source-independent profiles. Only an XLSX profiling adapter is implemented in M1; CSV, structured TXT, and SQL adapters are future extensions.
-- **Dataset records / RecordStream:** Supplies the actual records or batches to the Execution Engine, separately from the planning profile. Its general contract and implementation are deferred.
+- **Dataset records / RecordStream:** Supplies actual source-independent records or bounded batches to the Execution Engine, separately from the planning profile. Issue #34 proposes the minimal in-memory record identity and batch contract in [M2 job execution](05-m2-job-execution.md); source-specific streaming adapters remain deferred.
 - **ExecutionPolicy and output destination:** Define processing limits, pagination/batching behavior where applicable, and where results are written. They are not attributes of the DatasetProfile. An eventual output-destination contract must not be confused with the Capability `OutputSpec`.
 
 **Profiling boundaries and invariants:**
@@ -921,7 +921,7 @@ Two initial scopes are considered:
 
 **Job-level cache**
 
-Avoids repeated equivalent operations during a single execution.
+Avoids repeated equivalent operations during a single execution. The proposed #34 implementation is explicitly **in-memory, per-job, success-only, and bounded**; it wraps eligible handler calls without changing row-level DAG semantics. See [M2 job execution](05-m2-job-execution.md).
 
 **Persistent cache**
 
