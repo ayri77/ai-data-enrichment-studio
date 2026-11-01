@@ -92,6 +92,10 @@ def test_successful_operation_reused_with_evidence_and_reordered_mappings() -> N
         "logical_operations": 2,
         "executed_handler_calls": 1,
         "reused_operations": 1,
+        "persistent_cache_hits": 0,
+        "persistent_cache_misses": 0,
+        "persistent_cache_writes": 0,
+        "persistent_cache_invalid_entries": 0,
         "memoized_results": 1,
         "memo_capacity_skips": 0,
     }
