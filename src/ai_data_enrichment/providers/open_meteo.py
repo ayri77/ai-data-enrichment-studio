@@ -42,11 +42,24 @@ class OpenMeteoGeocodingHandler:
         parameters: Mapping[str, str],
     ) -> OperationResult:
         """Resolve one city using its country context."""
-        city = inputs["city"]
-        country = inputs["country"]
 
-        assert isinstance(city, str)
-        assert isinstance(country, str)
+        city = inputs.get("city")
+        country = inputs.get("country")
+
+        if (
+            not isinstance(city, str)
+            or not city.strip()
+            or not isinstance(country, str)
+            or not country.strip()
+        ):
+            return OperationResult(
+                status="failure",
+                error_code="INVALID_INPUT",
+                message="City and country must be non-empty strings.",
+            )
+
+        city = city.strip()
+        country = country.strip()
 
         # Validate the country code.
         try:

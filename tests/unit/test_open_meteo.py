@@ -331,3 +331,35 @@ def test_handles_transport_failure(error: OSError) -> None:
     assert result.value is None
     assert result.message
     assert not result.evidence
+
+
+@pytest.mark.parametrize(
+    ("city", "country"),
+    [
+        (42.0, "Germany"),
+        ("Berlin", 42.0),
+        ("   ", "Germany"),
+    ],
+    ids=[
+        "numeric-city",
+        "numeric-country",
+        "blank-city",
+    ],
+)
+def test_rejects_invalid_inputs(
+    city: str | float,
+    country: str | float,
+) -> None:
+    """Reject invalid inputs before contacting the provider."""
+    transport = StubTransport({"results": []})
+    handler = OpenMeteoGeocodingHandler(transport=transport)
+
+    result = handler.execute(
+        inputs={"city": city, "country": country},
+        parameters={},
+    )
+
+    assert result.status == "failure"
+    assert result.error_code == "INVALID_INPUT"
+    assert result.value is None
+    assert not transport.requests
