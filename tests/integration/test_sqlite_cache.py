@@ -1,7 +1,7 @@
 """Offline SQLite cache tests using real temporary database files and a fake clock."""
 
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 
 import pytest
 
