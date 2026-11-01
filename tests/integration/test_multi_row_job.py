@@ -106,9 +106,7 @@ class ElevationLookup:
                 value=float(int(entity.entity_id[1:])),
                 unit="m",
             ),
-            evidence=(
-                Evidence(source="wikidata", reference=f"{entity.entity_id}:P2044"),
-            ),
+            evidence=(Evidence(source="wikidata", reference=f"{entity.entity_id}:P2044"),),
         )
 
 
@@ -156,12 +154,8 @@ def mountain_setup(
     resolver = MountainResolver()
     lookup = ElevationLookup()
     providers = ProviderRegistry(capabilities)
-    providers.register(
-        capability_id="resolve_entity", provider_id="wikidata", handler=resolver
-    )
-    providers.register(
-        capability_id="lookup_property", provider_id="wikidata", handler=lookup
-    )
+    providers.register(capability_id="resolve_entity", provider_id="wikidata", handler=resolver)
+    providers.register(capability_id="lookup_property", provider_id="wikidata", handler=lookup)
     selection = {"resolve_entity": "wikidata", "lookup_property": "wikidata"}
     handlers = providers.resolve_handlers(
         capability_ids=[step.capability for step in plan.steps],
@@ -193,18 +187,13 @@ def record(row_id: str, name: str | None, country: str | None = "Nepal") -> Inpu
 
 def test_1000_rows_deduplicate_across_batch_boundaries() -> None:
     executor, plan, resolver, lookup = mountain_setup(batch_size=37)
-    source = [
-        record(f"row-{999 - i:04d}", f"Mountain {i % 10}")
-        for i in range(1000)
-    ]
+    source = [record(f"row-{999 - i:04d}", f"Mountain {i % 10}") for i in range(1000)]
     before = [dict(item.values) for item in source]
 
     result = executor.execute(plan, iter(source))
 
     assert len(result.records) == 1000
-    assert [item.record_id for item in result.records] == [
-        item.record_id for item in source
-    ]
+    assert [item.record_id for item in result.records] == [item.record_id for item in source]
     assert [item.values for item in source] == before
     assert len(resolver.calls) == 10
     assert len(lookup.calls) == 10
@@ -225,12 +214,8 @@ def test_1000_rows_deduplicate_across_batch_boundaries() -> None:
     assert [step.step_id for step in first] == ["resolve", "lookup"]
     assert first[-1].result.value == Quantity(value=1000.0, unit="m")
     assert last[-1].result.value == Quantity(value=1009.0, unit="m")
-    assert first[0].result.evidence == (
-        Evidence(source="wikidata", reference="Q1000:P31"),
-    )
-    assert last[-1].result.evidence == (
-        Evidence(source="wikidata", reference="Q1009:P2044"),
-    )
+    assert first[0].result.evidence == (Evidence(source="wikidata", reference="Q1000:P31"),)
+    assert last[-1].result.evidence == (Evidence(source="wikidata", reference="Q1009:P2044"),)
 
 
 def test_row_failures_are_isolated_and_dependency_steps_blocked() -> None:
@@ -256,16 +241,12 @@ def test_row_failures_are_isolated_and_dependency_steps_blocked() -> None:
     assert "Q1999" in lookup.calls
 
     missing = job.records[1].row_result.steps
-    assert [step.result.error_code for step in missing] == [
-        "NOT_FOUND", "DEPENDENCY_FAILED"
-    ]
+    assert [step.result.error_code for step in missing] == ["NOT_FOUND", "DEPENDENCY_FAILED"]
     no_elevation = job.records[2].row_result.steps
     assert [step.result.status for step in no_elevation] == ["success", "failure"]
     assert no_elevation[0].result.evidence[0].reference == "Q1999:P31"
     no_country = job.records[3].row_result.steps
-    assert [step.result.error_code for step in no_country] == [
-        "MISSING_VALUE", "DEPENDENCY_FAILED"
-    ]
+    assert [step.result.error_code for step in no_country] == ["MISSING_VALUE", "DEPENDENCY_FAILED"]
     assert len(lookup.calls) == 2
 
 
@@ -294,7 +275,7 @@ def test_bad_input_fails_before_any_handler_call(failure: str) -> None:
     executor, plan, resolver, lookup = mountain_setup(max_rows=2)
 
     def bad_rows() -> Iterator[InputRecord]:
-        for identifier in (["x", "x"] if failure == "duplicate" else ["a", "b", "c"]):
+        for identifier in ["x", "x"] if failure == "duplicate" else ["a", "b", "c"]:
             yield record(identifier, "Mountain 0")
 
     with pytest.raises(ValueError, match="Duplicate record ID|exceeds max_rows"):
@@ -316,9 +297,7 @@ def test_missing_binding_rejected_before_first_row() -> None:
 
 
 def test_capacity_limit_applies_across_batches() -> None:
-    executor, plan, resolver, lookup = mountain_setup(
-        batch_size=1, capacity=2
-    )
+    executor, plan, resolver, lookup = mountain_setup(batch_size=1, capacity=2)
     rows = [
         record("a", "Mountain 0"),
         record("b", "Mountain 1"),
