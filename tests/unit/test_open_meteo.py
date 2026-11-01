@@ -284,9 +284,7 @@ def test_handles_provider_error_response() -> None:
 )
 def test_handles_transport_failure(error: OSError) -> None:
     """Convert transport failures into structured operation results."""
-    handler = OpenMeteoGeocodingHandler(
-        transport=StubTransport(None, error=error)
-    )
+    handler = OpenMeteoGeocodingHandler(transport=StubTransport(None, error=error))
 
     result = handler.execute(
         inputs={"city": "Berlin", "country": "Germany"},
