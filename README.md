@@ -72,13 +72,13 @@ Implemented:
 - LLM-based plan generation using the OpenAI Responses API.
 - CLI commands for plan generation, export, revalidation, and evaluation.
 - Independent scenario-level planning evaluation for Mountains and Capitals.
+- Bounded in-memory multi-row execution and job-scoped deduplication of approved successful operations.
 - Automated tests, Ruff, Pyright, and GitHub Actions CI.
 
 Not implemented yet:
 
 - CLI-driven execution of generated enrichment plans.
-- Multi-row job execution and request deduplication (planned in #34).
-- Persistent caching, retry/rate policies, and execution recovery.
+- Persistent cross-job SQLite caching, retry/rate policies, and execution recovery.
 - Enriched Excel workbook generation and result provenance.
 - Independent evaluation of enriched numeric values.
 - LangGraph orchestration and web application.
@@ -111,8 +111,10 @@ All automated provider tests use offline fixtures or mocked HTTP
 responses. Live provider checks are not required by CI.
 
 Single-row Wikidata and Open-Meteo DAG integration tests pass offline.
-Multi-row processing, cross-row reuse, SQLite persistence and retry/rate policies
-remain separate M2 tasks (#34, #35, #36).
+Multi-row processing and cross-row reuse are implemented in `JobExecutor`
+using source-independent `InputRecord` inputs and bounded batches. The job-level
+cache is ephemeral and success-only; SQLite persistence and retry/rate policies
+remain separate M2 tasks (#35 and #36).
 
 Execution through the CLI and Excel output are not yet implemented.
 
@@ -227,7 +229,7 @@ The repository follows a **design-for-extension, implement-for-current-needs** a
 | [02 — Conceptual Architecture](docs/02-architecture.md) | Components, responsibilities, execution flow |
 | [03 — Domain Model](docs/03-domain-model.md) | Entities, relationships, conceptual contracts |
 | [04 — Planning & Capabilities](docs/04-planning-and-capabilities.md) | Initial capabilities, plan schema, validation rules |
-| [05 — M2 Job Execution](docs/05-m2-job-execution.md) | Proposed multi-row job contract, deduplication and metrics for #34 |
+| [05 — M2 Job Execution](docs/05-m2-job-execution.md) | Implemented bounded multi-row contract, job-scoped deduplication and metrics (#34) |
 
 Technical documentation and code are in **English**. Academic submission materials for Neoversity will be prepared in **Ukrainian**.
 
