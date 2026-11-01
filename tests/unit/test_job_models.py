@@ -20,6 +20,7 @@ from ai_data_enrichment.execution.models import (
     OperationResult,
     Quantity,
     RowExecutionResult,
+    RuntimeValue,
     StepExecutionResult,
 )
 
@@ -50,7 +51,7 @@ def row_result(*statuses: str) -> RowExecutionResult:
 
 
 def test_input_record_preserves_typed_values_and_original_mapping() -> None:
-    source = {
+    source: dict[str, RuntimeValue | None] = {
         "mountain": "Everest",
         "country": "Nepal",
         "height": 8848.86,
