@@ -94,15 +94,12 @@ class SQLiteOperationCache:
         tables = {
             row[0]
             for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' "
-                "AND name NOT LIKE 'sqlite_%'"
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
             )
         }
         if version == 0:
             if tables:
-                raise CacheSchemaError(
-                    "Refusing to initialize an existing unversioned database."
-                )
+                raise CacheSchemaError("Refusing to initialize an existing unversioned database.")
             with connection:
                 connection.execute(
                     """
@@ -147,11 +144,7 @@ class SQLiteOperationCache:
 
         entry_version, payload, expires_at = row
         now = self._now()
-        if (
-            type(expires_at) not in (float, int)
-            or not isfinite(expires_at)
-            or now >= expires_at
-        ):
+        if type(expires_at) not in (float, int) or not isfinite(expires_at) or now >= expires_at:
             with self._connection:
                 self._connection.execute(
                     "DELETE FROM operation_cache WHERE key_digest = ?", (key_digest,)
