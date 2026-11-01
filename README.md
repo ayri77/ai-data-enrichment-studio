@@ -6,10 +6,11 @@
 ![Python](https://img.shields.io/badge/Python-3.12%2B-blue)
 
 
-> **Status: active development — M1 Planner & Validator.**
-> Dataset profiling, LLM-based plan generation, deterministic validation,
-> plan serialization, and scenario-level planning evaluation are implemented.
-> Enrichment execution and Excel output generation are not yet available.
+> **Status: active development — M2 Execution Engine.**
+> M1 Planner & Validator is complete. M2 includes an in-memory DAG
+> executor, approved provider registry, Open-Meteo geocoding,
+> and deterministic geodesic distance calculation.
+> CLI-driven execution and enriched Excel output are not yet available.
 
 
 ## Why this project?
@@ -75,13 +76,34 @@ Implemented:
 
 Not implemented yet:
 
-- Execution of generated enrichment plans.
+- CLI-driven execution of generated enrichment plans.
 - External entity resolution and data retrieval providers.
 - Persistent caching, request deduplication, and execution recovery.
 - Enriched Excel workbook generation and result provenance.
 - Independent evaluation of enriched numeric values.
 - LangGraph orchestration and web application.
 
+### In-memory execution (M2)
+
+The project includes a typed, in-memory DAG execution engine
+with explicit provider registration and dependency handling.
+
+Implemented providers:
+- Open-Meteo geocoding: city and country resolution to GeoPoint.
+- Local geodesic distance: Haversine calculation in kilometers.
+
+Open-Meteo integration:
+- Endpoint: https://geocoding-api.open-meteo.com/v1/search
+- Country filtering: ISO 3166-1 alpha-2
+- Request timeout: 10 seconds
+- Maximum search results: 10
+- No API key required
+- Explicit error outcomes and source evidence
+
+All automated provider tests use offline fixtures or mocked HTTP
+responses. Live geocoding is not required by CI.
+
+Execution through the CLI and Excel output are not yet implemented.
 
 ## Quick start
 
@@ -173,13 +195,16 @@ enrichment will be introduced in subsequent milestones.
 | Milestone | Scope | Status |
 | --- | --- | --- |
 | Bootstrap | Package, Excel inspection, tests, CI | **Complete** |
-| **M1 — Planner & Validator** | Capability contracts, typed plans, deterministic plan validation, LLM planner | Implementation complete — pending review and merge |
-| **M2 — Execution Engine** | Providers, operation dependencies, caching, error handling | Planned |
+| **M1 — Planner & Validator** | Capability contracts, typed plans, deterministic plan validation, LLM planner | Complete |
+| **M2 — Execution Engine** | Providers, operation dependencies, caching, error handling | In progress |
 | **M3 — Excel & Evaluation** | Workbook-preserving output, independent benchmarks, mandatory MVP scenarios | Planned |
 | **M4 — Agentic Orchestration** | LangGraph, conditional recovery, bounded replanning | Planned |
 | **M5 — Portfolio Application** | Organization enrichment, web UI, background jobs, deployment | Future |
 
-Longer-term possibilities include reusable user-defined scenarios and an **AI Perception Observatory** for studying how organizations and products appear across AI systems. These are not part of the academic MVP.
+The CLI currently supports planning and validation.
+An in-memory execution engine is available in Python,
+but CLI-driven execution and workbook enrichment
+will be introduced in subsequent milestones.
 
 ## Technical documentation
 
