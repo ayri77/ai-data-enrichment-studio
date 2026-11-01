@@ -1,6 +1,8 @@
 """Offline multi-row DAG execution and bounded 1,000-record acceptance tests."""
 
+import sqlite3
 from collections.abc import Iterator, Mapping
+from pathlib import Path
 
 import pytest
 
@@ -26,6 +28,7 @@ from ai_data_enrichment.domain.enrichment_plan import (
 )
 from ai_data_enrichment.execution.job_executor import JobExecutor
 from ai_data_enrichment.execution.job_models import InputRecord, JobExecutionPolicy
+from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
 from ai_data_enrichment.execution.models import (
     EntityRef,
     Evidence,
@@ -435,3 +438,209 @@ def test_capitals_workflow_reuses_geocoding_and_calculation() -> None:
     assert distance.value.unit == "km"
     assert 250.0 < distance.value.value < 260.0
     assert distance.evidence[0].source == "calculation"
+
+
+class _FakeCacheClock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _persistent_mountain_setup(
+    cache: SQLiteOperationCache,
+    *,
+    capacity: int = 10,
+    ttl: float = 30.0,
+    capability_versions: dict[str, str] | None = None,
+    provider_versions: dict[str, str] | None = None,
+) -> tuple[JobExecutor, EnrichmentPlan, MountainResolver, ElevationLookup]:
+    _, plan, resolver, lookup = mountain_setup()
+    bindings = frozenset(
+        {("resolve_entity", "wikidata"), ("lookup_property", "wikidata")}
+    )
+    executor = JobExecutor(
+        handlers={"resolve_entity": resolver, "lookup_property": lookup},
+        selected_providers={"resolve_entity": "wikidata", "lookup_property": "wikidata"},
+        configuration_ids={
+            "resolve_entity": "wikidata-fixture-v1",
+            "lookup_property": "wikidata-fixture-v1",
+        },
+        capability_versions=capability_versions or {
+            "resolve_entity": "1.0",
+            "lookup_property": "1.0",
+        },
+        provider_versions=provider_versions or {
+            "resolve_entity": "ontology-v1",
+            "lookup_property": "elevation-v1",
+        },
+        persistent_cache=cache,
+        policy=JobExecutionPolicy(
+            batch_size=1,
+            max_memoized_results=capacity,
+            memoizable_providers=bindings,
+            persistent_cache_ttls={binding: ttl for binding in bindings},
+        ),
+    )
+    return executor, plan, resolver, lookup
+
+
+def test_persistent_cache_reuses_typed_dag_results_between_jobs(tmp_path: Path) -> None:
+    path = tmp_path / "two-jobs.db"
+    rows = [
+        record("a", "Mountain 0"),
+        record("b", "Mountain 1"),
+        record("c", "Mountain 0"),
+        record("d", "Mountain 1"),
+    ]
+    with SQLiteOperationCache(path, clock=_FakeCacheClock()) as cache:
+        first, plan, resolver_1, lookup_1 = _persistent_mountain_setup(cache)
+        outcome_1 = first.execute(plan, rows)
+        assert (len(resolver_1.calls), len(lookup_1.calls)) == (2, 2)
+        assert outcome_1.metrics.logical_operations == 8
+        assert outcome_1.metrics.executed_handler_calls == 4
+        assert outcome_1.metrics.reused_operations == 4
+        assert outcome_1.metrics.persistent_cache_hits == 0
+        assert outcome_1.metrics.persistent_cache_misses == 4
+        assert outcome_1.metrics.persistent_cache_writes == 4
+
+    # A fresh connection and new JobExecutor must still restore original Evidence.
+    with SQLiteOperationCache(path, clock=_FakeCacheClock()) as cache:
+        second, _, resolver_2, lookup_2 = _persistent_mountain_setup(cache)
+        outcome_2 = second.execute(plan, rows)
+        assert (len(resolver_2.calls), len(lookup_2.calls)) == (0, 0)
+        assert outcome_2.records == outcome_1.records
+        metrics = outcome_2.metrics
+        assert metrics.logical_operations == 8
+        assert metrics.executed_handler_calls == 0
+        assert metrics.persistent_cache_hits == 4
+        assert metrics.reused_operations == 4
+        assert metrics.memoized_results == 4
+        assert metrics.persistent_cache_misses == 0
+        assert metrics.persistent_cache_writes == 0
+
+
+def test_expired_cross_job_results_are_recomputed(tmp_path: Path) -> None:
+    clock = _FakeCacheClock()
+    with SQLiteOperationCache(tmp_path / "expires.db", clock=clock) as cache:
+        first, plan, resolver_1, lookup_1 = _persistent_mountain_setup(cache, ttl=10.0)
+        first.execute(plan, [record("first", "Mountain 0")])
+        clock.now = 1010.0
+        second, _, resolver_2, lookup_2 = _persistent_mountain_setup(cache, ttl=10.0)
+        refreshed = second.execute(plan, [record("second", "Mountain 0")])
+        assert len(resolver_1.calls) == len(lookup_1.calls) == 1
+        assert len(resolver_2.calls) == len(lookup_2.calls) == 1
+        assert refreshed.metrics.executed_handler_calls == 2
+        assert refreshed.metrics.persistent_cache_misses == 2
+        assert refreshed.metrics.persistent_cache_writes == 2
+        assert refreshed.metrics.persistent_cache_hits == 0
+
+
+def test_provider_semantic_version_change_invalidates_only_its_key(tmp_path: Path) -> None:
+    with SQLiteOperationCache(tmp_path / "versions.db", clock=_FakeCacheClock()) as cache:
+        first, plan, _, _ = _persistent_mountain_setup(cache)
+        first.execute(plan, [record("a", "Mountain 0")])
+        second, _, resolver, lookup = _persistent_mountain_setup(
+            cache,
+            provider_versions={
+                "resolve_entity": "ontology-v2",
+                "lookup_property": "elevation-v1",
+            },
+        )
+        result = second.execute(plan, [record("b", "Mountain 0")])
+        assert len(resolver.calls) == 1
+        assert lookup.calls == []
+        assert result.metrics.persistent_cache_hits == 1
+        assert result.metrics.persistent_cache_misses == 1
+        assert result.metrics.executed_handler_calls == 1
+
+
+def test_corrupt_cached_results_fail_closed_and_are_replaced(tmp_path: Path) -> None:
+    path = tmp_path / "corrupt-job.db"
+    with SQLiteOperationCache(path, clock=_FakeCacheClock()) as cache:
+        first, plan, _, _ = _persistent_mountain_setup(cache)
+        first.execute(plan, [record("a", "Mountain 0")])
+        with sqlite3.connect(path) as connection:
+            connection.execute(
+                "UPDATE operation_cache SET result_json = '{corrupt-json'"
+            )
+        second, _, resolver, lookup = _persistent_mountain_setup(cache)
+        result = second.execute(plan, [record("b", "Mountain 0")])
+        assert len(resolver.calls) == len(lookup.calls) == 1
+        assert result.metrics.persistent_cache_invalid_entries == 2
+        assert result.metrics.persistent_cache_misses == 2
+        assert result.metrics.persistent_cache_writes == 2
+        assert result.records[0].row_result.steps[-1].result.evidence[0].source == "wikidata"
+
+
+def test_provider_failure_is_not_persisted_between_jobs(tmp_path: Path) -> None:
+    with SQLiteOperationCache(tmp_path / "failure.db", clock=_FakeCacheClock()) as cache:
+        first, plan, resolver_1, _ = _persistent_mountain_setup(cache)
+        first_outcome = first.execute(plan, [record("a", "Unknown Mountain")])
+        second, _, resolver_2, lookup_2 = _persistent_mountain_setup(cache)
+        second_outcome = second.execute(plan, [record("b", "Unknown Mountain")])
+        assert len(resolver_1.calls) == len(resolver_2.calls) == 1
+        assert lookup_2.calls == []
+        assert first_outcome.metrics.persistent_cache_writes == 0
+        assert second_outcome.metrics.persistent_cache_hits == 0
+        assert second_outcome.metrics.persistent_cache_misses == 1
+        assert second_outcome.records[0].row_result.steps[-1].result.error_code == (
+            "DEPENDENCY_FAILED"
+        )
+
+
+def test_zero_memory_capacity_still_reuses_sqlite_between_jobs(tmp_path: Path) -> None:
+    with SQLiteOperationCache(tmp_path / "no-memory.db", clock=_FakeCacheClock()) as cache:
+        first, plan, _, _ = _persistent_mountain_setup(cache, capacity=0)
+        first.execute(plan, [record("a", "Mountain 0")])
+        second, _, resolver, lookup = _persistent_mountain_setup(cache, capacity=0)
+        result = second.execute(plan, [record("b", "Mountain 0")])
+        assert resolver.calls == lookup.calls == []
+        assert result.metrics.persistent_cache_hits == 2
+        assert result.metrics.reused_operations == 0
+        assert result.metrics.memoized_results == 0
+        assert result.metrics.memo_capacity_skips == 2
+
+
+def test_cache_versions_must_be_configured_before_provider_calls(tmp_path: Path) -> None:
+    with SQLiteOperationCache(tmp_path / "missing-version.db") as cache:
+        _, plan, resolver, lookup = mountain_setup()
+        broken = JobExecutor(
+            handlers={"resolve_entity": resolver, "lookup_property": lookup},
+            selected_providers={"resolve_entity": "wikidata", "lookup_property": "wikidata"},
+            configuration_ids={
+                "resolve_entity": "config-v1",
+                "lookup_property": "config-v1",
+            },
+            persistent_cache=cache,
+            policy=JobExecutionPolicy(
+                memoizable_providers=frozenset({("resolve_entity", "wikidata")}),
+                persistent_cache_ttls={("resolve_entity", "wikidata"): 20.0},
+            ),
+        )
+        with pytest.raises(ValueError, match="Missing persistent cache versions"):
+            broken.execute(plan, [record("row", "Mountain 0")])
+        assert resolver.calls == lookup.calls == []
+
+
+def test_unconfigured_cache_storage_does_not_override_policy(tmp_path: Path) -> None:
+    with SQLiteOperationCache(tmp_path / "not-eligible.db") as cache:
+        _, plan, resolver, lookup = mountain_setup()
+        executor = JobExecutor(
+            handlers={"resolve_entity": resolver, "lookup_property": lookup},
+            selected_providers={"resolve_entity": "wikidata", "lookup_property": "wikidata"},
+            configuration_ids={
+                "resolve_entity": "config-v1",
+                "lookup_property": "config-v1",
+            },
+            persistent_cache=cache,
+            policy=JobExecutionPolicy(
+                memoizable_providers=frozenset({("resolve_entity", "wikidata")}),
+            ),
+        )
+        first = executor.execute(plan, [record("a", "Mountain 0")])
+        second = executor.execute(plan, [record("b", "Mountain 0")])
+        assert len(resolver.calls) == len(lookup.calls) == 2
+        assert first.metrics.persistent_cache_hits == second.metrics.persistent_cache_hits == 0
+        assert first.metrics.persistent_cache_writes == second.metrics.persistent_cache_writes == 0
