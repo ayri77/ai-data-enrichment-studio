@@ -213,9 +213,7 @@ def test_codec_rejects_failed_operation() -> None:
     ],
 )
 def test_invalid_payload_is_rejected(mutation: dict[str, object]) -> None:
-    encoded = serialize_success(
-        OperationResult(status="success", value="Everest", evidence=())
-    )
+    encoded = serialize_success(OperationResult(status="success", value="Everest", evidence=()))
     document = loads(encoded)
     document.update(mutation)
     with pytest.raises(ValueError):
