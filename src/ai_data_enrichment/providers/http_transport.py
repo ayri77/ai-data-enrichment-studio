@@ -56,11 +56,7 @@ class UrllibJsonTransport:
     ) -> object:
         query_string = urlencode(params)
         request_url = f"{url}?{query_string}" if query_string else url
-        request = (
-            Request(request_url, headers=self._headers)
-            if self._headers
-            else request_url
-        )
+        request = Request(request_url, headers=self._headers) if self._headers else request_url
 
         try:
             with urlopen(request, timeout=timeout_seconds) as response:
