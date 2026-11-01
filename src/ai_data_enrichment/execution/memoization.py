@@ -8,75 +8,8 @@ from collections.abc import Mapping
 
 from ai_data_enrichment.execution.contracts import CapabilityHandler
 from ai_data_enrichment.execution.job_models import JobExecutionMetrics, JobExecutionPolicy
-from ai_data_enrichment.execution.models import (
-    EntityRef,
-    GeoPoint,
-    OperationResult,
-    Quantity,
-    RuntimeValue,
-)
-
-_ValueKey = tuple[str, ...]
-_OperationKey = tuple[
-    str,
-    str,
-    str,
-    tuple[tuple[str, _ValueKey], ...],
-    tuple[tuple[str, str], ...],
-]
-
-
-def _typed_value_key(value: RuntimeValue) -> _ValueKey | None:
-    """Encode a known runtime value without conflating types or normalizing names."""
-    if isinstance(value, str):
-        return ("text", value)
-    if type(value) is float:
-        # Nonfinite runtime values are never eligible for memoization.
-        from math import isfinite
-
-        if not isfinite(value):
-            return None
-        return ("float", value.hex())
-    if isinstance(value, GeoPoint):
-        return ("geo_point", value.latitude.hex(), value.longitude.hex())
-    if isinstance(value, EntityRef):
-        return ("entity_ref", value.source, value.entity_id)
-    if isinstance(value, Quantity):
-        return ("quantity", value.value.hex(), value.unit)
-    return None
-
-
-def _operation_key(
-    *,
-    capability_id: str,
-    provider_id: str,
-    configuration_id: str,
-    inputs: Mapping[str, RuntimeValue],
-    parameters: Mapping[str, str],
-) -> _OperationKey | None:
-    """Build a deterministic key, or bypass memoization for unsafe inputs."""
-    input_parts: list[tuple[str, _ValueKey]] = []
-    for name, value in inputs.items():
-        if not isinstance(name, str):
-            return None
-        encoded = _typed_value_key(value)
-        if encoded is None:
-            return None
-        input_parts.append((name, encoded))
-
-    parameter_parts: list[tuple[str, str]] = []
-    for name, value in parameters.items():
-        if not isinstance(name, str) or not isinstance(value, str):
-            return None
-        parameter_parts.append((name, value))
-
-    return (
-        capability_id,
-        provider_id,
-        configuration_id,
-        tuple(sorted(input_parts)),
-        tuple(sorted(parameter_parts)),
-    )
+from ai_data_enrichment.execution.models import OperationResult, RuntimeValue
+from ai_data_enrichment.execution.operation_keys import _operation_key, _OperationKey
 
 
 class _MemoizingHandler:
