@@ -400,7 +400,9 @@ def test_capitals_workflow_reuses_geocoding_and_calculation() -> None:
                 parameters={},
             ),
         ],
-        outputs=[OutputMapping(step_id="distance", value_field="value", target_column="distance_km")],
+        outputs=[
+            OutputMapping(step_id="distance", value_field="value", target_column="distance_km")
+        ],
         assumptions=[],
     )
     profile = DatasetProfile(
