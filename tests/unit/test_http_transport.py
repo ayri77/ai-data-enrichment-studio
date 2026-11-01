@@ -1,5 +1,6 @@
 """Offline tests for the HTTP JSON transport."""
 
+from email.message import Message
 from io import BytesIO
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
@@ -102,7 +103,10 @@ def test_transport_preserves_http_failure_metadata(
     status_code: int, retry_after: str | None
 ) -> None:
     """Capture status and retry hints without implementing retries yet."""
-    headers = {"Retry-After": retry_after} if retry_after is not None else {}
+    headers = Message()
+    if retry_after is not None:
+        headers["Retry-After"] = retry_after
+
     upstream_error = HTTPError(GEOCODING_URL, status_code, "HTTP error", headers, None)
 
     with patch(
