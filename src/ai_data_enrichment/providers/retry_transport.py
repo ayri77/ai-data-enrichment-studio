@@ -7,7 +7,7 @@ invokes an injected transport.
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from math import isfinite
 from time import sleep
@@ -90,7 +90,7 @@ def retry_after_seconds(value: str | None, *, now: datetime) -> float | None:
 
     if date.tzinfo is None or now.tzinfo is None:
         return None
-    seconds = (date.astimezone(timezone.utc) - now.astimezone(timezone.utc)).total_seconds()
+    seconds = (date.astimezone(UTC) - now.astimezone(UTC)).total_seconds()
     if not isfinite(seconds):
         return None
     return max(0.0, seconds)
@@ -114,7 +114,7 @@ class RetryingJsonTransport:
         *,
         policy: TransportRetryPolicy,
         sleeper: Callable[[float], None] = sleep,
-        wall_clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        wall_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._transport = transport
         self._policy = policy
