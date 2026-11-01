@@ -137,7 +137,10 @@ def test_unsupported_or_nonfinite_inputs_do_not_generate_cache_keys() -> None:
     assert digest(inputs={"bad": float("inf")}) is None
 
 
-@pytest.mark.parametrize("field", ["capability", "capability_version", "provider", "provider_version", "configuration"])
+@pytest.mark.parametrize(
+    "field",
+    ["capability", "capability_version", "provider", "provider_version", "configuration"],
+)
 def test_blank_identity_fields_rejected(field: str) -> None:
     values = {
         "capability": "resolve_entity",
