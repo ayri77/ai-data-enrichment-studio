@@ -110,7 +110,9 @@ def serialize_success(result: OperationResult) -> str:
             {"source": item.source, "reference": item.reference} for item in result.evidence
         ],
     }
-    return dumps(payload, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
+    return dumps(
+        payload, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":")
+    )
 
 
 def deserialize_success(payload: str) -> OperationResult:
