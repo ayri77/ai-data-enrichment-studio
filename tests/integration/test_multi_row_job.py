@@ -457,9 +457,7 @@ def _persistent_mountain_setup(
     provider_versions: dict[str, str] | None = None,
 ) -> tuple[JobExecutor, EnrichmentPlan, MountainResolver, ElevationLookup]:
     _, plan, resolver, lookup = mountain_setup()
-    bindings = frozenset(
-        {("resolve_entity", "wikidata"), ("lookup_property", "wikidata")}
-    )
+    bindings = frozenset({("resolve_entity", "wikidata"), ("lookup_property", "wikidata")})
     executor = JobExecutor(
         handlers={"resolve_entity": resolver, "lookup_property": lookup},
         selected_providers={"resolve_entity": "wikidata", "lookup_property": "wikidata"},
@@ -467,11 +465,13 @@ def _persistent_mountain_setup(
             "resolve_entity": "wikidata-fixture-v1",
             "lookup_property": "wikidata-fixture-v1",
         },
-        capability_versions=capability_versions or {
+        capability_versions=capability_versions
+        or {
             "resolve_entity": "1.0",
             "lookup_property": "1.0",
         },
-        provider_versions=provider_versions or {
+        provider_versions=provider_versions
+        or {
             "resolve_entity": "ontology-v1",
             "lookup_property": "elevation-v1",
         },
@@ -562,9 +562,7 @@ def test_corrupt_cached_results_fail_closed_and_are_replaced(tmp_path: Path) -> 
         first, plan, _, _ = _persistent_mountain_setup(cache)
         first.execute(plan, [record("a", "Mountain 0")])
         with sqlite3.connect(path) as connection:
-            connection.execute(
-                "UPDATE operation_cache SET result_json = '{corrupt-json'"
-            )
+            connection.execute("UPDATE operation_cache SET result_json = '{corrupt-json'")
         second, _, resolver, lookup = _persistent_mountain_setup(cache)
         result = second.execute(plan, [record("b", "Mountain 0")])
         assert len(resolver.calls) == len(lookup.calls) == 1
