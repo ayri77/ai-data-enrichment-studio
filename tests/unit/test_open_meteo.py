@@ -1,13 +1,13 @@
 """Offline tests for Open-Meteo geocoding."""
 
 import pytest
+from tests.support.http import StubJsonTransport as StubTransport
 
 from ai_data_enrichment.execution.models import GeoPoint
 from ai_data_enrichment.providers.open_meteo import (
     GEOCODING_URL,
     OpenMeteoGeocodingHandler,
 )
-from tests.support.http import StubJsonTransport as StubTransport
 
 
 def test_resolves_berlin_with_country_context() -> None:
