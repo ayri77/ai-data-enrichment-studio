@@ -15,6 +15,7 @@ from ai_data_enrichment.execution.job_models import (
     prepare_input_records,
 )
 from ai_data_enrichment.execution.memoization import JobMemoization
+from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
 
 
 class JobExecutor:
@@ -31,11 +32,17 @@ class JobExecutor:
         selected_providers: Mapping[str, str],
         configuration_ids: Mapping[str, str],
         policy: JobExecutionPolicy,
+        persistent_cache: SQLiteOperationCache | None = None,
+        capability_versions: Mapping[str, str] | None = None,
+        provider_versions: Mapping[str, str] | None = None,
     ) -> None:
         self._handlers = dict(handlers)
         self._selected_providers = dict(selected_providers)
         self._configuration_ids = dict(configuration_ids)
         self._policy = policy
+        self._persistent_cache = persistent_cache
+        self._capability_versions = dict(capability_versions or {})
+        self._provider_versions = dict(provider_versions or {})
 
     def execute(
         self,
@@ -64,13 +71,27 @@ class JobExecutor:
                 f"configurations={missing_configs}."
             )
 
-        memo = JobMemoization(self._policy)
+        persistent_capabilities = [
+            cap
+            for cap in capabilities
+            if (cap, self._selected_providers[cap]) in self._policy.persistent_cache_ttls
+        ]
+        if persistent_capabilities:
+            if self._persistent_cache is None:
+                raise ValueError("Persistent cache policy requires a SQLite cache instance.")
+            for cap in persistent_capabilities:
+                if not self._capability_versions.get(cap) or not self._provider_versions.get(cap):
+                    raise ValueError(f"Missing persistent cache versions for capability: {cap}.")
+
+        memo = JobMemoization(self._policy, self._persistent_cache)
         wrapped_handlers = {
             cap: memo.wrap_handler(
                 capability_id=cap,
                 provider_id=self._selected_providers[cap],
                 configuration_id=self._configuration_ids[cap],
                 handler=self._handlers[cap],
+                capability_version=self._capability_versions.get(cap),
+                provider_version=self._provider_versions.get(cap),
             )
             for cap in capabilities
         }
@@ -93,6 +114,10 @@ class JobExecutor:
             logical_operations=counts.logical_operations,
             executed_handler_calls=counts.executed_handler_calls,
             reused_operations=counts.reused_operations,
+            persistent_cache_hits=counts.persistent_cache_hits,
+            persistent_cache_misses=counts.persistent_cache_misses,
+            persistent_cache_writes=counts.persistent_cache_writes,
+            persistent_cache_invalid_entries=counts.persistent_cache_invalid_entries,
             memoized_results=counts.memoized_results,
             memo_capacity_skips=counts.memo_capacity_skips,
         )

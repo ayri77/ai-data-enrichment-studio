@@ -257,3 +257,47 @@ def test_empty_job_result_has_zero_metrics() -> None:
     result = JobExecutionResult(records=(), metrics=JobExecutionMetrics())
     assert result.records == ()
     assert result.metrics.total_rows == 0
+
+
+def test_persistent_ttls_require_explicit_approved_binding_and_positive_value() -> None:
+    from pydantic import ValidationError
+
+    binding = ("resolve_entity", "wikidata")
+    policy = JobExecutionPolicy(
+        memoizable_providers=frozenset({binding}),
+        persistent_cache_ttls={binding: 30.0},
+    )
+    assert policy.persistent_cache_ttls[binding] == 30.0
+
+    with pytest.raises(ValidationError, match="approved memoizable"):
+        JobExecutionPolicy(persistent_cache_ttls={binding: 30.0})
+
+    for bad in [0.0, -1.0, float("nan"), float("inf")]:
+        with pytest.raises(ValidationError):
+            JobExecutionPolicy(
+                memoizable_providers=frozenset({binding}),
+                persistent_cache_ttls={binding: bad},
+            )
+
+
+def test_persistent_cache_accounting_and_memoization_from_sqlite_hits() -> None:
+    metrics = JobExecutionMetrics(
+        logical_operations=4,
+        executed_handler_calls=0,
+        reused_operations=2,
+        persistent_cache_hits=2,
+        persistent_cache_misses=0,
+        memoized_results=2,
+    )
+    assert metrics.memoized_results == 2
+
+    from pydantic import ValidationError
+
+    for bad_metrics in [
+        {"logical_operations": 2, "persistent_cache_hits": 1},
+        {"logical_operations": 1, "persistent_cache_hits": 1, "memoized_results": 2},
+        {"persistent_cache_invalid_entries": 1},
+        {"persistent_cache_writes": 1},
+    ]:
+        with pytest.raises(ValidationError):
+            JobExecutionMetrics.model_validate(bad_metrics)
