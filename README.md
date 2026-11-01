@@ -9,7 +9,7 @@
 > **Status: active development — M2 Execution Engine.**
 > M1 Planner & Validator is complete. M2 includes an in-memory DAG
 > executor, approved provider registry, Open-Meteo geocoding,
-> and deterministic geodesic distance calculation.
+> Wikidata mountain resolution/elevation lookup, and deterministic geodesic distance calculation.
 > CLI-driven execution and enriched Excel output are not yet available.
 
 
@@ -77,8 +77,8 @@ Implemented:
 Not implemented yet:
 
 - CLI-driven execution of generated enrichment plans.
-- External entity resolution and data retrieval providers.
-- Persistent caching, request deduplication, and execution recovery.
+- Multi-row job execution and request deduplication (planned in #34).
+- Persistent caching, retry/rate policies, and execution recovery.
 - Enriched Excel workbook generation and result provenance.
 - Independent evaluation of enriched numeric values.
 - LangGraph orchestration and web application.
@@ -91,6 +91,7 @@ with explicit provider registration and dependency handling.
 Implemented providers:
 - Open-Meteo geocoding: city and country resolution to GeoPoint.
 - Local geodesic distance: Haversine calculation in kilometers.
+- Wikidata mountain resolution: name/country validation, bounded P31/P279 hierarchy checking, and P2044 elevation in meters with source Evidence.
 
 Open-Meteo integration:
 - Endpoint: https://geocoding-api.open-meteo.com/v1/search
@@ -107,7 +108,11 @@ retry policies; no retry logic is enabled yet. Individual providers remain
 responsible for validating source-specific response data.
 
 All automated provider tests use offline fixtures or mocked HTTP
-responses. Live geocoding is not required by CI.
+responses. Live provider checks are not required by CI.
+
+Single-row Wikidata and Open-Meteo DAG integration tests pass offline.
+Multi-row processing, cross-row reuse, SQLite persistence and retry/rate policies
+remain separate M2 tasks (#34, #35, #36).
 
 Execution through the CLI and Excel output are not yet implemented.
 
@@ -222,6 +227,7 @@ The repository follows a **design-for-extension, implement-for-current-needs** a
 | [02 — Conceptual Architecture](docs/02-architecture.md) | Components, responsibilities, execution flow |
 | [03 — Domain Model](docs/03-domain-model.md) | Entities, relationships, conceptual contracts |
 | [04 — Planning & Capabilities](docs/04-planning-and-capabilities.md) | Initial capabilities, plan schema, validation rules |
+| [05 — M2 Job Execution](docs/05-m2-job-execution.md) | Proposed multi-row job contract, deduplication and metrics for #34 |
 
 Technical documentation and code are in **English**. Academic submission materials for Neoversity will be prepared in **Ukrainian**.
 
