@@ -73,12 +73,13 @@ Implemented:
 - CLI commands for plan generation, export, revalidation, and evaluation.
 - Independent scenario-level planning evaluation for Mountains and Capitals.
 - Bounded in-memory multi-row execution and job-scoped deduplication of approved successful operations.
+- Optional versioned SQLite reuse of verified successful operations across independent jobs, with TTL and source Evidence.
 - Automated tests, Ruff, Pyright, and GitHub Actions CI.
 
 Not implemented yet:
 
 - CLI-driven execution of generated enrichment plans.
-- Persistent cross-job SQLite caching, retry/rate policies, and execution recovery.
+- Provider retries, rate/budget policies, and execution recovery.
 - Enriched Excel workbook generation and result provenance.
 - Independent evaluation of enriched numeric values.
 - LangGraph orchestration and web application.
@@ -113,8 +114,10 @@ responses. Live provider checks are not required by CI.
 Single-row Wikidata and Open-Meteo DAG integration tests pass offline.
 Multi-row processing and cross-row reuse are implemented in `JobExecutor`
 using source-independent `InputRecord` inputs and bounded batches. The job-level
-cache is ephemeral and success-only; SQLite persistence and retry/rate policies
-remain separate M2 tasks (#35 and #36).
+cache is ephemeral and success-only. An explicitly configured local SQLite cache
+adds cross-job reuse of successful results with provider-specific TTL, semantic
+versions and original Evidence. Cache hits and true provider handler invocations
+have separate metrics. Retry/rate policies remain #36.
 
 Execution through the CLI and Excel output are not yet implemented.
 
@@ -230,7 +233,7 @@ The repository follows a **design-for-extension, implement-for-current-needs** a
 | [03 — Domain Model](docs/03-domain-model.md) | Entities, relationships, conceptual contracts |
 | [04 — Planning & Capabilities](docs/04-planning-and-capabilities.md) | Initial capabilities, plan schema, validation rules |
 | [05 — M2 Job Execution](docs/05-m2-job-execution.md) | Implemented bounded multi-row contract, job-scoped deduplication and metrics (#34) |
-| [06 — M2 SQLite Cache](docs/06-m2-persistent-cache.md) | Proposed cross-job cache keys, TTL, typed results and hit/miss metrics (#35) |
+| [06 — M2 SQLite Cache](docs/06-m2-persistent-cache.md) | Versioned cross-job cache keys, TTL, typed results and hit/miss metrics (#35) |
 
 Technical documentation and code are in **English**. Academic submission materials for Neoversity will be prepared in **Ukrainian**.
 
