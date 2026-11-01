@@ -122,9 +122,7 @@ def deserialize_success(payload: str) -> OperationResult:
     except (TypeError, ValueError) as exc:
         raise ValueError("Malformed cached result JSON.") from exc
 
-    obj = _required_object(
-        document, frozenset({"format", "status", "value", "evidence"})
-    )
+    obj = _required_object(document, frozenset({"format", "status", "value", "evidence"}))
     if obj["format"] != RESULT_FORMAT_VERSION or obj["status"] != "success":
         raise ValueError("Incompatible or unsuccessful cached result.")
     raw_evidence = obj["evidence"]
