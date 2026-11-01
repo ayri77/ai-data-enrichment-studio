@@ -2,6 +2,8 @@
 
 from collections.abc import Mapping
 
+from tests.support.wikidata import entity_statement
+
 from ai_data_enrichment.capabilities.definitions import (
     get_lookup_property_spec,
     get_resolve_entity_spec,
@@ -32,20 +34,6 @@ from ai_data_enrichment.providers.wikidata import (
     WikidataMountainResolver,
 )
 from ai_data_enrichment.validation.plan_validator import PlanValidator
-
-
-def entity_statement(qid: str) -> dict[str, object]:
-    """Build a Wikidata entity-reference statement."""
-    return {
-        "rank": "normal",
-        "mainsnak": {
-            "snaktype": "value",
-            "datavalue": {
-                "type": "wikibase-entityid",
-                "value": {"id": qid},
-            },
-        },
-    }
 
 
 class WikidataFixtureTransport:
