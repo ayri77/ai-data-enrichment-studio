@@ -192,12 +192,15 @@ def test_provider_and_configuration_identity_prevent_cross_binding_collision() -
     "first, second",
     [
         ({"value": 1.0}, {"value": "1.0"}),
-        ({"value": EntityRef(source="wikidata", entity_id="Q513")},
-         {"value": EntityRef(source="another", entity_id="Q513")}),
-        ({"value": Quantity(value=12.0, unit="m")},
-         {"value": Quantity(value=12.0, unit="km")}),
-        ({"value": GeoPoint(latitude=1.0, longitude=2.0)},
-         {"value": GeoPoint(latitude=2.0, longitude=1.0)}),
+        (
+            {"value": EntityRef(source="wikidata", entity_id="Q513")},
+            {"value": EntityRef(source="another", entity_id="Q513")},
+        ),
+        ({"value": Quantity(value=12.0, unit="m")}, {"value": Quantity(value=12.0, unit="km")}),
+        (
+            {"value": GeoPoint(latitude=1.0, longitude=2.0)},
+            {"value": GeoPoint(latitude=2.0, longitude=1.0)},
+        ),
         ({"value": 1.0}, {"value": 2.0}),
     ],
 )
