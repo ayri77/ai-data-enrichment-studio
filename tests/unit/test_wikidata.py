@@ -5,6 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 from tests.support.http import StubJsonTransport
+from tests.support.wikidata import entity_statement
 
 from ai_data_enrichment.execution.models import EntityRef, Quantity
 from ai_data_enrichment.providers.http_transport import JsonTransportError
@@ -626,18 +627,6 @@ def test_verifies_mountain_country(
 ) -> None:
     """Verify mountain country through Wikidata ISO country codes."""
 
-    def entity_statement(qid: str) -> dict:
-        return {
-            "rank": "normal",
-            "mainsnak": {
-                "snaktype": "value",
-                "datavalue": {
-                    "type": "wikibase-entityid",
-                    "value": {"id": qid},
-                },
-            },
-        }
-
     mountain_claims: dict[str, object] = {
         "P31": [entity_statement("Q8502")],
     }
@@ -747,18 +736,6 @@ def test_resolves_multiple_mountain_candidates(
     expected_calls: int,
 ) -> None:
     """Resolve only unique, verified mountain candidates."""
-
-    def entity_statement(qid: str) -> dict:
-        return {
-            "rank": "normal",
-            "mainsnak": {
-                "snaktype": "value",
-                "datavalue": {
-                    "type": "wikibase-entityid",
-                    "value": {"id": qid},
-                },
-            },
-        }
 
     # Fictional candidate entities for offline testing.
     candidates = {
@@ -910,18 +887,6 @@ def test_resolver_checks_candidate_name(
     expected_calls: int,
 ) -> None:
     """Verify name matching before requesting candidate details."""
-
-    def entity_statement(qid: str) -> dict:
-        return {
-            "rank": "normal",
-            "mainsnak": {
-                "snaktype": "value",
-                "datavalue": {
-                    "type": "wikibase-entityid",
-                    "value": {"id": qid},
-                },
-            },
-        }
 
     def respond(
         *,
@@ -1102,18 +1067,6 @@ def test_resolver_search_pagination(
     expected_calls: int,
 ) -> None:
     """Search all available pages before resolving a unique mountain."""
-
-    def entity_statement(qid: str) -> dict:
-        return {
-            "rank": "normal",
-            "mainsnak": {
-                "snaktype": "value",
-                "datavalue": {
-                    "type": "wikibase-entityid",
-                    "value": {"id": qid},
-                },
-            },
-        }
 
     search_requests: list[dict[str, str]] = []
 
@@ -1458,18 +1411,6 @@ def test_resolver_traverses_mountain_class_hierarchy(
 ) -> None:
     """Resolve mountain subclasses with bounded ontology traversal."""
 
-    def entity_statement(qid: str) -> dict[str, object]:
-        return {
-            "rank": "normal",
-            "mainsnak": {
-                "snaktype": "value",
-                "datavalue": {
-                    "type": "wikibase-entityid",
-                    "value": {"id": qid},
-                },
-            },
-        }
-
     def respond(
         *,
         url: str,
@@ -1651,18 +1592,6 @@ def test_wikidata_api_response_contracts(
     expected_calls: int,
 ) -> None:
     """Distinguish API errors and missing entities from valid data."""
-
-    def entity_statement(qid: str) -> dict[str, object]:
-        return {
-            "rank": "normal",
-            "mainsnak": {
-                "snaktype": "value",
-                "datavalue": {
-                    "type": "wikibase-entityid",
-                    "value": {"id": qid},
-                },
-            },
-        }
 
     def respond(
         *,
