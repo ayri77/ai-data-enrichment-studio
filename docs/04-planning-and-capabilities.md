@@ -832,6 +832,8 @@ Equivalent operations with identical normalized inputs and relevant parameters s
 
 For example, multiple references to the same capital may share one geocoding result.
 
+For #34, reuse occurs at the registered handler invocation boundary after typed DAG inputs are resolved. The job-scoped successful result retains its `Evidence`; each row retains its own execution record. Cache eligibility, canonical typed keys and operation counters are specified in [M2 job execution](05-m2-job-execution.md). Persistent SQLite reuse remains #35.
+
 ### 11.3 Caching
 
 The initial implementation should support:
