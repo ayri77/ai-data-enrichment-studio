@@ -1,7 +1,7 @@
 """Deterministic, offline retry classification and transport wrapper tests."""
 
 from collections.abc import Mapping
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 
 import pytest
@@ -40,7 +40,7 @@ class ScriptedTransport:
 
 class FakeTime:
     def __init__(self) -> None:
-        self.wall = datetime(2026, 11, 1, 12, 0, tzinfo=timezone.utc)
+        self.wall = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
         self.waits: list[float] = []
 
     def sleep(self, seconds: float) -> None:
@@ -130,7 +130,10 @@ def test_retryable_http_status_recovers(status: int) -> None:
 
 def test_policy_can_disable_http_retry_code_without_disabling_network_retry() -> None:
     policy = TransportRetryPolicy(retryable_status_codes=frozenset({503}))
-    assert retryable_transport_error(JsonTransportError("http_status", status_code=429), policy) is False
+    assert (
+        retryable_transport_error(JsonTransportError("http_status", status_code=429), policy)
+        is False
+    )
     assert retryable_transport_error(JsonTransportError("network"), policy) is True
 
 
