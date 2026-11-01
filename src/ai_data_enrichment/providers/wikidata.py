@@ -38,7 +38,6 @@ from ai_data_enrichment.providers.wikidata_parsing import (
     _wikidata_api_failure,
 )
 
-
 # Stable public imports from the original providers.wikidata module.
 __all__ = [
     "WikidataElevationHandler",
