@@ -1,13 +1,13 @@
 # M2 — Persistent SQLite Operation Cache Contract
 
-**Status:** Design proposal for [Issue #35](https://github.com/ayri77/ai-data-enrichment-studio/issues/35); not implemented yet.
+**Status:** Implemented in three #35 slices (versioned key/codec, SQLite storage, optional `JobExecutor` integration). Keep [Issue #35](https://github.com/ayri77/ai-data-enrichment-studio/issues/35) open until final PR review and merge.
 **Prerequisite:** [#34 multi-row execution and per-job memoization](05-m2-job-execution.md) is implemented.
 
 ## 1. Purpose and boundaries
 
 Reuse explicitly eligible successful provider operations **between independent jobs**, without allowing expired, incompatible, corrupted, or ambiguous data to become verified results. Persistent storage is a supporting execution concern, not a replacement for the existing `DAGExecutor`, `JobExecutor`, `OperationResult`, or per-row `Evidence`.
 
-Proposed synchronous execution order for an eligible handler invocation:
+Implemented synchronous execution order for an eligible handler invocation:
 
 ```text
 DAG step with resolved typed inputs
@@ -99,13 +99,48 @@ If a persistent hit populates in-job memo, `memoized_results` may exceed the num
 
 **A handler call is not an HTTP request.** The actual provider may issue multiple network requests, and #36 separately measures and enforces network budgets, retry attempts, and rate limits.
 
-## 6. Proposed implementation slices and acceptance tests
+## 6. Implemented slices and acceptance tests
 
-1. **Single key/codec contract:** reuse #34 canonical typed key, add explicit key/cache format versions, define type-tagged, validated `OperationResult` round-trips with Evidence. Cover all five runtime types and altered provider/parameters/config/version.
-2. **SQLite adapter:** opt-in TTL policy, schema/version, typed `get/put`, expiry and corruption handling, injected clock, temp-file SQLite integration tests. Failures are never stored.
-3. **End-to-end wiring:** adapt `JobMemoization`/`JobExecutor` for optional persistent storage without changing `DAGExecutor`. Verify two separate jobs reuse valid entries, an expired entry invokes the provider, a missing/invalid entry does not poison results, persistent vs in-job counters remain distinct, and cache-disabled behavior remains identical to #34.
+1. **Single key/codec contract (implemented):** reuse #34 canonical typed key, add explicit key/cache format versions, define type-tagged, validated `OperationResult` round-trips with Evidence. Cover all five runtime types and altered provider/parameters/config/version.
+2. **SQLite adapter (implemented):** opt-in TTL policy, schema/version, typed `get/put`, expiry and corruption handling, injected clock, temp-file SQLite integration tests. Failures are never stored.
+3. **End-to-end wiring (implemented):** adapt `JobMemoization`/`JobExecutor` for optional persistent storage without changing `DAGExecutor`. Verify two separate jobs reuse valid entries, an expired entry invokes the provider, a missing/invalid entry does not poison results, persistent vs in-job counters remain distinct, and cache-disabled behavior remains identical to #34.
 
 All routine tests must be offline and use `tmp_path` SQLite files; no clock sleeps or live provider traffic. Finish with Ruff lint/format, Pyright and full pytest. Do not close #35 until these integration tests pass and the implementation PR is reviewed.
+
+
+
+### Application configuration and lifecycle
+
+The caller must own `SQLiteOperationCache` lifecycle, pass **already validated** plans and approved provider bindings, and supply explicit semantic versions and TTLs:
+
+```python
+from ai_data_enrichment.execution.job_executor import JobExecutor
+from ai_data_enrichment.execution.job_models import JobExecutionPolicy
+from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
+
+# "handlers", "plan", "records" are already validated/resolved by the application.
+with SQLiteOperationCache("local-operations.sqlite3") as cache:
+    job_executor = JobExecutor(
+        handlers=handlers,
+        selected_providers={"resolve_entity": "wikidata"},
+        configuration_ids={"resolve_entity": "mountain-ontology-v1"},
+        capability_versions={"resolve_entity": "1.0"},
+        provider_versions={"resolve_entity": "wikidata-adapter-v1"},
+        persistent_cache=cache,
+        policy=JobExecutionPolicy(
+            memoizable_providers=frozenset({("resolve_entity", "wikidata")}),
+            persistent_cache_ttls={("resolve_entity", "wikidata"): 86400.0},
+        ),
+    )
+    result = job_executor.execute(plan, records)
+```
+
+The example shows a one-capability binding; real plans must register *every*
+capability used by their DAG. TTLs are **seconds** and must be source-appropriate.
+No source is persistently cached by default. Versions and configuration IDs
+must be maintained when provider semantics change; they must not contain secrets.
+The same in-memory entry can be reused during one job without another SQLite
+lookup; expiration is rechecked on the next job's persistent lookup.
 
 ## 7. Explicitly deferred
 
