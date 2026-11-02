@@ -39,12 +39,21 @@ def _summarize_geocode(response: object) -> dict[str, object]:
     items = []
     for item in results[:10]:
         if isinstance(item, dict):
-            items.append({
-                key: item[key]
-                for key in ("id", "name", "country_code", "feature_code",
-                            "admin1", "admin2", "population")
-                if key in item and isinstance(item[key], (str, int))
-            })
+            items.append(
+                {
+                    key: item[key]
+                    for key in (
+                        "id",
+                        "name",
+                        "country_code",
+                        "feature_code",
+                        "admin1",
+                        "admin2",
+                        "population",
+                    )
+                    if key in item and isinstance(item[key], (str, int))
+                }
+            )
     return {"result_count": len(results), "candidates": items}
 
 
@@ -63,11 +72,13 @@ def _summarize_wikidata(action: str, response: object) -> dict[str, object]:
             if not isinstance(item, dict):
                 continue
             match = item.get("match")
-            items.append({
-                "id": item.get("id"),
-                "label": item.get("label"),
-                "match": match.get("text") if isinstance(match, dict) else None,
-            })
+            items.append(
+                {
+                    "id": item.get("id"),
+                    "label": item.get("label"),
+                    "match": match.get("text") if isinstance(match, dict) else None,
+                }
+            )
         return {
             "result_count": len(results),
             "has_continuation": "search-continue" in response,
@@ -83,13 +94,15 @@ def _summarize_wikidata(action: str, response: object) -> dict[str, object]:
             if not isinstance(claims, dict):
                 items.append({"id": qid, "claims": "missing_or_invalid"})
                 continue
-            items.append({
-                "id": qid,
-                "P31": _entity_references(claims.get("P31")),
-                "P279": _entity_references(claims.get("P279")),
-                "P17": _entity_references(claims.get("P17")),
-                "has_P2044": "P2044" in claims,
-            })
+            items.append(
+                {
+                    "id": qid,
+                    "P31": _entity_references(claims.get("P31")),
+                    "P279": _entity_references(claims.get("P279")),
+                    "P17": _entity_references(claims.get("P17")),
+                    "has_P2044": "P2044" in claims,
+                }
+            )
         return {"entities": items}
     return {"action": "unknown"}
 
@@ -101,25 +114,25 @@ class SourceTraceTransport:
         self._transport = transport
         self.events: list[dict[str, object]] = []
 
-    def get_json(
-        self, *, url: str, params: Mapping[str, str], timeout_seconds: float
-    ) -> object:
-        response = self._transport.get_json(
-            url=url, params=params, timeout_seconds=timeout_seconds
-        )
+    def get_json(self, *, url: str, params: Mapping[str, str], timeout_seconds: float) -> object:
+        response = self._transport.get_json(url=url, params=params, timeout_seconds=timeout_seconds)
         if url == "https://geocoding-api.open-meteo.com/v1/search":
-            self.events.append({
-                "provider": "open-meteo",
-                "query": params.get("name"),
-                **_summarize_geocode(response),
-            })
+            self.events.append(
+                {
+                    "provider": "open-meteo",
+                    "query": params.get("name"),
+                    **_summarize_geocode(response),
+                }
+            )
         elif url == "https://www.wikidata.org/w/api.php":
             action = params.get("action", "")
-            self.events.append({
-                "provider": "wikidata",
-                "action": action,
-                "search": params.get("search") if action == "wbsearchentities" else None,
-                "ids": params.get("ids") if action == "wbgetentities" else None,
-                **_summarize_wikidata(action, response),
-            })
+            self.events.append(
+                {
+                    "provider": "wikidata",
+                    "action": action,
+                    "search": params.get("search") if action == "wbsearchentities" else None,
+                    "ids": params.get("ids") if action == "wbgetentities" else None,
+                    **_summarize_wikidata(action, response),
+                }
+            )
         return response
