@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import isfinite
 from time import monotonic, sleep
-from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
