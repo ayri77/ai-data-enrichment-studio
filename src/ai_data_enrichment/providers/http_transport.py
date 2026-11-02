@@ -7,7 +7,9 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-TransportFailureKind = Literal["timeout", "network", "http_status", "invalid_json", "budget_exceeded"]
+TransportFailureKind = Literal[
+    "timeout", "network", "http_status", "invalid_json", "budget_exceeded"
+]
 
 
 class JsonTransportError(Exception):
