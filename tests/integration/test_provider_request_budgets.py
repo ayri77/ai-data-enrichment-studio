@@ -218,9 +218,7 @@ def test_counters_of_different_providers_are_isolated() -> None:
 def test_denied_request_maps_to_explicit_failure_without_exposing_params() -> None:
     clock = FakeTime()
     state = session(clock, max_requests=0)
-    transport = state.wrap_transport(
-        "wikidata", CountingTransport(), retry_policy=no_retry()
-    )
+    transport = state.wrap_transport("wikidata", CountingTransport(), retry_policy=no_retry())
     try:
         request(transport)
     except JsonTransportError as exc:
@@ -390,12 +388,8 @@ def test_persistent_hit_uses_zero_network_attempts(tmp_path: Path) -> None:
         clock = FakeTime()
         state = session(clock, max_requests=3)
         backend = CountingTransport()
-        resolver = FakeResolver(
-            state.wrap_transport("wikidata", backend, retry_policy=no_retry())
-        )
-        lookup = FakeLookup(
-            state.wrap_transport("wikidata", backend, retry_policy=no_retry())
-        )
+        resolver = FakeResolver(state.wrap_transport("wikidata", backend, retry_policy=no_retry()))
+        lookup = FakeLookup(state.wrap_transport("wikidata", backend, retry_policy=no_retry()))
         with SQLiteOperationCache(path, clock=lambda: 1000.0) as cache:
             result = JobExecutor(
                 handlers={"resolve_entity": resolver, "lookup_property": lookup},
