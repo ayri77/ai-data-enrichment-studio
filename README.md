@@ -131,6 +131,40 @@ and opt-in fallback attempts/successes are separately observable (#36).
 
 Execution through the CLI and Excel output are not yet implemented.
 
+### Reproducible M2 smoke scenarios (developer tool)
+
+These checks use the real `PlanValidator`, `JobExecutor`, provider adapters,
+request policy and typed `Evidence`, without editing input workbooks.
+They do **not** perform full Excel enrichment.
+
+Run from the repository root after `uv sync --locked --group dev`:
+
+```powershell
+# Offline by default; deterministic fixture data, no API keys or network
+uv run python scripts/smoke_live_providers.py --scenario capitals
+uv run python scripts/smoke_live_providers.py --scenario mountains
+
+# SQLite reuse across two independent jobs, using a disposable temporary DB
+uv run python scripts/smoke_live_providers.py --scenario capitals --mode cache
+uv run python scripts/smoke_live_providers.py --scenario mountains --mode cache
+
+# Explicit, bounded external API traffic. Do not run these in CI.
+uv run python scripts/smoke_live_providers.py --scenario capitals --mode live --allow-network
+uv run python scripts/smoke_live_providers.py --scenario mountains --mode live --allow-network
+```
+
+The live runs process **one** input record. Open-Meteo has a hard job budget
+of 4 HTTP attempts; Wikidata has 16. Both are paced at 0.75 seconds between
+requests and use **no automatic retries**. Live mode cannot start without
+`--allow-network`. No OpenAI call is made. The JSON report includes per-step
+typed outcomes, `Evidence`, provider request counters, job metrics and elapsed
+time. A failed or partial record returns process exit code 1.
+
+**Important:** The offline fixture provides a known demonstration value for
+Mount Everest; the live Wikidata result can differ or fail because of current
+source data, ambiguity or provider rate limits. Do not treat smoke fixtures as
+independent ground-truth accuracy evaluation.
+
 ## Quick start
 
 **Requirements:** Python 3.12+ and [uv](https://docs.astral.sh/uv/).
