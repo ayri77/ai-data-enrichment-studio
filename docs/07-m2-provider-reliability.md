@@ -1,6 +1,6 @@
 # M2 — Provider Reliability, Request Budgets and Fallback Contract
 
-**Status:** Proposed architecture for [Issue #36](https://github.com/ayri77/ai-data-enrichment-studio/issues/36). No policy implementation is included in this document.
+**Status:** Incremental implementation for [Issue #36](https://github.com/ayri77/ai-data-enrichment-studio/issues/36). Bounded opt-in retries (#56) and shared request-budget/rate controls (current slice) follow this contract. Approved compatible fallback is still pending.
 
 **Dependencies:** The [multi-row job engine](05-m2-job-execution.md) and [versioned SQLite cache](06-m2-persistent-cache.md) are implemented. The current `JsonTransportError` already preserves `kind`, HTTP `status_code`, and the raw `Retry-After` header; provider adapters currently catch it and convert it to `OperationResult`. #36 must retain the metadata at the boundary where retries occur, before that conversion.
 
