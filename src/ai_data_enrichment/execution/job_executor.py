@@ -160,7 +160,7 @@ class JobExecutor:
 
             assert self._request_session is not None
             alternate_raw = _EvidenceCheckedFallback(
-                fallback_handlers[cap], source=approved.fallback_evidence_source
+                fallback_handlers[cap], approved=approved
             )
             alternate_raw = self._request_session.wrap_handler(
                 approved.fallback_provider_id, alternate_raw
