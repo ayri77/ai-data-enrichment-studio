@@ -25,7 +25,13 @@ from ai_data_enrichment.domain.enrichment_plan import (
 from ai_data_enrichment.execution.fallback import ApprovedFallback
 from ai_data_enrichment.execution.job_executor import JobExecutor
 from ai_data_enrichment.execution.job_models import InputRecord, JobExecutionPolicy
-from ai_data_enrichment.execution.models import Evidence, GeoPoint, OperationResult, RuntimeValue
+from ai_data_enrichment.execution.models import (
+    Evidence,
+    GeoPoint,
+    OperationResult,
+    Quantity,
+    RuntimeValue,
+)
 from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
 from ai_data_enrichment.providers.http_results import transport_failure_result
 from ai_data_enrichment.providers.http_transport import JsonTransport, JsonTransportError
