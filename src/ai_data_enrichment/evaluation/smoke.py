@@ -421,9 +421,7 @@ def main() -> int:
         parser.error("--diagnose requires --mode live.")
     scenario: Scenario = args.scenario
     mode: Mode = args.mode
-    report = run_smoke(
-        scenario, mode, allow_network=args.allow_network, diagnose=args.diagnose
-    )
+    report = run_smoke(scenario, mode, allow_network=args.allow_network, diagnose=args.diagnose)
     print(json.dumps(report, indent=2, ensure_ascii=False))
     runs = report["runs"]
     assert isinstance(runs, list)
