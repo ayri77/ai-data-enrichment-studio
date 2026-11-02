@@ -10,6 +10,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ai_data_enrichment.execution.models import RowExecutionResult, RuntimeValue
+from ai_data_enrichment.providers.request_policy import ProviderRequestCounters
 
 
 class InputRecord(BaseModel):
@@ -147,6 +148,7 @@ class JobExecutionResult(BaseModel):
 
     records: tuple[RecordExecution, ...]
     metrics: JobExecutionMetrics
+    provider_requests: dict[str, ProviderRequestCounters] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_records_and_metrics(self) -> Self:
