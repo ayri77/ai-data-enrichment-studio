@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from ai_data_enrichment.capabilities.definitions import get_geocode_spec
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
+from ai_data_enrichment.domain.capability import DataType, OutputSpec
 from ai_data_enrichment.domain.dataset_profile import (
     ColumnProfile,
     DatasetProfile,
@@ -106,6 +107,19 @@ class Geocoder:
         )
 
 
+def _fixture_geocode_spec():
+    """Expose GeoPoint latitude for a real PlanValidator output mapping."""
+    return get_geocode_spec().model_copy(
+        update={
+            "output": OutputSpec(
+                type=DataType.GEO_POINT,
+                description="Verified city coordinates",
+                fields={"latitude": DataType.NUMBER},
+            )
+        }
+    )
+
+
 def make_plan() -> EnrichmentPlan:
     plan = EnrichmentPlan(
         version="1.0",
@@ -120,11 +134,11 @@ def make_plan() -> EnrichmentPlan:
                 parameters={},
             )
         ],
-        outputs=[OutputMapping(step_id="geo", value_field="value", target_column="point")],
+        outputs=[OutputMapping(step_id="geo", value_field="latitude", target_column="latitude")],
         assumptions=[],
     )
     capability = CapabilityRegistry()
-    capability.register(get_geocode_spec())
+    capability.register(_fixture_geocode_spec())
     profile = DatasetProfile(
         dataset_id="offline-geocodes",
         name="Registered fallback test",
@@ -159,7 +173,7 @@ def setup(
     fallback_enabled: bool = True,
 ) -> tuple[JobExecutor, Geocoder, Geocoder, FakeTransport, FakeTransport]:
     capability_registry = CapabilityRegistry()
-    capability_registry.register(get_geocode_spec())
+    capability_registry.register(_fixture_geocode_spec())
     provider_registry = ProviderRegistry(capability_registry)
 
     primary_http = FakeTransport()
