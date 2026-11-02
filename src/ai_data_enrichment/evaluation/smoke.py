@@ -91,9 +91,7 @@ class OfflineGeocodeTransport:
 class OfflineWikidataTransport:
     """Four-response Everest fixture; no HTTP or unpredictable external data."""
 
-    def get_json(
-        self, *, url: str, params: Mapping[str, str], timeout_seconds: float
-    ) -> object:
+    def get_json(self, *, url: str, params: Mapping[str, str], timeout_seconds: float) -> object:
         if url != WIKIDATA_API_URL:
             raise ValueError("Unexpected offline endpoint.")
         if params["action"] == "wbsearchentities":
