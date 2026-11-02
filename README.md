@@ -123,8 +123,9 @@ Multi-row processing and cross-row reuse are implemented in `JobExecutor`
 using source-independent `InputRecord` inputs and bounded batches. The job-level
 cache is ephemeral and success-only. An explicitly configured local SQLite cache
 adds cross-job reuse of successful results with provider-specific TTL, semantic
-versions and original Evidence. Cache hits and true provider handler invocations
-have separate metrics. Optional provider request policies expose physical HTTP
+versions and original Evidence. Cache hits and handler-boundary invocations
+have separate metrics; provider request counters distinguish actual HTTP attempts
+and operations blocked by policy. Optional provider request policies expose physical HTTP
 attempts, rate waits and blocked requests. Typed transient retry exhaustion
 and opt-in fallback attempts/successes are separately observable (#36).
 
