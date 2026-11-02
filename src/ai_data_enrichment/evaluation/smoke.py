@@ -28,6 +28,7 @@ from ai_data_enrichment.domain.enrichment_plan import (
 )
 from ai_data_enrichment.execution.job_executor import JobExecutor
 from ai_data_enrichment.execution.job_models import InputRecord, JobExecutionPolicy
+from ai_data_enrichment.execution.models import RuntimeValue
 from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
 from ai_data_enrichment.providers.geodesic import GeodesicDistanceHandler
 from ai_data_enrichment.providers.http_transport import JsonTransport, UrllibJsonTransport
@@ -215,7 +216,7 @@ def _plan(scenario: Scenario) -> EnrichmentPlan:
 
 
 def _inputs(scenario: Scenario, *, live: bool) -> list[InputRecord]:
-    values = (
+    values: dict[str, RuntimeValue | None] = (
         {"mountain": "Mount Everest", "country": "Nepal"}
         if scenario == "mountains"
         else {
