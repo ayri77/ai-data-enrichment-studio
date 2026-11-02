@@ -416,7 +416,9 @@ def test_persistent_hit_uses_zero_network_attempts(tmp_path: Path) -> None:
                 request_session=state,
             ).execute(job_plan(), inputs)
         assert result.records[0].row_result.steps[-1].result.status == "success"
-        assert result.provider_requests["wikidata"].transport_attempts == (3 if iteration == 0 else 0)
+        assert result.provider_requests["wikidata"].transport_attempts == (
+            3 if iteration == 0 else 0
+        )
         assert result.metrics.persistent_cache_hits == (0 if iteration == 0 else 2)
 
 
