@@ -47,6 +47,18 @@ class TransportRetryPolicy(BaseModel):
         return self
 
 
+class RetryExhausted(JsonTransportError):
+    """A recoverable transport failure persisted through all permitted attempts."""
+
+    def __init__(self, original: JsonTransportError, *, attempts: int) -> None:
+        self.attempts = attempts
+        super().__init__(
+            cast(TransportFailureKind, original.kind),
+            status_code=original.status_code,
+            retry_after=original.retry_after,
+        )
+
+
 class RetryDelayLimitExceeded(JsonTransportError):
     """A retry was denied because an explicit safe waiting limit was exceeded."""
 
@@ -164,11 +176,13 @@ class RetryingJsonTransport:
                     url=url, params=params, timeout_seconds=timeout_seconds
                 )
             except JsonTransportError as error:
-                if (
-                    not retryable_transport_error(error, self._policy)
-                    or index + 1 >= self._policy.max_attempts
-                ):
+                if not retryable_transport_error(error, self._policy):
                     self._failures += 1
+                    raise
+                if index + 1 >= self._policy.max_attempts:
+                    self._failures += 1
+                    if self._policy.max_attempts > 1:
+                        raise RetryExhausted(error, attempts=index + 1) from error
                     raise
 
                 delay = min(
