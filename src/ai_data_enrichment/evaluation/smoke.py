@@ -63,9 +63,7 @@ def _statement(qid: str) -> dict[str, object]:
 class OfflineGeocodeTransport:
     """Small, deterministic contract fixture exercising the real geocoder."""
 
-    def get_json(
-        self, *, url: str, params: Mapping[str, str], timeout_seconds: float
-    ) -> object:
+    def get_json(self, *, url: str, params: Mapping[str, str], timeout_seconds: float) -> object:
         if url != GEOCODING_URL:
             raise ValueError("Unexpected offline endpoint.")
         city = params["name"]
@@ -174,9 +172,9 @@ def _plan(scenario: Scenario) -> EnrichmentPlan:
                     parameters={"property": "elevation"},
                 ),
             ],
-            outputs=[OutputMapping(
-                step_id="elevation", value_field="value", target_column="elevation_m"
-            )],
+            outputs=[
+                OutputMapping(step_id="elevation", value_field="value", target_column="elevation_m")
+            ],
             assumptions=[],
         )
 
@@ -274,7 +272,9 @@ def _execute(
     backend: JsonTransport = (
         UrllibJsonTransport(headers={"User-Agent": _AGENT})
         if live
-        else OfflineWikidataTransport() if scenario == "mountains" else OfflineGeocodeTransport()
+        else OfflineWikidataTransport()
+        if scenario == "mountains"
+        else OfflineGeocodeTransport()
     )
     session = ProviderRequestSession(
         {
@@ -322,8 +322,7 @@ def _execute(
         batch_size=1,
         max_memoized_results=16,
         memoizable_providers=frozenset(
-            (capability_id, provider_id)
-            for capability_id, provider_id in selected.items()
+            (capability_id, provider_id) for capability_id, provider_id in selected.items()
         ),
         persistent_cache_ttls=ttl,
     )
@@ -333,9 +332,7 @@ def _execute(
         ),
         selected_providers=selected,
         configuration_ids={cap: "m2-smoke-v1" for cap in capability_ids},
-        capability_versions={
-            spec.id: spec.version for spec in get_builtin_capabilities()
-        },
+        capability_versions={spec.id: spec.version for spec in get_builtin_capabilities()},
         provider_versions={cap: "m2-smoke-v1" for cap in capability_ids},
         policy=policy,
         persistent_cache=cache,
@@ -347,9 +344,7 @@ def _execute(
     return {
         "duration_seconds": round(elapsed, 4),
         "metrics": job.metrics.model_dump(mode="json"),
-        "requests": {
-            provider: vars(stats) for provider, stats in job.provider_requests.items()
-        },
+        "requests": {provider: vars(stats) for provider, stats in job.provider_requests.items()},
         "records": [
             {
                 "id": record.record_id,
@@ -412,10 +407,14 @@ def main() -> int:
     print(json.dumps(report, indent=2, ensure_ascii=False))
     runs = report["runs"]
     assert isinstance(runs, list)
-    return 0 if all(
-        item["metrics"]["failed_rows"] == 0 and item["metrics"]["partial_rows"] == 0
-        for item in runs
-    ) else 1
+    return (
+        0
+        if all(
+            item["metrics"]["failed_rows"] == 0 and item["metrics"]["partial_rows"] == 0
+            for item in runs
+        )
+        else 1
+    )
 
 
 if __name__ == "__main__":
