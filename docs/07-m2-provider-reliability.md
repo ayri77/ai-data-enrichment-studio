@@ -137,7 +137,11 @@ primary terminal error; a success must retain the alternate provider's
 `fallback_attempts` and `fallback_successes` are separate job counters.
 A single DAG step that falls back can reach **two** provider handler boundaries,
 so its `logical_operations` count may be two. Physical HTTP attempts remain
-independent per-provider counters. Fake providers in integration tests are
+independent per-provider counters. A handler invocation rejected by the
+operation-budget wrapper can still be counted by the outer memoization
+boundary as `executed_handler_calls`; `ProviderRequestCounters.operations_started`
+and `operations_blocked_by_budget` distinguish entry into real handlers from
+policy-denied operations. Neither metric represents HTTP attempts. Fake providers in integration tests are
 **not** real interchangeable Wikidata/Open-Meteo adapters. The current runtime
 does not automatically build or inject retry/budget transports for users; this
 remains an application composition responsibility.
