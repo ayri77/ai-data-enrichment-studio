@@ -227,6 +227,7 @@ def test_denied_request_maps_to_explicit_failure_without_exposing_params() -> No
         raise AssertionError("Request should be blocked.")
     assert result.status == "failure"
     assert result.error_code == "REQUEST_BUDGET_EXCEEDED"
+    assert result.message is not None
     assert "mountain" not in result.message
 
 
