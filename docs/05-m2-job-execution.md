@@ -49,7 +49,7 @@ An eligible operation key includes:
 
 Canonicalization is **structural, not speculative semantic normalization**. For example, `"Berlin"`, `" berlin "`, `"DE"`, and `"Germany"` must not silently collapse to the same key. Reject or bypass caching for unsupported/non-finite values; do not turn an invalid value into a valid cache key.
 
-**Conservative initial eligibility:** Reuse only explicitly approved, successful, immutable `OperationResult` values; failures, ambiguous results and transient transport errors are **not** memoized in #34. Reused results retain their original typed value and `Evidence`; every consuming row still receives its own `StepExecutionResult` and `record_id`. A repeated failure may therefore invoke its handler again. Failure caching/TTL belongs to #35 and retry/budget behavior to #36.
+**Conservative initial eligibility:** Reuse only explicitly approved, successful, immutable `OperationResult` values; failures, ambiguous results and transient transport errors are **not** memoized in #34. Reused results retain their original typed value and `Evidence`; every consuming row still receives its own `StepExecutionResult` and `record_id`. A repeated failure may therefore invoke its handler again. Cross-job caching in #35 remains success-only; retry/budget behavior and approved fallback are implemented separately in #36.
 
 `max_memoized_results` bounds retained successes. Once full, new unique operations still execute but are not memoized; count these capacity skips. Entries already present can still be reused. No silent eviction or cross-job persistence is required by #34.
 
@@ -76,7 +76,7 @@ Job metrics must distinguish:
 
 Without SQLite, `logical_operations = executed_handler_calls + reused_operations`. With explicit persistent caching, the accounting becomes `logical_operations = executed_handler_calls + reused_operations + persistent_cache_hits`. Cache misses and writes are diagnostic counters, not additional operation outcomes. Report blocked operations separately if the implementation exposes them.
 
-**Do not claim that handler calls equal HTTP requests.** A single Wikidata resolution may issue several HTTP requests; provider-level network request/attempt metrics are added when instrumentation and budgets are introduced in #36. Persistent-cache hits are counted separately from within-job reuse; see the [persistent cache contract](06-m2-persistent-cache.md).
+**Do not claim that handler calls equal HTTP requests.** A single Wikidata resolution may issue several HTTP requests; provider-level physical request attempts are tracked by explicitly injected #36 transport policies. Persistent-cache hits are counted separately from within-job reuse; see the [persistent cache contract](06-m2-persistent-cache.md).
 
 ## 6. Verification plan for #34
 

@@ -180,6 +180,10 @@ class ProviderRequestSession:
         state.operations += 1
         return True
 
+    def has_provider_policy(self, provider_id: str) -> bool:
+        """Whether this provider has explicit job-local request limits."""
+        return provider_id in self._policies
+
     def wrap_handler(self, provider_id: str, handler: CapabilityHandler) -> CapabilityHandler:
         """Provide an optional operation cap outside job-scoped cache wrappers."""
         if provider_id not in self._policies:

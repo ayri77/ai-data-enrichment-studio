@@ -86,6 +86,8 @@ def test_successful_operation_reused_with_evidence_and_reordered_mappings() -> N
     assert len(handler.requests) == 1
     assert session.snapshot_metrics().model_dump() == {
         "total_rows": 0,
+        "fallback_attempts": 0,
+        "fallback_successes": 0,
         "successful_rows": 0,
         "partial_rows": 0,
         "failed_rows": 0,

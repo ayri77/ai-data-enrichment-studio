@@ -79,7 +79,7 @@ Implemented:
 Not implemented yet:
 
 - CLI-driven execution of generated enrichment plans.
-- Provider retries, rate/budget policies, and execution recovery.
+- Execution recovery, durable orchestration and automatic provider fallback selection.
 - Enriched Excel workbook generation and result provenance.
 - Independent evaluation of enriched numeric values.
 - LangGraph orchestration and web application.
@@ -109,7 +109,11 @@ handling. An optional `ProviderRequestSession` now enforces per-job,
 provider-specific physical HTTP attempt budgets, rate pacing and optional
 uncached operation caps across different handlers. Neither is installed
 automatically; the application must inject the policy-wrapped transports.
-Individual providers still validate source-specific response data.
+Individual providers still validate source-specific response data. An optional
+registry-approved fallback coordinator requires an explicit application-owned
+semantic contract, expected result type/unit and source Evidence; it is off by
+default. There is no configured interchangeable fallback for current
+Wikidata/Open-Meteo provider adapters.
 
 All automated provider tests use offline fixtures or mocked HTTP
 responses. Live provider checks are not required by CI.
@@ -119,8 +123,11 @@ Multi-row processing and cross-row reuse are implemented in `JobExecutor`
 using source-independent `InputRecord` inputs and bounded batches. The job-level
 cache is ephemeral and success-only. An explicitly configured local SQLite cache
 adds cross-job reuse of successful results with provider-specific TTL, semantic
-versions and original Evidence. Cache hits and true provider handler invocations
-have separate metrics. Retry/rate policies remain #36.
+versions and original Evidence. Cache hits and handler-boundary invocations
+have separate metrics; provider request counters distinguish actual HTTP attempts
+and operations blocked by policy. Optional provider request policies expose physical HTTP
+attempts, rate waits and blocked requests. Typed transient retry exhaustion
+and opt-in fallback attempts/successes are separately observable (#36).
 
 Execution through the CLI and Excel output are not yet implemented.
 
@@ -237,7 +244,7 @@ The repository follows a **design-for-extension, implement-for-current-needs** a
 | [04 — Planning & Capabilities](docs/04-planning-and-capabilities.md) | Initial capabilities, plan schema, validation rules |
 | [05 — M2 Job Execution](docs/05-m2-job-execution.md) | Implemented bounded multi-row contract, job-scoped deduplication and metrics (#34) |
 | [06 — M2 SQLite Cache](docs/06-m2-persistent-cache.md) | Versioned cross-job cache keys, TTL, typed results and hit/miss metrics (#35) |
-| [07 — M2 Provider Reliability](docs/07-m2-provider-reliability.md) | Proposed per-request retries, rate/budget enforcement and fallback safety (#36) |
+| [07 — M2 Provider Reliability](docs/07-m2-provider-reliability.md) | Implemented opt-in HTTP retries, per-provider request budgets and registered fallback contracts (#36) |
 
 Technical documentation and code are in **English**. Academic submission materials for Neoversity will be prepared in **Ukrainian**.
 

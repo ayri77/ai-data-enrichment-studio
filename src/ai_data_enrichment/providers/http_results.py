@@ -4,6 +4,7 @@ from json import JSONDecodeError
 
 from ai_data_enrichment.execution.models import OperationResult
 from ai_data_enrichment.providers.http_transport import JsonTransportError
+from ai_data_enrichment.providers.retry_transport import RetryExhausted
 
 
 def transport_failure_result(
@@ -24,6 +25,13 @@ def transport_failure_result(
                 "RATE_BUDGET_EXCEEDED" if reason == "rate_budget" else "REQUEST_BUDGET_EXCEEDED"
             ),
             message=f"{provider_label} request budget exhausted.",
+        )
+
+    if isinstance(error, RetryExhausted):
+        return OperationResult(
+            status="failure",
+            error_code="RETRY_EXHAUSTED",
+            message=f"{provider_label} transient request retries exhausted.",
         )
 
     if malformed_json:
