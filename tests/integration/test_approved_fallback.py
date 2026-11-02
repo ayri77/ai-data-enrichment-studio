@@ -111,10 +111,12 @@ class Geocoder:
                 else GeoPoint(latitude=53.55, longitude=10.0)
             ),
             evidence=(
-                (Evidence(
-                    source="primary" if self.mode == "wrong_source" else self.source,
-                    reference="location/101",
-                ),)
+                (
+                    Evidence(
+                        source="primary" if self.mode == "wrong_source" else self.source,
+                        reference="location/101",
+                    ),
+                )
                 if self.mode != "no_evidence"
                 else ()
             ),
@@ -468,9 +470,7 @@ def test_typed_but_forged_sqlite_evidence_cannot_escape_fallback_gate(tmp_path: 
         job = second.execute(make_plan(), rows())
         assert job.metrics.fallback_successes == 0
         assert job.metrics.persistent_cache_hits == 1
-        assert job.records[0].row_result.steps[0].result.error_code == (
-            "REQUEST_BUDGET_EXCEEDED"
-        )
+        assert job.records[0].row_result.steps[0].result.error_code == ("REQUEST_BUDGET_EXCEEDED")
         assert backup_http.calls == 0
 
 
