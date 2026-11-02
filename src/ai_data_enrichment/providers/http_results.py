@@ -16,6 +16,16 @@ def transport_failure_result(
         isinstance(error, JsonTransportError) and error.kind == "invalid_json"
     )
 
+    if isinstance(error, JsonTransportError) and error.kind == "budget_exceeded":
+        reason = getattr(error, "reason", "request_budget")
+        return OperationResult(
+            status="failure",
+            error_code=(
+                "RATE_BUDGET_EXCEEDED" if reason == "rate_budget" else "REQUEST_BUDGET_EXCEEDED"
+            ),
+            message=f"{provider_label} request budget exhausted.",
+        )
+
     if malformed_json:
         return OperationResult(
             status="failure",

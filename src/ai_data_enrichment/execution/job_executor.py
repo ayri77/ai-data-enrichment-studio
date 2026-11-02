@@ -16,6 +16,7 @@ from ai_data_enrichment.execution.job_models import (
 )
 from ai_data_enrichment.execution.memoization import JobMemoization
 from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
+from ai_data_enrichment.providers.request_policy import ProviderRequestSession
 
 
 class JobExecutor:
@@ -35,6 +36,7 @@ class JobExecutor:
         persistent_cache: SQLiteOperationCache | None = None,
         capability_versions: Mapping[str, str] | None = None,
         provider_versions: Mapping[str, str] | None = None,
+        request_session: ProviderRequestSession | None = None,
     ) -> None:
         self._handlers = dict(handlers)
         self._selected_providers = dict(selected_providers)
@@ -43,6 +45,7 @@ class JobExecutor:
         self._persistent_cache = persistent_cache
         self._capability_versions = dict(capability_versions or {})
         self._provider_versions = dict(provider_versions or {})
+        self._request_session = request_session
 
     def execute(
         self,
@@ -83,13 +86,21 @@ class JobExecutor:
                 if not self._capability_versions.get(cap) or not self._provider_versions.get(cap):
                     raise ValueError(f"Missing persistent cache versions for capability: {cap}.")
 
+        if self._request_session is not None:
+            self._request_session.begin_job()
         memo = JobMemoization(self._policy, self._persistent_cache)
         wrapped_handlers = {
             cap: memo.wrap_handler(
                 capability_id=cap,
                 provider_id=self._selected_providers[cap],
                 configuration_id=self._configuration_ids[cap],
-                handler=self._handlers[cap],
+                handler=(
+                    self._request_session.wrap_handler(
+                        self._selected_providers[cap], self._handlers[cap]
+                    )
+                    if self._request_session is not None
+                    else self._handlers[cap]
+                ),
                 capability_version=self._capability_versions.get(cap),
                 provider_version=self._provider_versions.get(cap),
             )
@@ -121,4 +132,10 @@ class JobExecutor:
             memoized_results=counts.memoized_results,
             memo_capacity_skips=counts.memo_capacity_skips,
         )
-        return JobExecutionResult(records=tuple(results), metrics=metrics)
+        return JobExecutionResult(
+            records=tuple(results),
+            metrics=metrics,
+            provider_requests=(
+                self._request_session.snapshot() if self._request_session is not None else {}
+            ),
+        )

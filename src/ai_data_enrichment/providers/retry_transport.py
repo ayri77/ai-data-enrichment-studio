@@ -119,11 +119,13 @@ class RetryingJsonTransport:
         policy: TransportRetryPolicy,
         sleeper: Callable[[float], None] = sleep,
         wall_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        before_attempt: Callable[[bool], None] | None = None,
     ) -> None:
         self._transport = transport
         self._policy = policy
         self._sleeper = sleeper
         self._wall_clock = wall_clock
+        self._before_attempt = before_attempt
         self._attempts = 0
         self._retries = 0
         self._wait_seconds = 0.0
@@ -152,6 +154,8 @@ class RetryingJsonTransport:
         """Make at most max_attempts calls; never bypass a denied wait hint."""
         waited = 0.0
         for index in range(self._policy.max_attempts):
+            if self._before_attempt is not None:
+                self._before_attempt(index > 0)
             self._attempts += 1
             if index:
                 self._retries += 1
