@@ -103,10 +103,13 @@ Open-Meteo integration:
 - Explicit error outcomes and source evidence
 
 HTTP-based providers share a JSON transport protocol and typed transport
-failures for timeout, network, HTTP status and malformed JSON. HTTP status
-and Retry-After metadata are retained at the transport boundary for later
-retry policies; no retry logic is enabled yet. Individual providers remain
-responsible for validating source-specific response data.
+failures for timeout, network, HTTP status and malformed JSON. The opt-in
+`RetryingJsonTransport` implements bounded transient retries and Retry-After
+handling. An optional `ProviderRequestSession` now enforces per-job,
+provider-specific physical HTTP attempt budgets, rate pacing and optional
+uncached operation caps across different handlers. Neither is installed
+automatically; the application must inject the policy-wrapped transports.
+Individual providers still validate source-specific response data.
 
 All automated provider tests use offline fixtures or mocked HTTP
 responses. Live provider checks are not required by CI.
