@@ -8,7 +8,7 @@ from ai_data_enrichment.evaluation import smoke
 
 
 @pytest.mark.parametrize("scenario", ["capitals", "mountains"])
-def test_offline_smoke_runs_validated_job_with_provider_evidence(scenario: str) -> None:
+def test_offline_smoke_runs_validated_job_with_provider_evidence(scenario: smoke.Scenario) -> None:
     result = smoke.run_smoke(scenario, "offline")
     assert result["mode"] == "offline"
     runs = result["runs"]
@@ -29,7 +29,7 @@ def test_offline_smoke_runs_validated_job_with_provider_evidence(scenario: str) 
 
 
 @pytest.mark.parametrize("scenario", ["capitals", "mountains"])
-def test_cache_mode_reuses_cross_job_sqlite_without_network(scenario: str) -> None:
+def test_cache_mode_reuses_cross_job_sqlite_without_network(scenario: smoke.Scenario) -> None:
     result = smoke.run_smoke(scenario, "cache")
     runs = result["runs"]
     assert isinstance(runs, list) and len(runs) == 2
