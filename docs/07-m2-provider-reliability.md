@@ -1,6 +1,6 @@
 # M2 — Provider Reliability, Request Budgets and Fallback Contract
 
-**Status:** Incremental implementation for [Issue #36](https://github.com/ayri77/ai-data-enrichment-studio/issues/36). Bounded opt-in retries (#56) and shared request-budget/rate controls (current slice) follow this contract. Approved compatible fallback is still pending.
+**Status:** Implementation of [Issue #36](https://github.com/ayri77/ai-data-enrichment-studio/issues/36): opt-in retry policies (#56), per-provider job budgets/rate controls (#57), and explicitly approved fallback (current PR). Final review and merge remain pending. No real fallback pair is configured by default.
 
 **Dependencies:** The [multi-row job engine](05-m2-job-execution.md) and [versioned SQLite cache](06-m2-persistent-cache.md) are implemented. The current `JsonTransportError` already preserves `kind`, HTTP `status_code`, and the raw `Retry-After` header; provider adapters currently catch it and convert it to `OperationResult`. #36 must retain the metadata at the boundary where retries occur, before that conversion.
 
@@ -20,7 +20,7 @@ Validated EnrichmentPlan + approved provider binding
 
 - **Transport policy:** bounded attempts, HTTP error classification, provider-specific rate pacing, request budget accounting, clock/sleep injection, and valid `Retry-After` parsing. It must be shared by *all* the approved handlers using a provider and across *all* rows in a job. Do not introduce independent per-Wikidata-handler counters.
 - **Provider handler:** remains responsible for interpreting source semantics and converting exhausted transport failures into existing explicit `OperationResult` failures. Its data validations, P31/P279 traversal and source Evidence remain authoritative.
-- **Approved fallback coordinator (separate slice):** may select an alternative handler only after a policy-defined terminal primary failure and only when capability outputs, units, semantics and validation are demonstrably equivalent.
+- **Approved fallback coordinator:** may invoke a registered alternative only after an explicitly permitted terminal primary failure, using application-maintained compatibility declarations and independently checked output type/unit/source Evidence. No real provider pair is automatically considered equivalent.
 - **Job policy integration:** create a fresh per-job budget/rate state; do not persist job counters into SQLite. Cache hits and in-job reuse do not execute `get_json` and therefore do not consume request attempts.
 
 ## 2. Explicit, validated application policy
@@ -38,7 +38,7 @@ Use deterministic Python-owned configuration, never LLM-authored endpoints, retr
 | `max_retry_after_seconds` | Hard cap for supported server retry hints |
 | `max_total_delay_seconds` | Optional aggregate sleep budget per job/provider, including rate pacing and retries |
 | `retryable_status_codes` | Explicit allowlist, defaulting to 408, 429, 500, 502, 503, 504 |
-| `approved_fallbacks` | Optional ordered, registry-validated compatible providers, disabled by default |
+| `approved_fallbacks` | Optional one-level, registry-validated compatible alternate per capability; disabled by default |
 
 All numeric fields must reject booleans, NaN, infinity and negative values where inappropriate. `max_attempts_per_request` must have a fixed finite upper bound. No zero-delay unbounded loops. Provider IDs must be recognized by `ProviderRegistry`; no dynamic URL injection.
 
@@ -98,10 +98,10 @@ Fallback is **off by default**. An approved fallback must:
 1. Be explicitly registered and permitted for the same capability; no open-ended search or arbitrary user-provided endpoint.
 2. Be compatible in output type, units, geographical/country interpretation, source constraints, trust policy and required source Evidence.
 3. Trigger only on eligible terminal provider/transport failures, never on permanent semantic mismatches such as `AMBIGUOUS` or `NOT_FOUND`, unless a separately documented semantic policy explicitly authorizes such behavior.
-4. Have its **own provider-specific request counters, rate policy and remaining budget**; it cannot bypass the job's global hard ceilings.
+4. Have its **own provider-specific request counters, rate policy and remaining budget**. This iteration has per-provider limits; a shared cross-provider global request quota is not implemented.
 5. Preserve the **actual provider identity** in returned Evidence and any cache key.
 
-**Crucial #35 integration hazard:** The current `JobMemoization` builds a memory/SQLite key from the configured selected provider before invoking its handler. Wrapping a fallback handler behind that provider identity could persist the *fallback's* success under the *primary provider's key*. Do not introduce fallback this way. Instead separate selected vs. effective provider identities at the execution/caching boundary, or place fallback outside provider-specific cache wrappers so each approved provider's result is stored under its own versioned key. Add an explicit regression test with two distinct providers and evidence.
+**Resolved #35 integration hazard:** The fallback coordinator sits **outside** independent provider-specific `JobMemoization` wrappers. Every fallback result uses the alternate provider's own versioned key and original source Evidence; it cannot populate the primary provider's cache entry. Source and output type/unit checks happen before cache writes **and after cache reads**. A regression test modifies valid SQLite JSON with forged source Evidence and verifies that no incorrect success escapes.
 
 Do not use fallback to conceal ambiguity or fabricate a missing value. No equivalent approved provider means explicit failure.
 
@@ -109,9 +109,38 @@ Do not use fallback to conceal ambiguity or fabricate a missing value. No equiva
 
 1. **HTTP policy contracts and retry classification:** typed validated policy, transport decorator, fake monotonic clock/UTC wall clock/sleeper, bounded attempts, `Retry-After` parsing, transient/permanent classification, no live traffic. Include a fake provider that makes several requests per operation to catch undercounting.
 2. **Budget and rate integration:** share provider-specific/job-wide state across Wikidata auxiliary helper HTTP calls and Open-Meteo; maintain exact attempt metrics, enforce ceilings across rows/batches/retries, cache-hit bypass, explicit terminal failures and safe metadata. Preserve existing provider signatures by injecting a composed `JsonTransport`.
-3. **Approved fallback and end-to-end verification:** registry-only compatible alternatives, post-exhaustion policy, source Evidence and effective-provider cache identity, counter isolation, 1,000-row regression and failure propagation. No fallback until a compatible second provider actually exists; if none is available, prove the absence of fallback is explicit rather than implementing a misleading fake production provider.
+3. **Approved fallback and end-to-end verification (implemented):** registry-only compatible alternatives, post-exhaustion triggers, type/unit/source Evidence validation, provider-specific cache identity, counter isolation and 1,000-row offline tests. Real fallback providers remain unconfigured until a trustworthy compatible pair exists; production adapters are unchanged.
 
 Run Ruff lint/format, Pyright and the full offline pytest suite on each slice. Keep #36 open until request-budget, retry, rate and fallback/no-compatible-provider acceptance checks are reviewed.
+
+
+
+### Implemented fallback configuration (application-owned)
+
+For a plan's capability, the application explicitly registers both handlers in
+`ProviderRegistry`, provides an `ApprovedFallback` with the primary/alternate
+IDs, expected `RuntimeValue` type, optional `Quantity` unit and expected
+Evidence source, plus a matching `semantic_contracts` identifier for **both**
+bindings. `JobExecutor` also requires a single job-scoped
+`ProviderRequestSession` with explicit policies for each provider. Without
+these inputs, fallback is disabled or preflight fails before any handler call.
+
+Only `RETRY_EXHAUSTED`, `REQUEST_BUDGET_EXCEEDED`,
+`RATE_BUDGET_EXCEEDED` and explicitly approved
+`PROVIDER_OPERATION_BUDGET_EXCEEDED` can trigger fallback. The generic
+`PROVIDER_ERROR` is **not** eligible: it may represent permanent HTTP errors.
+`NOT_FOUND`, `AMBIGUOUS`, invalid input, unsupported units and malformed
+results remain terminal. Failure of the alternative preserves the original
+primary terminal error; a success must retain the alternate provider's
+`Evidence`.
+
+`fallback_attempts` and `fallback_successes` are separate job counters.
+A single DAG step that falls back can reach **two** provider handler boundaries,
+so its `logical_operations` count may be two. Physical HTTP attempts remain
+independent per-provider counters. Fake providers in integration tests are
+**not** real interchangeable Wikidata/Open-Meteo adapters. The current runtime
+does not automatically build or inject retry/budget transports for users; this
+remains an application composition responsibility.
 
 ## 7. Deferred ownership
 
