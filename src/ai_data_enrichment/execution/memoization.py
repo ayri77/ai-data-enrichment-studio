@@ -180,6 +180,8 @@ class JobMemoization:
         """Capture separate logical, in-memory, persistent and provider counts."""
         return JobExecutionMetrics(
             logical_operations=self._logical_operations,
+            fallback_attempts=0,
+            fallback_successes=0,
             executed_handler_calls=self._executed_handler_calls,
             reused_operations=self._reused_operations,
             persistent_cache_hits=self._persistent_cache_hits,
