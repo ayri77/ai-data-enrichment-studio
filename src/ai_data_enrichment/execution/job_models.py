@@ -97,6 +97,8 @@ class JobExecutionMetrics(BaseModel):
     partial_rows: int = Field(default=0, ge=0, strict=True)
     failed_rows: int = Field(default=0, ge=0, strict=True)
 
+    fallback_attempts: int = Field(default=0, ge=0, strict=True)
+    fallback_successes: int = Field(default=0, ge=0, strict=True)
     logical_operations: int = Field(default=0, ge=0, strict=True)
     executed_handler_calls: int = Field(default=0, ge=0, strict=True)
     reused_operations: int = Field(default=0, ge=0, strict=True)
@@ -109,6 +111,10 @@ class JobExecutionMetrics(BaseModel):
 
     @model_validator(mode="after")
     def validate_totals(self) -> Self:
+        if self.fallback_successes > self.fallback_attempts:
+            raise ValueError("Fallback successes cannot exceed attempted fallbacks.")
+        if self.fallback_attempts > self.logical_operations:
+            raise ValueError("Fallback attempts cannot exceed logical operations.")
         if self.successful_rows + self.partial_rows + self.failed_rows != self.total_rows:
             raise ValueError("Row outcome counts must sum to total_rows.")
         accounted = (
