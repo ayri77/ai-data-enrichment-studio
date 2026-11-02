@@ -153,6 +153,21 @@ uv run python scripts/smoke_live_providers.py --scenario capitals --mode live --
 uv run python scripts/smoke_live_providers.py --scenario mountains --mode live --allow-network
 ```
 
+For debugging live-source mismatches, enable a sanitized, bounded
+provider response trace (public location/country/QID/class metadata only).
+This does **not** increase HTTP request limits or loosen validation:
+
+```powershell
+uv run python scripts/smoke_live_providers.py --scenario capitals --mode live --allow-network --diagnose
+uv run python scripts/smoke_live_providers.py --scenario mountains --mode live --allow-network --diagnose
+```
+
+The `source_trace` field shows Open-Meteo candidate names/feature codes and
+Wikidata search candidates plus P31/P279 class references for requested
+entities. It does not print HTTP headers, raw JSON payloads or API credentials.
+Use this only for developer diagnosis; it is not a substitute for a domain
+ambiguity policy and does not run in CI.
+
 The live runs process **one** input record. Open-Meteo has a hard job budget
 of 4 HTTP attempts; Wikidata has 16. Both are paced at 0.75 seconds between
 requests and use **no automatic retries**. Live mode cannot start without
