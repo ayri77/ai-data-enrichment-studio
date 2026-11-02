@@ -33,7 +33,10 @@ from ai_data_enrichment.providers.geodesic import GeodesicDistanceHandler
 from ai_data_enrichment.providers.http_transport import JsonTransport, UrllibJsonTransport
 from ai_data_enrichment.providers.open_meteo import GEOCODING_URL, OpenMeteoGeocodingHandler
 from ai_data_enrichment.providers.registry import ProviderRegistry
-from ai_data_enrichment.providers.request_policy import ProviderRequestPolicy, ProviderRequestSession
+from ai_data_enrichment.providers.request_policy import (
+    ProviderRequestPolicy,
+    ProviderRequestSession,
+)
 from ai_data_enrichment.providers.retry_transport import TransportRetryPolicy
 from ai_data_enrichment.providers.wikidata import (
     WIKIDATA_API_URL,
@@ -367,9 +370,17 @@ def run_smoke(
     if mode == "live":
         if not allow_network:
             raise ValueError("Live mode requires --allow-network.")
-        return {"mode": mode, "scenario": scenario, "runs": [_execute(scenario, live=True, cache=None)]}
+        return {
+            "mode": mode,
+            "scenario": scenario,
+            "runs": [_execute(scenario, live=True, cache=None)],
+        }
     if mode == "offline":
-        return {"mode": mode, "scenario": scenario, "runs": [_execute(scenario, live=False, cache=None)]}
+        return {
+            "mode": mode,
+            "scenario": scenario,
+            "runs": [_execute(scenario, live=False, cache=None)],
+        }
     if mode == "cache":
         with TemporaryDirectory(prefix="ai-enrichment-smoke-") as directory:
             path = Path(directory) / "operations.sqlite3"
