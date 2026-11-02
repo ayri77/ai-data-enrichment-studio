@@ -54,7 +54,9 @@ def test_live_requires_explicit_permission(monkeypatch: pytest.MonkeyPatch) -> N
     assert result["mode"] == "offline"
 
 
-def test_offline_scaffold_does_not_open_excel_or_generate_plans(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_offline_scaffold_does_not_open_excel_or_generate_plans(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def fail(*args: object, **kwargs: object) -> None:
         raise AssertionError("No network, planning or file reads expected.")
 
