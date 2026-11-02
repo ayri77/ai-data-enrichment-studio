@@ -386,7 +386,7 @@ def test_retry_exhaustion_is_structured_and_eligible_for_approved_fallback() -> 
 def test_fallback_approval_rejects_invalid_or_permanent_triggers(
     changes: dict[str, object],
 ) -> None:
-    valid = {
+    valid: dict[str, object] = {
         "primary_provider_id": "primary",
         "fallback_provider_id": "backup",
         "compatibility_contract_id": "contract-v1",
