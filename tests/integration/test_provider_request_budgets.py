@@ -170,7 +170,7 @@ def test_rate_wait_budget_refuses_before_network() -> None:
 
 def test_retry_waits_and_rate_waits_share_total_job_budget() -> None:
     clock = FakeTime()
-    state = session(clock, max_requests=5, min_interval=2.0, max_wait=2.5)
+    state = session(clock, max_requests=5, min_interval=2.0, max_wait=1.5)
     backend = CountingTransport([JsonTransportError("timeout"), {"ok": True}])
     transport = state.wrap_transport(
         "wikidata",
