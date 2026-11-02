@@ -26,6 +26,7 @@ from ai_data_enrichment.domain.enrichment_plan import (
     PlanStep,
     StepOutputReference,
 )
+from ai_data_enrichment.evaluation.source_trace import SourceTraceTransport
 from ai_data_enrichment.execution.job_executor import JobExecutor
 from ai_data_enrichment.execution.job_models import InputRecord, JobExecutionPolicy
 from ai_data_enrichment.execution.models import RuntimeValue
@@ -256,6 +257,7 @@ def _execute(
     *,
     live: bool,
     cache: SQLiteOperationCache | None,
+    diagnose: bool = False,
 ) -> dict[str, object]:
     records = _inputs(scenario, live=live)
     plan = _plan(scenario)
@@ -275,6 +277,9 @@ def _execute(
         if scenario == "mountains"
         else OfflineGeocodeTransport()
     )
+    trace = SourceTraceTransport(backend) if diagnose else None
+    if trace is not None:
+        backend = trace
     session = ProviderRequestSession(
         {
             source_id: ProviderRequestPolicy(
@@ -341,6 +346,7 @@ def _execute(
     job = engine.execute(plan, records)
     elapsed = perf_counter() - started
     return {
+        **({"source_trace": trace.events} if trace is not None else {}),
         "duration_seconds": round(elapsed, 4),
         "metrics": job.metrics.model_dump(mode="json"),
         "requests": {provider: vars(stats) for provider, stats in job.provider_requests.items()},
@@ -358,16 +364,22 @@ def _execute(
 
 
 def run_smoke(
-    scenario: Scenario, mode: Mode = "offline", *, allow_network: bool = False
+    scenario: Scenario,
+    mode: Mode = "offline",
+    *,
+    allow_network: bool = False,
+    diagnose: bool = False,
 ) -> dict[str, object]:
     """Run exact source handlers; live mode cannot be activated accidentally."""
+    if diagnose and mode != "live":
+        raise ValueError("Source diagnosis is only available in live mode.")
     if mode == "live":
         if not allow_network:
             raise ValueError("Live mode requires --allow-network.")
         return {
             "mode": mode,
             "scenario": scenario,
-            "runs": [_execute(scenario, live=True, cache=None)],
+            "runs": [_execute(scenario, live=True, cache=None, diagnose=diagnose)],
         }
     if mode == "offline":
         return {
@@ -395,14 +407,21 @@ def main() -> int:
         action="store_true",
         help="Explicitly permit bounded outbound API requests in --mode live.",
     )
+    parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="Show sanitized public-source candidates and Wikidata class paths in live mode.",
+    )
     args = parser.parse_args()
     if args.mode != "live" and args.allow_network:
         parser.error("--allow-network is only valid with --mode live.")
     if args.mode == "live" and not args.allow_network:
         parser.error("--mode live requires --allow-network.")
+    if args.diagnose and args.mode != "live":
+        parser.error("--diagnose requires --mode live.")
     scenario: Scenario = args.scenario
     mode: Mode = args.mode
-    report = run_smoke(scenario, mode, allow_network=args.allow_network)
+    report = run_smoke(scenario, mode, allow_network=args.allow_network, diagnose=args.diagnose)
     print(json.dumps(report, indent=2, ensure_ascii=False))
     runs = report["runs"]
     assert isinstance(runs, list)
