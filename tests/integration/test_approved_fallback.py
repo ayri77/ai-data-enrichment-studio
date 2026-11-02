@@ -1,5 +1,6 @@
 """Offline acceptance checks for registered, semantically approved provider fallback."""
 
+import json
 import sqlite3
 from collections.abc import Mapping
 from pathlib import Path
@@ -98,9 +99,16 @@ class Geocoder:
 
         return OperationResult(
             status="success",
-            value=GeoPoint(latitude=53.55, longitude=10.0),
+            value=(
+                Quantity(value=100.0, unit="km")
+                if self.mode == "wrong_type"
+                else GeoPoint(latitude=53.55, longitude=10.0)
+            ),
             evidence=(
-                (Evidence(source=self.source, reference="location/101"),)
+                (Evidence(
+                    source="primary" if self.mode == "wrong_source" else self.source,
+                    reference="location/101",
+                ),)
                 if self.mode != "no_evidence"
                 else ()
             ),
@@ -216,6 +224,7 @@ def setup(
         fallback_configuration_id="backup-config-v1",
         fallback_provider_version="backup-v1",
         fallback_evidence_source="backup",
+        expected_value_type="geo_point",
         trigger_error_codes=frozenset(
             {
                 "RETRY_EXHAUSTED",
@@ -407,7 +416,74 @@ def test_fallback_approval_rejects_invalid_or_permanent_triggers(
         "fallback_configuration_id": "backup-config-v1",
         "fallback_provider_version": "backup-v1",
         "fallback_evidence_source": "backup",
+        "expected_value_type": "geo_point",
     }
     valid.update(changes)
     with pytest.raises(ValidationError):
         ApprovedFallback.model_validate(valid)
+
+
+@pytest.mark.parametrize("mode", ["no_evidence", "wrong_source", "wrong_type"])
+def test_fallback_invalid_result_is_never_saved(tmp_path: Path, mode: str) -> None:
+    with SQLiteOperationCache(tmp_path / f"{mode}.db") as cache:
+        executor, _, backup, _, _ = setup(cache=cache, fallback_mode=mode)
+        result = executor.execute(make_plan(), rows(2))
+        assert backup.calls == 2
+        assert result.metrics.fallback_attempts == 2
+        assert result.metrics.fallback_successes == 0
+        assert result.metrics.persistent_cache_writes == 0
+        assert result.records[0].row_result.steps[0].result.error_code == (
+            "REQUEST_BUDGET_EXCEEDED"
+        )
+
+
+def test_typed_but_forged_sqlite_evidence_cannot_escape_fallback_gate(tmp_path: Path) -> None:
+    path = tmp_path / "forged-evidence.db"
+    with SQLiteOperationCache(path, clock=lambda: 1000.0) as cache:
+        first, _, _, _, _ = setup(cache=cache)
+        first.execute(make_plan(), rows())
+
+    # Simulate a structurally valid but source-incompatible cache payload.
+    with sqlite3.connect(path) as connection:
+        row = connection.execute(
+            "SELECT key_digest, result_json FROM operation_cache WHERE provider_id = 'backup'"
+        ).fetchone()
+        assert row is not None
+        digest, raw = row
+        payload = json.loads(raw)
+        payload["evidence"][0]["source"] = "primary"
+        connection.execute(
+            "UPDATE operation_cache SET result_json = ? WHERE key_digest = ?",
+            (json.dumps(payload), digest),
+        )
+
+    with SQLiteOperationCache(path, clock=lambda: 1000.0) as cache:
+        second, _, _, _, backup_http = setup(cache=cache, fallback_quota=0)
+        job = second.execute(make_plan(), rows())
+        assert job.metrics.fallback_successes == 0
+        assert job.metrics.persistent_cache_hits == 1
+        assert job.records[0].row_result.steps[0].result.error_code == (
+            "REQUEST_BUDGET_EXCEEDED"
+        )
+        assert backup_http.calls == 0
+
+
+def test_quantity_fallback_requires_explicit_unit_contract() -> None:
+    base = {
+        "primary_provider_id": "a",
+        "fallback_provider_id": "b",
+        "compatibility_contract_id": "v1",
+        "fallback_configuration_id": "cfg",
+        "fallback_provider_version": "1",
+        "fallback_evidence_source": "b",
+        "expected_value_type": "quantity",
+    }
+    with pytest.raises(ValidationError, match="explicit compatible unit"):
+        ApprovedFallback.model_validate(base)
+
+    approved = ApprovedFallback.model_validate({**base, "expected_unit": "m"})
+    assert approved.expected_unit == "m"
+    with pytest.raises(ValidationError, match="Only quantity"):
+        ApprovedFallback.model_validate(
+            {**base, "expected_value_type": "geo_point", "expected_unit": "m"}
+        )
