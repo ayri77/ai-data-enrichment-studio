@@ -189,13 +189,9 @@ def setup(
         max_rows=1000,
         batch_size=37,
         max_memoized_results=10,
-        memoizable_providers=frozenset(
-            {("geocode", "primary"), ("geocode", "backup")}
-        ),
+        memoizable_providers=frozenset({("geocode", "primary"), ("geocode", "backup")}),
         persistent_cache_ttls=(
-            {("geocode", "primary"): 60.0, ("geocode", "backup"): 60.0}
-            if cache is not None
-            else {}
+            {("geocode", "primary"): 60.0, ("geocode", "backup"): 60.0} if cache is not None else {}
         ),
     )
     selected = {"geocode": "primary"}
@@ -269,16 +265,14 @@ def test_persistent_fallback_is_keyed_only_to_effective_provider(tmp_path: Path)
         assert first_job.metrics.persistent_cache_writes == 1
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute(
-            "SELECT provider_id FROM operation_cache"
-        ).fetchall() == [("backup",)]
+        assert connection.execute("SELECT provider_id FROM operation_cache").fetchall() == [
+            ("backup",)
+        ]
 
     # No network budget for either provider, but cached alternate can be
     # restored; no record is ever misrepresented as a primary provider hit.
     with SQLiteOperationCache(path, clock=lambda: 1000.0) as cache:
-        second, _, _, primary_http, backup_http = setup(
-            cache=cache, fallback_quota=0
-        )
+        second, _, _, primary_http, backup_http = setup(cache=cache, fallback_quota=0)
         result = second.execute(make_plan(), rows())
         assert result.records == first_job.records
         assert result.metrics.fallback_attempts == 1
@@ -305,9 +299,7 @@ def test_permanent_or_unclassified_failures_cannot_trigger_fallback(mode: str) -
 def test_no_fallback_configured_is_explicit_primary_failure() -> None:
     executor, _, backup, _, backup_http = setup(fallback_enabled=False)
     job = executor.execute(make_plan(), rows())
-    assert job.records[0].row_result.steps[0].result.error_code == (
-        "REQUEST_BUDGET_EXCEEDED"
-    )
+    assert job.records[0].row_result.steps[0].result.error_code == ("REQUEST_BUDGET_EXCEEDED")
     assert job.metrics.fallback_attempts == 0
     assert backup.calls == backup_http.calls == 0
 
@@ -356,9 +348,7 @@ def test_1000_rows_use_fallback_without_exceeding_alternate_budget() -> None:
 def test_second_provider_failure_preserves_original_terminal_error() -> None:
     executor, _, backup, _, backup_http = setup(fallback_mode="NOT_FOUND")
     result = executor.execute(make_plan(), rows())
-    assert result.records[0].row_result.steps[0].result.error_code == (
-        "REQUEST_BUDGET_EXCEEDED"
-    )
+    assert result.records[0].row_result.steps[0].result.error_code == ("REQUEST_BUDGET_EXCEEDED")
     assert backup.calls == 1
     assert backup_http.calls == 0
     assert result.metrics.fallback_attempts == 1
