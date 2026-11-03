@@ -166,9 +166,10 @@ def test_ranked_job_has_audited_capital_selection_and_downstream_dependency() ->
         for rec in result.records
     )
     assert all(rec.row_result.steps[1].result.status == "success" for rec in result.records)
-    assert ResolutionJobReport.model_validate_json(
-        result.resolution_report.model_dump_json()
-    ) == result.resolution_report
+    assert (
+        ResolutionJobReport.model_validate_json(result.resolution_report.model_dump_json())
+        == result.resolution_report
+    )
 
 
 def test_strict_ambiguity_is_grouped_but_not_cached_as_success() -> None:
@@ -182,8 +183,7 @@ def test_strict_ambiguity_is_grouped_but_not_cached_as_success() -> None:
     assert result.metrics.reused_operations == 0
     assert len(transport.requests) == 3
     assert all(
-        r.row_result.steps[1].result.error_code == "DEPENDENCY_FAILED"
-        for r in result.records
+        r.row_result.steps[1].result.error_code == "DEPENDENCY_FAILED" for r in result.records
     )
     assert result.resolution_report is not None
     assert result.resolution_report.status == "awaiting_review"
@@ -194,10 +194,7 @@ def test_strict_ambiguity_is_grouped_but_not_cached_as_success() -> None:
 
 def test_1000_rows_preserve_two_region_decisions_and_source_provenance() -> None:
     transport = StubJsonTransport({"results": _locations()})
-    rows = [
-        _record(i, state="Berlin" if i % 2 == 0 else "Schleswig-Holstein")
-        for i in range(1000)
-    ]
+    rows = [_record(i, state="Berlin" if i % 2 == 0 else "Schleswig-Holstein") for i in range(1000)]
     result = _job(transport).execute(_plan(region=True), rows, job_id="bench-1000")
     assert result.metrics.successful_rows == 1000
     assert result.metrics.logical_operations == 2000
@@ -206,12 +203,16 @@ def test_1000_rows_preserve_two_region_decisions_and_source_provenance() -> None
     assert len(transport.requests) == 2
     assert result.resolution_report is not None
     assert len(result.resolution_report.operations) == 2
-    assert sorted(
-        len(item.record_links) for item in result.resolution_report.operations
-    ) == [500, 500]
+    assert sorted(len(item.record_links) for item in result.resolution_report.operations) == [
+        500,
+        500,
+    ]
     assert sum(len(item.record_links) for item in result.resolution_report.operations) == 1000
-    assert {item.report.decision.selected.entity_id for item in result.resolution_report.operations
-            if item.report.decision.selected is not None} == {"2950158", "2950159"}
+    assert {
+        item.report.decision.selected.entity_id
+        for item in result.resolution_report.operations
+        if item.report.decision.selected is not None
+    } == {"2950158", "2950159"}
     assert result.resolution_report.status == "completed"
 
 
@@ -226,15 +227,15 @@ def test_paired_sqlite_cache_reuses_provenance_across_jobs_and_policy_versions(
         second = _job(transport, persistent_cache=cache).execute(
             _plan(), [_record(1)], job_id="job-2", previous_job_id="job-1"
         )
-        third = _job(
-            transport, persistent_cache=cache, policy=_policy(version="2")
-        ).execute(_plan(), [_record(1)], job_id="job-3")
-        fourth = _job(
-            transport, persistent_cache=cache, config="geo-v2"
-        ).execute(_plan(), [_record(1)], job_id="job-4")
-        fifth = _job(
-            transport, persistent_cache=cache, provider_version="openmeteo-v2"
-        ).execute(_plan(), [_record(1)], job_id="job-5")
+        third = _job(transport, persistent_cache=cache, policy=_policy(version="2")).execute(
+            _plan(), [_record(1)], job_id="job-3"
+        )
+        fourth = _job(transport, persistent_cache=cache, config="geo-v2").execute(
+            _plan(), [_record(1)], job_id="job-4"
+        )
+        fifth = _job(transport, persistent_cache=cache, provider_version="openmeteo-v2").execute(
+            _plan(), [_record(1)], job_id="job-5"
+        )
     assert len(transport.requests) == 4
     assert first.metrics.persistent_cache_writes == 1
     assert second.metrics.persistent_cache_hits == 1
@@ -263,8 +264,11 @@ def test_explicit_state_is_in_policy_aware_key_and_wins_over_prominence() -> Non
     assert result.metrics.executed_handler_calls == 4
     assert result.metrics.reused_operations == 0
     assert result.resolution_report is not None
-    assert {a.report.decision.selected.entity_id for a in result.resolution_report.operations
-            if a.report.decision.selected is not None} == {"2950159", "2950158"}
+    assert {
+        a.report.decision.selected.entity_id
+        for a in result.resolution_report.operations
+        if a.report.decision.selected is not None
+    } == {"2950159", "2950158"}
     assert len(transport.requests) == 2
 
 
