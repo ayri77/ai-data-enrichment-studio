@@ -22,7 +22,7 @@ from ai_data_enrichment.execution.job_models import (
     classify_row_outcome,
     prepare_input_records,
 )
-from ai_data_enrichment.execution.memoization import JobMemoization
+from ai_data_enrichment.execution.memoization import JobMemoization, MemoCapacity
 from ai_data_enrichment.execution.models import OperationResult
 from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
 from ai_data_enrichment.providers.registry import ProviderRegistry
@@ -185,7 +185,12 @@ class JobExecutor:
         ordinary_memo_policy = self._policy.model_copy(
             update={"persistent_cache_ttls": ordinary_ttls}
         )
-        memo = JobMemoization(ordinary_memo_policy, self._persistent_cache)
+        shared_memo_capacity = MemoCapacity(self._policy.max_memoized_results)
+        memo = JobMemoization(
+            ordinary_memo_policy,
+            self._persistent_cache,
+            shared_capacity=shared_memo_capacity,
+        )
         fallback_stats = FallbackStats()
         request_session = self._request_session
         wrapped_handlers: dict[str, CapabilityHandler] = {}
@@ -206,6 +211,7 @@ class JobExecutor:
                     service=service,
                     policy=self._resolution_policies[cap],
                     job_policy=self._policy,
+                    shared_capacity=shared_memo_capacity,
                     persistent_cache=self._resolution_cache,
                     wrap_provider=(
                         (
