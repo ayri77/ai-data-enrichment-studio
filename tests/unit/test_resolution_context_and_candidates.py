@@ -78,12 +78,8 @@ def _geocode_plan() -> EnrichmentPlan:
                 id="distance",
                 capability="geodesic_distance",
                 inputs={
-                    "point_a": StepOutputReference(
-                        kind="step_output", step_id="resolve_city"
-                    ),
-                    "point_b": StepOutputReference(
-                        kind="step_output", step_id="resolve_city"
-                    ),
+                    "point_a": StepOutputReference(kind="step_output", step_id="resolve_city"),
+                    "point_b": StepOutputReference(kind="step_output", step_id="resolve_city"),
                 },
                 parameters={"unit": "km"},
             ),
@@ -167,12 +163,8 @@ def test_geocode_context_selects_berlin_schleswig_holstein_over_capital() -> Non
         ("DE-BE", "2950159"),
     ],
 )
-def test_geocode_accepts_region_names_and_iso_codes(
-    region: str, geonames_id: str
-) -> None:
-    handler = OpenMeteoGeocodingHandler(
-        StubJsonTransport({"results": _berlin_locations()})
-    )
+def test_geocode_accepts_region_names_and_iso_codes(region: str, geonames_id: str) -> None:
+    handler = OpenMeteoGeocodingHandler(StubJsonTransport({"results": _berlin_locations()}))
     result = handler.execute(
         inputs={"city": "Berlin", "country": "Germany", "administrative_area": region},
         parameters={},
@@ -195,16 +187,11 @@ def test_geocode_accepts_region_names_and_iso_codes(
 def test_administrative_area_matching_is_country_aware(
     area: str, actual: str, expected: bool
 ) -> None:
-    assert (
-        administrative_area_matches(area, country_code="DE", actual_admin1=actual)
-        is expected
-    )
+    assert administrative_area_matches(area, country_code="DE", actual_admin1=actual) is expected
 
 
 def test_geocode_without_region_preserves_legacy_ambiguous_result() -> None:
-    handler = OpenMeteoGeocodingHandler(
-        StubJsonTransport({"results": _berlin_locations()})
-    )
+    handler = OpenMeteoGeocodingHandler(StubJsonTransport({"results": _berlin_locations()}))
     result = handler.execute(inputs={"city": "Berlin", "country": "Germany"}, parameters={})
     assert result.status == "failure"
     assert result.error_code == "AMBIGUOUS"
@@ -239,9 +226,7 @@ def test_missing_region_metadata_does_not_prove_uniqueness() -> None:
 
 
 def test_unmatched_known_region_returns_not_found() -> None:
-    handler = OpenMeteoGeocodingHandler(
-        StubJsonTransport({"results": _berlin_locations()})
-    )
+    handler = OpenMeteoGeocodingHandler(StubJsonTransport({"results": _berlin_locations()}))
     result = handler.execute(
         inputs={"city": "Berlin", "country": "Germany", "administrative_area": "Bayern"},
         parameters={},
@@ -441,9 +426,7 @@ def test_mapped_but_empty_optional_context_fails_explicitly() -> None:
     from ai_data_enrichment.execution.executor import DAGExecutor
 
     transport = StubJsonTransport({"results": _berlin_locations()})
-    result = DAGExecutor(
-        {"geocode": OpenMeteoGeocodingHandler(transport)}
-    ).execute_row(
+    result = DAGExecutor({"geocode": OpenMeteoGeocodingHandler(transport)}).execute_row(
         _geocode_plan(),
         {"City": "Berlin", "Country": "Germany", "Bundesland": None},
     )
