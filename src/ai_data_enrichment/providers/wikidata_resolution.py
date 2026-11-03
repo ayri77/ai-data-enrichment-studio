@@ -55,7 +55,9 @@ class WikidataMountainResolutionService:
         max_verify_candidates: int = WIKIDATA_MAX_VERIFY_CANDIDATES,
     ) -> None:
         if not 1 <= max_verify_candidates <= WIKIDATA_MAX_VERIFY_CANDIDATES:
-            raise ValueError("Mountain candidate verification budget is outside application limits.")
+            raise ValueError(
+                "Mountain candidate verification budget is outside application limits."
+            )
         self._transport = transport
         self._max_verify_candidates = max_verify_candidates
         self._engine = ResolutionEngine()
