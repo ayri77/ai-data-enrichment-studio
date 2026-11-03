@@ -5,11 +5,11 @@ from pydantic import ValidationError
 from tests.support.http import StubJsonTransport
 
 from ai_data_enrichment.execution.models import GeoPoint
+from ai_data_enrichment.providers.open_meteo_candidates import normalize_open_meteo_candidates
 from ai_data_enrichment.providers.open_meteo_resolution import (
     GeocodingResolutionOutcome,
     OpenMeteoResolutionService,
 )
-from ai_data_enrichment.providers.open_meteo_candidates import normalize_open_meteo_candidates
 from ai_data_enrichment.providers.wikidata_candidates import normalize_wikidata_search_candidates
 from ai_data_enrichment.resolution.engine import ResolutionEngine
 from ai_data_enrichment.resolution.geographic import GeographicRankingStrategy
