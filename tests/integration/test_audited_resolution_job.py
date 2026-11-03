@@ -1,9 +1,12 @@
 """Audited JobExecutor integration: DAG, paired memo, cache and row-linked reports."""
 
+from collections.abc import Mapping
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from tests.support.http import StubJsonTransport
+from tests.support.wikidata import entity_statement
 
 from ai_data_enrichment.domain.capability import Identifier
 from ai_data_enrichment.domain.enrichment_plan import (
@@ -16,7 +19,7 @@ from ai_data_enrichment.domain.enrichment_plan import (
 )
 from ai_data_enrichment.execution.job_executor import JobExecutor
 from ai_data_enrichment.execution.job_models import InputRecord, JobExecutionPolicy
-from ai_data_enrichment.execution.models import GeoPoint, RuntimeValue
+from ai_data_enrichment.execution.models import EntityRef, GeoPoint, Quantity, RuntimeValue
 from ai_data_enrichment.providers.geodesic import GeodesicDistanceHandler
 from ai_data_enrichment.providers.open_meteo import OpenMeteoGeocodingHandler
 from ai_data_enrichment.providers.open_meteo_resolution import OpenMeteoResolutionService
@@ -24,6 +27,11 @@ from ai_data_enrichment.providers.request_policy import (
     ProviderRequestPolicy,
     ProviderRequestSession,
 )
+from ai_data_enrichment.providers.wikidata import (
+    WikidataElevationHandler,
+    WikidataMountainResolver,
+)
+from ai_data_enrichment.providers.wikidata_resolution import WikidataMountainResolutionService
 from ai_data_enrichment.resolution.models import ResolutionJobReport, ResolutionPolicy
 from ai_data_enrichment.resolution.sqlite_cache import SQLiteResolutionCache
 
@@ -390,3 +398,125 @@ def test_memo_capacity_applies_to_audited_and_ordinary_handlers_together() -> No
     assert len(transport.requests) == 1
     assert result.resolution_report is not None
     assert len(result.resolution_report.operations[0].record_links) == 2
+
+
+def test_wikidata_audited_job_produces_verified_entity_for_elevation_dependency() -> None:
+    """Two rows reuse one complete mountain report; downstream quantities remain sourced."""
+    search_hits = [
+        {"id": "Q513", "label": "Mount Everest"},
+        {
+            "id": "Q61882061",
+            "label": "The Climbers",
+            "match": {"type": "alias", "text": "Mount Everest"},
+        },
+    ]
+    mountain = {
+        "id": "Q513",
+        "claims": {
+            "P31": [entity_statement("Q8502")],
+            "P17": [entity_statement("Q837")],
+            "P2044": [
+                {
+                    "rank": "preferred",
+                    "mainsnak": {
+                        "snaktype": "value",
+                        "datavalue": {
+                            "type": "quantity",
+                            "value": {
+                                "amount": "+8848.86",
+                                "unit": "http://www.wikidata.org/entity/Q11573",
+                            },
+                        },
+                    },
+                },
+            ],
+        },
+    }
+    country = {
+        "id": "Q837",
+        "claims": {
+            "P297": [
+                {
+                    "rank": "normal",
+                    "mainsnak": {
+                        "snaktype": "value",
+                        "datavalue": {"type": "string", "value": "NP"},
+                    },
+                },
+            ],
+        },
+    }
+    film = {"id": "Q61882061", "claims": {"P31": [entity_statement("Q11424")]}}
+    entities: dict[str, object] = {"Q513": mountain, "Q837": country, "Q61882061": film}
+
+    def respond(*, url: str, params: Mapping[str, str], timeout_seconds: float) -> object:
+        assert url == "https://www.wikidata.org/w/api.php"
+        assert timeout_seconds == 10.0
+        if params["action"] == "wbsearchentities":
+            return {"search": search_hits}
+        assert params["action"] == "wbgetentities"
+        return {"entities": {qid: entities[qid] for qid in params["ids"].split("|")}}
+
+    transport = Mock()
+    transport.get_json.side_effect = respond
+    plan = EnrichmentPlan(
+        version="1.0",
+        steps=[
+            PlanStep(
+                id="mountain",
+                capability="resolve_entity",
+                inputs={
+                    "name": ColumnReference(kind="column", name="Mountain"),
+                    "country": ColumnReference(kind="column", name="Country"),
+                },
+                parameters={"entity_type": "mountain"},
+            ),
+            PlanStep(
+                id="height",
+                capability="lookup_property",
+                inputs={
+                    "entity": StepOutputReference(kind="step_output", step_id="mountain"),
+                },
+                parameters={"property": "elevation"},
+            ),
+        ],
+        outputs=[OutputMapping(step_id="height", value_field="value", target_column="Height")],
+        assumptions=[],
+    )
+    job = JobExecutor(
+        handlers={
+            "resolve_entity": WikidataMountainResolver(transport),
+            "lookup_property": WikidataElevationHandler(transport),
+        },
+        selected_providers={"resolve_entity": "wikidata", "lookup_property": "wikidata"},
+        configuration_ids={"resolve_entity": "mountains-v1", "lookup_property": "height-v1"},
+        capability_versions={"resolve_entity": "1.0"},
+        provider_versions={"resolve_entity": "wikidata-v1"},
+        policy=JobExecutionPolicy(
+            memoizable_providers=frozenset({("resolve_entity", "wikidata")}),
+        ),
+        resolution_services={"resolve_entity": WikidataMountainResolutionService(transport)},
+        resolution_policies={
+            "resolve_entity": ResolutionPolicy(policy_id="strict_mountain", version="1.0")
+        },
+    )
+    rows = [
+        InputRecord(record_id=f"row-{index}", values={"Mountain": "Mount Everest", "Country": "Nepal"})
+        for index in (1, 2)
+    ]
+    result = job.execute(plan, rows, job_id="mountain-enrichment-2")
+    assert result.metrics.successful_rows == 2
+    assert result.metrics.logical_operations == 4
+    assert result.metrics.executed_handler_calls == 3
+    assert result.metrics.reused_operations == 1
+    assert transport.get_json.call_count == 6
+    assert result.resolution_report is not None
+    assert len(result.resolution_report.operations) == 1
+    audit = result.resolution_report.operations[0]
+    assert audit.report.decision.status == "resolved"
+    assert audit.report.decision.selected == EntityRef(source="wikidata", entity_id="Q513")
+    assert len(audit.record_links) == 2
+    assert all(
+        record.row_result.steps[1].result.value == Quantity(value=8848.86, unit="m")
+        for record in result.records
+    )
