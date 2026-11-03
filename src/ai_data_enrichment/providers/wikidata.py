@@ -19,6 +19,7 @@ from ai_data_enrichment.providers.wikidata_constants import (
     WIKIDATA_CLASS_MAX_HOPS,
     WIKIDATA_CLASS_MAX_NODES,
     WIKIDATA_MAX_SEARCH_PAGES,
+    WIKIDATA_MAX_VERIFY_CANDIDATES,
     WIKIDATA_P_COUNTRY,
     WIKIDATA_P_ELEVATION,
     WIKIDATA_P_INSTANCE_OF,
@@ -28,13 +29,12 @@ from ai_data_enrichment.providers.wikidata_constants import (
     WIKIDATA_Q_MOUNTAIN,
     WIKIDATA_SEARCH_PAGE_SIZE,
 )
-from ai_data_enrichment.providers.wikidata_country import verify_country
-from ai_data_enrichment.providers.wikidata_ontology import mountain_class_path
+from ai_data_enrichment.providers.wikidata_search import fetch_wikidata_search
+from ai_data_enrichment.providers.wikidata_verification import verify_wikidata_mountain_candidate
 from ai_data_enrichment.providers.wikidata_parsing import (
     _best_ranked_statements,
     _candidate_matches_name,
     _parse_elevation_quantity,
-    _ranked_entity_ids,
     _wikidata_api_failure,
 )
 
@@ -238,74 +238,12 @@ class WikidataMountainResolver:
                 message="Unrecognized country name.",
             )
 
-        candidates: list[object] = []
-        cursor: int | None = None
-
-        for _ in range(WIKIDATA_MAX_SEARCH_PAGES):
-            search_params = {
-                "action": "wbsearchentities",
-                "search": name.strip(),
-                "language": "en",
-                "format": "json",
-                "type": "item",
-                "limit": str(WIKIDATA_SEARCH_PAGE_SIZE),
-            }
-
-            if cursor is not None:
-                search_params["continue"] = str(cursor)
-
-            try:
-                payload = self._transport.get_json(
-                    url=WIKIDATA_API_URL,
-                    params=search_params,
-                    timeout_seconds=10.0,
-                )
-            except (JsonTransportError, JSONDecodeError, OSError) as exc:
-                return transport_failure_result(
-                    exc,
-                    provider_label="Wikidata API",
-                )
-
-            api_failure = _wikidata_api_failure(payload)
-
-            if api_failure is not None:
-                return api_failure
-
-            if not isinstance(payload, dict):
-                return OperationResult(
-                    status="failure",
-                    error_code="INVALID_RESPONSE",
-                    message="Wikidata search returned an invalid response.",
-                )
-
-            page_candidates = payload.get("search")
-
-            if not isinstance(page_candidates, list):
-                return OperationResult(
-                    status="failure",
-                    error_code="INVALID_RESPONSE",
-                    message="Wikidata search results must be a list.",
-                )
-
-            candidates.extend(page_candidates)
-
-            # No continuation means that the search is complete.
-            if "search-continue" not in payload:
-                break
-
-            next_cursor = payload["search-continue"]
-
-            if type(next_cursor) is not int or next_cursor <= (cursor if cursor is not None else 0):
-                return OperationResult(
-                    status="failure",
-                    error_code="INVALID_RESPONSE",
-                    message="Invalid Wikidata search continuation.",
-                )
-
-            cursor = next_cursor
-
-        else:
-            # Do not claim uniqueness with unchecked search pages.
+        search = fetch_wikidata_search(self._transport, name=name)
+        if search.failure is not None:
+            return search.failure
+        if not search.complete:
+            # Preserve strict legacy semantics; the paired-report service can
+            # expose the partial candidate list for later user clarification.
             return OperationResult(
                 status="failure",
                 error_code="INCOMPLETE_SEARCH",
@@ -314,6 +252,7 @@ class WikidataMountainResolver:
                     "candidate uniqueness cannot be confirmed."
                 ),
             )
+        candidates = search.items
 
         if not candidates:
             return OperationResult(
@@ -352,6 +291,14 @@ class WikidataMountainResolver:
             if qid in seen_ids:
                 continue
 
+            # Do not spend unbounded requests on search aliases or homonyms.
+            # A partial verification cannot establish a unique identity.
+            if len(seen_ids) >= WIKIDATA_MAX_VERIFY_CANDIDATES:
+                return OperationResult(
+                    status="failure",
+                    error_code="INCOMPLETE_VERIFICATION",
+                    message="Wikidata candidate verification budget exceeded.",
+                )
             seen_ids.add(qid)
 
             result = self._verify_candidate(
@@ -389,127 +336,9 @@ class WikidataMountainResolver:
         qid: str,
         expected_country_code: str,
     ) -> OperationResult:
-        """Verify one candidate's entity type and country."""
-
-        try:
-            details = self._transport.get_json(
-                url=WIKIDATA_API_URL,
-                params={
-                    "action": "wbgetentities",
-                    "ids": qid,
-                    "props": "claims",
-                    "format": "json",
-                },
-                timeout_seconds=10.0,
-            )
-        except (JsonTransportError, JSONDecodeError, OSError) as exc:
-            return transport_failure_result(
-                exc,
-                provider_label="Wikidata API",
-            )
-
-        api_failure = _wikidata_api_failure(details)
-
-        if api_failure is not None:
-            return api_failure
-
-        if not isinstance(details, dict):
-            return OperationResult(
-                status="failure",
-                error_code="INVALID_RESPONSE",
-                message="Wikidata entity response must be an object.",
-            )
-
-        entities = details.get("entities")
-
-        if not isinstance(entities, dict):
-            return OperationResult(
-                status="failure",
-                error_code="INVALID_RESPONSE",
-                message="Wikidata entities must be an object.",
-            )
-
-        entity_data = entities.get(qid)
-
-        if not isinstance(entity_data, dict):
-            return OperationResult(
-                status="failure",
-                error_code="INVALID_RESPONSE",
-                message="Wikidata entity data is missing or invalid.",
-            )
-
-        if "missing" in entity_data:
-            return OperationResult(
-                status="failure",
-                error_code="NOT_FOUND",
-                message="Wikidata candidate entity does not exist.",
-            )
-
-        claims = entity_data.get("claims")
-
-        if not isinstance(claims, dict):
-            return OperationResult(
-                status="failure",
-                error_code="INVALID_RESPONSE",
-                message="Wikidata entity claims must be an object.",
-            )
-
-        instance_of = claims.get(WIKIDATA_P_INSTANCE_OF, [])
-
-        if not isinstance(instance_of, list):
-            return OperationResult(
-                status="failure",
-                error_code="INVALID_RESPONSE",
-                message="Wikidata P31 must be a list.",
-            )
-
-        class_ids = _ranked_entity_ids(
-            instance_of,
-            property_id=WIKIDATA_P_INSTANCE_OF,
-        )
-
-        if isinstance(class_ids, OperationResult):
-            return class_ids
-
-        class_path = mountain_class_path(self._transport, class_ids)
-
-        if isinstance(class_path, OperationResult):
-            return class_path
-
-        if class_path is None:
-            return OperationResult(
-                status="failure",
-                error_code="NOT_FOUND",
-                message="Candidate is not classified as a mountain.",
-            )
-
-        country_result = verify_country(
+        """Preserve the strict handler API while using shared source verification."""
+        return verify_wikidata_mountain_candidate(
             self._transport,
             qid=qid,
-            claims=claims,
             expected_country_code=expected_country_code,
         )
-
-        if country_result.status != "success":
-            return country_result
-
-        # Record the subclass chain when an indirect type matched.
-        if len(class_path) > 1:
-            subclass_evidence = Evidence(
-                source="wikidata",
-                reference=(
-                    f"{qid}:{WIKIDATA_P_INSTANCE_OF}={class_path[0]};"
-                    f"{WIKIDATA_P_SUBCLASS_OF}=" + "->".join(class_path)
-                ),
-            )
-
-            return OperationResult(
-                status="success",
-                value=country_result.value,
-                evidence=(
-                    *country_result.evidence,
-                    subclass_evidence,
-                ),
-            )
-
-        return country_result
