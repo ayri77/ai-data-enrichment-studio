@@ -176,3 +176,22 @@ This shape **represents** cancellation; it does not add pause/abort/resume behav
 **Cache isolation:** The unchanged operation-key logic already includes the typed `administrative_area` input when supplied, preventing a Berlin/State of Berlin result from colliding with Berlin/Schleswig-Holstein. Provider configuration/capability versions must be updated deliberately for persistent reuse.
 
 No LLM ranking, generalized rule language, automatic input repair, Excel/CLI review workflow, or web UI is introduced in #62.
+
+
+## 7. Shared ranking and opt-in geocoding resolution (#63)
+
+The first shared `ResolutionEngine.resolve(candidate_set, policy, strategy)` accepts already-normalized `CandidateSet` instances, applies common acceptance/abstention rules, and returns a validated `ResolutionReport`. Its first plug-in is `GeographicRankingStrategy`: it compares source-normalized entity classes, country and explicit administrative region **as hard constraints** and optionally ranks surviving verified geographic candidates by administrative role.
+
+**Decision policy in code:**
+- `strategy="strict"` by default: two verified Berlin candidates stay `needs_review`, even if one is a capital.
+- `strategy="ranked", prefer_prominent=True, auto_accept_ranked=False`: ranks candidates and exposes the recommendation, but does **not** automatically select.
+- `strategy="ranked", prefer_prominent=True, auto_accept_ranked=True`: auto-selects only if **one candidate has a distinct verified administrative role** (for example country capital vs a regular settlement), no required contextual fact is unverified, and the source search and verification are complete. Records all candidates, assessments, rank and reason codes. Hard region overrides prominence.
+- When all candidates have recorded comparable population, population may order recommendations within the *same* administrative role. **Population alone does not authorize auto-acceptance**, because we have not calibrated any threshold for acceptable identity risk. Missing population never counts as zero and never creates a decisive ranking.
+- Same-name tied settlements, unchecked entity types, missing region evidence, incomplete search pages and remote API problems abstain with separate review/incomplete/provider-failure outcomes.
+- Search-result position and numeric LLM confidence are not used. No typo correction during original lookup.
+
+**Opt-in provider API:** `OpenMeteoResolutionService(transport).resolve(inputs=..., policy=...)` returns an immutable `GeocodingResolutionOutcome` containing **both** a typed `OperationResult` and the corresponding `ResolutionReport` from a single bounded Open-Meteo request. Source-specific API fields are normalized in `open_meteo_candidates.py`; the shared engine does not interpret `PPLC`, `PPLA` or GeoNames payloads. Common geographic region matching now lives in `resolution/geography.py`.
+
+**Deliberate integration boundary:** The existing `OpenMeteoGeocodingHandler.execute` and `JobExecutor` still use the legacy strict path. The new opt-in service is not yet installed as a `CapabilityHandler` because that interface returns only `OperationResult` and would silently discard the audit report. #65 must integrate the paired report into the job/row/operation audit, establish policy/version-aware cache identities, and keep repeated row references. Until then, no job-level ranked geocoding is advertised as implemented.
+
+This design supports future UI examples directly: *Ask me to choose* (strict); *Suggest, don't fill* (ranked without auto-accept); *Automatically prefer a demonstrable capital and tell me* (opt-in ranked auto-accept), plus *Use this Bundesland column* as a context hard constraint. No new UX is delivered by #63.
