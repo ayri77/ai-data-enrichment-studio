@@ -20,6 +20,7 @@ from ai_data_enrichment.execution.models import GeoPoint, RuntimeValue
 from ai_data_enrichment.providers.geodesic import GeodesicDistanceHandler
 from ai_data_enrichment.providers.open_meteo import OpenMeteoGeocodingHandler
 from ai_data_enrichment.providers.open_meteo_resolution import OpenMeteoResolutionService
+from ai_data_enrichment.providers.request_policy import ProviderRequestPolicy, ProviderRequestSession
 from ai_data_enrichment.resolution.models import ResolutionJobReport, ResolutionPolicy
 from ai_data_enrichment.resolution.sqlite_cache import SQLiteResolutionCache
 
@@ -103,6 +104,9 @@ def _job(
     config: str = "geo-v1",
     provider_version: str = "openmeteo-v1",
     memoize: bool = True,
+    memoize_local: bool = False,
+    max_memoized_results: int = 1000,
+    request_session: ProviderRequestSession | None = None,
 ) -> JobExecutor:
     return JobExecutor(
         handlers={
@@ -116,8 +120,12 @@ def _job(
         policy=JobExecutionPolicy(
             max_rows=1000,
             batch_size=33,
-            memoizable_providers=(
-                frozenset({("geocode", "open-meteo")}) if memoize else frozenset()
+            max_memoized_results=max_memoized_results,
+            memoizable_providers=frozenset(
+                (
+                    {("geocode", "open-meteo")} if memoize else set()
+                )
+                | ({("geodesic_distance", "local")} if memoize_local else set())
             ),
             persistent_cache_ttls=(
                 {("geocode", "open-meteo"): 120.0}
@@ -128,6 +136,7 @@ def _job(
         resolution_services={"geocode": OpenMeteoResolutionService(transport)},
         resolution_policies={"geocode": policy or _policy()},
         resolution_cache=persistent_cache,
+        request_session=request_session,
     )
 
 
@@ -330,3 +339,53 @@ def test_audited_persistent_cache_requires_separate_resolved_cache() -> None:
     with pytest.raises(ValueError, match="separate paired cache"):
         job.execute(_plan(), [_record(1)])
     assert not transport.requests
+
+
+def test_provider_operation_budget_preserves_failure_report_without_stale_selection() -> None:
+    transport = StubJsonTransport({"results": _locations()})
+    request_session = ProviderRequestSession(
+        {
+            "open-meteo": ProviderRequestPolicy(
+                max_requests_per_job=10,
+                max_operations_per_job=1,
+            )
+        }
+    )
+    result = _job(
+        transport,
+        memoize=False,
+        request_session=request_session,
+    ).execute(_plan(), [_record(1), _record(2)])
+    assert len(transport.requests) == 1
+    assert result.provider_requests["open-meteo"].operations_started == 1
+    assert result.provider_requests["open-meteo"].operations_blocked_by_budget == 1
+    assert result.records[0].row_result.steps[0].result.status == "success"
+    assert result.records[1].row_result.steps[0].result.error_code == (
+        "PROVIDER_OPERATION_BUDGET_EXCEEDED"
+    )
+    assert result.records[1].row_result.steps[1].result.error_code == "DEPENDENCY_FAILED"
+    assert result.resolution_report is not None
+    assert result.resolution_report.status == "failed"
+    assert {entry.report.decision.status for entry in result.resolution_report.operations} == {
+        "auto_resolved",
+        "provider_failure",
+    }
+    assert all(len(entry.record_links) == 1 for entry in result.resolution_report.operations)
+
+
+def test_memo_capacity_applies_to_audited_and_ordinary_handlers_together() -> None:
+    transport = StubJsonTransport({"results": _locations()})
+    job = _job(
+        transport,
+        memoize=True,
+        memoize_local=True,
+        max_memoized_results=1,
+    )
+    result = job.execute(_plan(), [_record(1), _record(2)])
+    assert result.metrics.successful_rows == 2
+    assert result.metrics.memoized_results == 1
+    assert result.metrics.memo_capacity_skips >= 1
+    assert result.metrics.reused_operations == 1
+    assert len(transport.requests) == 1
+    assert result.resolution_report is not None
+    assert len(result.resolution_report.operations[0].record_links) == 2
