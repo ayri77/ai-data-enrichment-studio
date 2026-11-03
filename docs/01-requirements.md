@@ -697,3 +697,11 @@ The **Portfolio v1** is successful when the Core MVP is supplemented by a usable
 
 **Document status:** Initial requirements baseline.  
 **Next step:** Review and approve requirements, then proceed to conceptual architecture and domain modeling.
+
+---
+
+## Implementation addendum — uncertainty-aware resolution (proposed, 2026-11-03)
+
+The initial FR-017 / FR-024 / FR-028 / FR-029 / FR-031 and UC-04 requirements remain in force. The proposed refinement is to distinguish **verified identity**, **rule-based auto-selection with recorded alternatives**, **user review**, **actual no-match**, **incomplete verification**, and **provider failure**. Exact-input resolution and post-failure assisted data repair remain distinct. Do not silently change source values.
+
+For implementation boundaries and measurable outcomes, see [Resolution Foundation](08-resolution-foundation.md) and [Resolution Delivery Plan](09-resolution-rollout.md). These are proposed extensions; they do not imply that ranked resolution, review export, or LLM repair already exists. Workbook-preserving reports/overrides belong to M3, optional LLM assistance to M4, and web review UI to M5. The older open-design list above is a historical requirements baseline; the new ADR specifies the current proposal.
