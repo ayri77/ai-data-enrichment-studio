@@ -29,14 +29,14 @@ from ai_data_enrichment.providers.wikidata_constants import (
     WIKIDATA_Q_MOUNTAIN,
     WIKIDATA_SEARCH_PAGE_SIZE,
 )
-from ai_data_enrichment.providers.wikidata_search import fetch_wikidata_search
-from ai_data_enrichment.providers.wikidata_verification import verify_wikidata_mountain_candidate
 from ai_data_enrichment.providers.wikidata_parsing import (
     _best_ranked_statements,
     _candidate_matches_name,
     _parse_elevation_quantity,
     _wikidata_api_failure,
 )
+from ai_data_enrichment.providers.wikidata_search import fetch_wikidata_search
+from ai_data_enrichment.providers.wikidata_verification import verify_wikidata_mountain_candidate
 
 # Stable public imports from the original providers.wikidata module.
 __all__ = [
