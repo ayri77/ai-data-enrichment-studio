@@ -173,7 +173,9 @@ def normalize_open_meteo_candidates(
                 if administrative_area is None
                 else (
                     ResolutionAttribute(name="country_code", value=country_code),
-                    ResolutionAttribute(name="administrative_area", value=administrative_area.strip()),
+                    ResolutionAttribute(
+                        name="administrative_area", value=administrative_area.strip()
+                    ),
                 )
             ),
         ),
