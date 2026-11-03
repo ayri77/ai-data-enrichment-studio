@@ -182,7 +182,8 @@ class JobExecutionResult(BaseModel):
                 raise ValueError("Resolution report total does not match the job.")
             lookup = {
                 (record.record_id, step.step_id): step.result
-                for record in self.records for step in record.row_result.steps
+                for record in self.records
+                for step in record.row_result.steps
             }
             seen: set[tuple[str, str]] = set()
             for item in self.resolution_report.operations:
