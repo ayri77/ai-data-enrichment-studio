@@ -151,6 +151,21 @@ class CandidateSet(_ResolutionModel):
         return self
 
 
+class CandidateAssessment(_ResolutionModel):
+    """Decision-layer interpretation of a candidate, not provider source data."""
+
+    reference: EntityRef
+    eligibility: Literal["eligible", "excluded", "unchecked"]
+    rank: int | None = Field(default=None, ge=1)
+    reason_codes: tuple[Identifier, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def check_rank(self) -> Self:
+        if self.rank is not None and self.eligibility != "eligible":
+            raise ValueError("Only eligible candidates may have a rank.")
+        return self
+
+
 class ResolutionPolicy(_ResolutionModel):
     """Versioned decision configuration; request budgets are configured elsewhere."""
 
@@ -205,12 +220,19 @@ class ResolutionReport(_ResolutionModel):
     candidate_set: CandidateSet
     policy: ResolutionPolicy
     decision: ResolutionDecision
+    assessments: tuple[CandidateAssessment, ...] = ()
 
     @model_validator(mode="after")
     def check_report(self) -> Self:
         candidate_set = self.candidate_set
         decision = self.decision
         is_complete = candidate_set.search_complete and candidate_set.verification_complete
+        candidate_ids = {c.reference for c in candidate_set.candidates}
+        assessed_ids = [assessment.reference for assessment in self.assessments]
+        if len(assessed_ids) != len(set(assessed_ids)):
+            raise ValueError("Candidate assessments must not repeat identities.")
+        if any(ref not in candidate_ids for ref in assessed_ids):
+            raise ValueError("Assessment refers to an unknown candidate.")
 
         if decision.selected is not None:
             selected_candidates = [
@@ -228,6 +250,13 @@ class ResolutionReport(_ResolutionModel):
         if decision.status == "auto_resolved":
             if self.policy.strategy != "ranked" or not self.policy.auto_accept_ranked:
                 raise ValueError("Auto-selection requires an enabled ranked policy.")
+            winners = [
+                assessment
+                for assessment in self.assessments
+                if assessment.eligibility == "eligible" and assessment.rank == 1
+            ]
+            if len(winners) != 1 or winners[0].reference != decision.selected:
+                raise ValueError("Auto-selection requires one explained top-ranked candidate.")
 
         if decision.status == "unresolved" and not is_complete:
             raise ValueError("A no-match result requires completed verification.")
