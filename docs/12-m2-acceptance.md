@@ -45,7 +45,7 @@ Evidence and decision invariants:
 - Strict Berlin: `needs_review` (not auto-chosen), `DEPENDENCY_FAILED` on distance, one partial input row and both attempted geocoding decisions linked.
 - Unknown additional mountain: `incomplete_verification`, `selected=None`, `DEPENDENCY_FAILED` on elevation, no invented height or Evidence.
 
-**Important:** The fixture value `8848.86 m` is not independent ground truth, and successful source verification does not certify external factual correctness; independent value-level evaluation belongs to M3.
+**Important:** Audited completion and entity identity do not prove a mountain's source elevation claim is correct or current. The fixture value `8848.86 m` is not independent ground truth, and successful source verification does not certify external factual correctness; independent value-level evaluation belongs to M3.
 
 ## 3. Code-quality and reliability acceptance
 
