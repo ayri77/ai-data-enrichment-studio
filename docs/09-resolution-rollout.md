@@ -1,18 +1,21 @@
 # Resolution Foundation — Delivery Plan and Milestone Boundaries
 
-**Status:** Architectural direction approved via merged PR #69; staged implementation in progress (2026-11-03)  
+**Status:** #61–#65 implemented and merged through PR #74; M2 final #44/#37 acceptance in progress (2026-11-03)  
 **Architecture:** [ADR-RES-001](08-resolution-foundation.md)  
 **Parent epics:** [M2 #3](https://github.com/ayri77/ai-data-enrichment-studio/issues/3), [M3 #4](https://github.com/ayri77/ai-data-enrichment-studio/issues/4), [M4 #5](https://github.com/ayri77/ai-data-enrichment-studio/issues/5), [M5 #6](https://github.com/ayri77/ai-data-enrichment-studio/issues/6)
 
-## 1. Present baseline (not proposed implementation)
+## 1. Historical baseline (before Resolution Foundation rollout)
 
-At merge of PR #60 (`main` `58615516f83411d51c1eba4d809e84bf47b8adfe`):
+At merge of PR #60 (`main` `58615516f83411d51c1eba4d809e84bf47b8adfe`), **historical reference only**:
+
 - M1 plan generation and deterministic validation complete.
 - M2 has typed `OperationResult`, DAG execution, approved providers, Haversine, Open-Meteo/Wikidata, per-job reuse, optional SQLite, bounded transport retries/rate/request policies and approved fallback contracts.
 - Deterministic offline and cached smoke runs exist; controlled 1,000-row in-memory job test exists in #34.
 - **Known live mismatch:** Berlin exact-name geocoding returns `AMBIGUOUS`; Wikidata Everest resolves an early mountain candidate but later produces `INCOMPLETE_HIERARCHY` while verifying other search matches. These are unresolved product/algorithm decisions, not proof that remote providers failed.
 - The existing public CLI does **not** execute a user workbook through output enrichment; no workbook-preserving result writer, end-to-end numeric truth evaluation, Review Workspace or LLM repair exists.
 - #37 was closed after PR #60 while its final live follow-up/quality audit was still noted as outstanding. Reopen/retain it as the final M2 gate; #44 provider drift audit remains open.
+
+**Current M2 integration:** PRs #69–#74 merged, including normalized provider candidates, policy-based ranking/abstention, audited `JobExecutor`, paired-result SQLite and per-record review links. #44 still audits external provider contracts and #37 must produce timed benchmark evidence before M2 closure. The public CLI still cannot enrich an XLSX. The status and feature inventory in the historical section above are not current.
 
 ## 2. Delivery sequence and issue ownership
 
@@ -75,7 +78,7 @@ Show original value, selected candidate, credible alternatives, reason, policy, 
 ## 6. Work method and release gates
 
 - Work in **small issue → feature branch → draft PR → offline tests/CI → review → merge** slices. User reviews changes before code implementation and before merge; no implicit auto-merge.
-- PR #69 (architecture/rollout documents) has merged. Review the concrete report schema in #61 before integration into providers or JobExecutor. No runtime behavior change in that contract-only slice.
+- PR #69 and #61–#65 have merged; the contract-only historical step preceded and is distinct from the implemented audited runtime. #44 and #37 remain blocking M2 acceptance checks.
 - After each slice: update contract/documentation only to match actual behavior, not to imply a planned feature exists.
 - Finalize M2 only after #44 + #37 audit/Definition of Done; do not close based solely on a number of completed issues.
 - Avoid arbitrary schedule estimates; limit scope based on actual CI, benchmark and review results.
@@ -91,4 +94,4 @@ Show original value, selected candidate, credible alternatives, reason, policy, 
 
 ## 8. Report contract baseline
 
-See [Resolution Report Contract v1](10-resolution-report-contract.md) for the machine-readable format that will drive M3 review exports, M4 optional clarification and M5 UI. The initial PR only adds strict validation models and offline tests; existing providers, caching, DAG execution and CLI are unchanged. Defer data producer/consumer wiring and cancellation mechanics to #62–#68.
+See [Resolution Report Contract v1](10-resolution-report-contract.md) for the machine-readable format that will drive M3 review exports, M4 optional clarification and M5 UI. The original contract PR added strict validation models; #62–#65 now produce/consume audited reports in the opt-in M2 runtime. The public CLI, durable review corrections and cancellation mechanics remain for M3–M5.
