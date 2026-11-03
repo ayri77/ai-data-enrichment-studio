@@ -337,8 +337,22 @@ class WikidataMountainResolver:
         expected_country_code: str,
     ) -> OperationResult:
         """Preserve the strict handler API while using shared source verification."""
-        return verify_wikidata_mountain_candidate(
+        checked = verify_wikidata_mountain_candidate(
             self._transport,
             qid=qid,
             expected_country_code=expected_country_code,
         )
+        # Preserve the public strict resolver's longstanding NOT_FOUND contract.
+        # Structured source-specific reasons are used by the audited service.
+        if checked.error_code in {
+            "DIRECT_NON_MOUNTAIN_CLASS",
+            "NON_MOUNTAIN_CLASS",
+            "SOURCE_ENTITY_MISSING",
+            "UNVERIFIED_TYPE",
+        }:
+            return OperationResult(
+                status="failure",
+                error_code="NOT_FOUND",
+                message=checked.message,
+            )
+        return checked
