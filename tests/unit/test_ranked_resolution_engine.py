@@ -5,7 +5,10 @@ from pydantic import ValidationError
 from tests.support.http import StubJsonTransport
 
 from ai_data_enrichment.execution.models import GeoPoint
-from ai_data_enrichment.providers.open_meteo_resolution import OpenMeteoResolutionService
+from ai_data_enrichment.providers.open_meteo_resolution import (
+    GeocodingResolutionOutcome,
+    OpenMeteoResolutionService,
+)
 from ai_data_enrichment.providers.open_meteo_candidates import normalize_open_meteo_candidates
 from ai_data_enrichment.providers.wikidata_candidates import normalize_wikidata_search_candidates
 from ai_data_enrichment.resolution.engine import ResolutionEngine
@@ -58,7 +61,7 @@ def _resolve(
     policy: ResolutionPolicy,
     region: str | None = None,
     city: str = "Berlin",
-) -> tuple[StubJsonTransport, object]:
+) -> tuple[StubJsonTransport, GeocodingResolutionOutcome]:
     transport = StubJsonTransport({"results": results})
     inputs: dict[str, str] = {"city": city, "country": "Germany"}
     if region is not None:
@@ -354,7 +357,7 @@ def test_generic_engine_abstains_on_unchecked_wikidata_candidate_set() -> None:
     assert all(a.eligibility == "unchecked" for a in report.assessments)
 
 
-def test_report_validation_rejects_false_auto_selection() -> None:
+def test_report_validation_rejects_nonexistent_selected_candidate() -> None:
     candidates = normalize_open_meteo_candidates(
         _berlin(),
         city="Berlin",
@@ -365,7 +368,7 @@ def test_report_validation_rejects_false_auto_selection() -> None:
         policy=_policy(ranked=True, auto=True, prominence=True),
         strategy=GeographicRankingStrategy(),
     )
-    with pytest.raises(ValidationError):
-        report.model_copy(
-            update={"decision": {"status": "auto_resolved", "selected": {"source": "other"}}}
-        ).model_validate(report.model_dump(mode="json"))
+    payload = report.model_dump(mode="json")
+    payload["decision"]["selected"]["entity_id"] = "nonexistent"
+    with pytest.raises(ValidationError, match="verified listed candidate"):
+        ResolutionReport.model_validate(payload)
