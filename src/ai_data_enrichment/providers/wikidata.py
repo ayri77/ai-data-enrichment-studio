@@ -33,8 +33,8 @@ from ai_data_enrichment.providers.wikidata_parsing import (
     _best_ranked_statements,
     _candidate_matches_name,
     _parse_elevation_quantity,
-    _wikidata_identity_drift,
     _wikidata_api_failure,
+    _wikidata_identity_drift,
 )
 from ai_data_enrichment.providers.wikidata_search import fetch_wikidata_search
 from ai_data_enrichment.providers.wikidata_verification import verify_wikidata_mountain_candidate
