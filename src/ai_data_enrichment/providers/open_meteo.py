@@ -13,11 +13,11 @@ from ai_data_enrichment.execution.models import (
     RuntimeValue,
 )
 from ai_data_enrichment.providers.http_results import transport_failure_result
+from ai_data_enrichment.providers.http_transport import JsonTransport, JsonTransportError
 from ai_data_enrichment.providers.open_meteo_candidates import (
     administrative_area_matches,
     exact_open_meteo_matches,
 )
-from ai_data_enrichment.providers.http_transport import JsonTransport, JsonTransportError
 
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 
