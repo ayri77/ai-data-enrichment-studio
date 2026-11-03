@@ -144,8 +144,10 @@ def normalize_open_meteo_candidates(
             entity_type = "district"
         elif feature_code in _OPEN_METEO_ROLES:
             entity_type = "city"
-        else:
+        elif feature_code == "PPL":
             entity_type = "settlement"
+        else:
+            entity_type = "location"
 
         candidates.append(
             ResolutionCandidate(
