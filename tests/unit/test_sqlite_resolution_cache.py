@@ -109,9 +109,7 @@ def test_legacy_sqlite_schema_cannot_be_repurposed_for_audited_cache(tmp_path: P
 
 def test_never_cache_failed_or_unverified_resolution() -> None:
     pair = _pair()
-    failure = OperationResult(
-        status="failure", error_code="AMBIGUOUS", message="Need user review."
-    )
+    failure = OperationResult(status="failure", error_code="AMBIGUOUS", message="Need user review.")
     with pytest.raises(ValueError, match="Only an audited"):
         validate_paired_result(failure, pair.report, provider_id="open-meteo")
 
