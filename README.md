@@ -11,6 +11,10 @@
 > executor, approved provider registry, Open-Meteo geocoding,
 > Wikidata mountain resolution/elevation lookup, and deterministic geodesic distance calculation.
 > CLI-driven execution and enriched Excel output are not yet available.
+> **Proposed next M2 extension (not implemented):** hybrid provider-aware candidate
+> retrieval + universal, configurable Entity Resolution and decision audit.
+> See [Resolution Foundation](docs/08-resolution-foundation.md) and
+> [delivery plan](docs/09-resolution-rollout.md).
 
 
 ## Why this project?
@@ -78,6 +82,7 @@ Implemented:
 
 Not implemented yet:
 
+- Configurable ranked Entity Resolution, normalized candidate/decision reports and review audit (proposed; not implemented).
 - CLI-driven execution of generated enrichment plans.
 - Execution recovery, durable orchestration and automatic provider fallback selection.
 - Enriched Excel workbook generation and result provenance.
@@ -180,6 +185,17 @@ Mount Everest; the live Wikidata result can differ or fail because of current
 source data, ambiguity or provider rate limits. Do not treat smoke fixtures as
 independent ground-truth accuracy evaluation.
 
+### Resolution Foundation proposal
+
+**Proposed resolution workflow (not implemented):** provider adapters should yield
+normalized candidates and verified attributes; a shared decision layer applies
+hard context constraints and pluggable ranking strategies. Prominence-based
+auto-selection is opt-in and must retain alternatives and an audit trail.
+Incomplete search, genuine no-match and transport failures stay distinct;
+an optional later LLM assistant may suggest clarifications or repairs without
+silently rewriting input data. The existing strict handlers remain the current
+runtime behavior until reviewed implementation PRs merge.
+
 ## Quick start
 
 **Requirements:** Python 3.12+ and [uv](https://docs.astral.sh/uv/).
@@ -271,10 +287,10 @@ enrichment will be introduced in subsequent milestones.
 | --- | --- | --- |
 | Bootstrap | Package, Excel inspection, tests, CI | **Complete** |
 | **M1 — Planner & Validator** | Capability contracts, typed plans, deterministic plan validation, LLM planner | Complete |
-| **M2 — Execution Engine** | Providers, operation dependencies, caching, error handling | In progress |
-| **M3 — Excel & Evaluation** | Workbook-preserving output, independent benchmarks, mandatory MVP scenarios | Planned |
-| **M4 — Agentic Orchestration** | LangGraph, conditional recovery, bounded replanning | Planned |
-| **M5 — Portfolio Application** | Organization enrichment, web UI, background jobs, deployment | Future |
+| **M2 — Execution Engine** | Existing DAG/providers/cache/reliability; proposed Resolution Foundation with ranked decisions and explicit uncertainty (#61–#65) | In progress |
+| **M3 — Excel & Evaluation** | Workbook-preserving output, independent benchmarks, review manifest and selective-match metrics (#66) | Planned |
+| **M4 — Agentic Orchestration** | LangGraph, conditional recovery, bounded replanning, optional LLM clarification/repair proposals (#67) | Planned |
+| **M5 — Portfolio Application** | Organization enrichment, web UI with Review Workspace (#68), background jobs, deployment | Future |
 
 The CLI currently supports planning and validation.
 An in-memory execution engine is available in Python,
@@ -294,6 +310,8 @@ The repository follows a **design-for-extension, implement-for-current-needs** a
 | [05 — M2 Job Execution](docs/05-m2-job-execution.md) | Implemented bounded multi-row contract, job-scoped deduplication and metrics (#34) |
 | [06 — M2 SQLite Cache](docs/06-m2-persistent-cache.md) | Versioned cross-job cache keys, TTL, typed results and hit/miss metrics (#35) |
 | [07 — M2 Provider Reliability](docs/07-m2-provider-reliability.md) | Implemented opt-in HTTP retries, per-provider request budgets and registered fallback contracts (#36) |
+| [08 — Resolution Foundation](docs/08-resolution-foundation.md) | Proposed hybrid architecture: source-specific candidate verification, shared policies, audit and review semantics (#61) |
+| [09 — Resolution Rollout](docs/09-resolution-rollout.md) | Work plan, issue sequence, milestone boundaries and acceptance gates (#61–#68) |
 
 Technical documentation and code are in **English**. Academic submission materials for Neoversity will be prepared in **Ukrainian**.
 

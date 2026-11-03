@@ -1004,3 +1004,9 @@ The following topics require detailed design:
 
 **Document status:** Conceptual Domain Model v0.1.  
 **Next activity:** Detailed EnrichmentPlan and Capability contract design.
+
+---
+
+## 13. Implementation addendum — candidate and decision domain (proposed, 2026-11-03)
+
+A resolution decision should not be conflated with `OperationResult` execution success/failure. Proposed domain contracts include `ResolutionContext`, source-qualified `ResolutionCandidate`, `CandidateSet` completeness, versioned `ResolutionPolicy`, `ResolutionDecision` and row-linked `ResolutionAudit`; these are conceptual types **not implemented yet**. See [ADR-RES-001](08-resolution-foundation.md) and [delivery roadmap](09-resolution-rollout.md) for strict vs ranked policy, audit under deduplication and staged M2–M5 ownership. Existing domain concepts above remain authoritative for current runtime until an approved implementation PR.

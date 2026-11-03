@@ -1005,3 +1005,11 @@ Changes discovered during development should be incorporated through focused rev
 
 **Document status:** Initial implementation design, v0.1.  
 **Next milestone:** M1 — Planner and Validator.
+
+---
+
+## 17. Post-M1 resolution/context extension (proposed, 2026-11-03)
+
+Current `geocode` capability has mandatory `city` and `country` and no optional administrative region. Under [ADR-RES-001](08-resolution-foundation.md), typed *registered* optional inputs (initially `administrative_area`) may be bound to arbitrary spreadsheet column headers by `EnrichmentPlan.inputs`, then checked by `PlanValidator`. Unknown semantic keys must remain invalid. An optional context field is per-row data; prominence selection is application-owned `ResolutionPolicy`, whereas max pages/hierarchy/requests are bounded provider/transport policy. Neither scores nor resource limits are unvalidated free-form LLM-generated parameters.
+
+Provider adapters normalize candidates and verify their own source semantics; a shared resolution layer makes auditable decisions or abstains. Preserve existing `CapabilityHandler` and `OperationResult` contracts until #61 resolves the exact report interface. See [Resolution Rollout](09-resolution-rollout.md) for #62–#68 ownership. This is a **proposal**, not an implemented change to the initial capability schema or planner.
