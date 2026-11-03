@@ -1,6 +1,6 @@
 # Resolution Foundation — Delivery Plan and Milestone Boundaries
 
-**Status:** Proposed plan for review (2026-11-03)  
+**Status:** Architectural direction approved via merged PR #69; staged implementation in progress (2026-11-03)  
 **Architecture:** [ADR-RES-001](08-resolution-foundation.md)  
 **Parent epics:** [M2 #3](https://github.com/ayri77/ai-data-enrichment-studio/issues/3), [M3 #4](https://github.com/ayri77/ai-data-enrichment-studio/issues/4), [M4 #5](https://github.com/ayri77/ai-data-enrichment-studio/issues/5), [M5 #6](https://github.com/ayri77/ai-data-enrichment-studio/issues/6)
 
@@ -75,7 +75,7 @@ Show original value, selected candidate, credible alternatives, reason, policy, 
 ## 6. Work method and release gates
 
 - Work in **small issue → feature branch → draft PR → offline tests/CI → review → merge** slices. User reviews changes before code implementation and before merge; no implicit auto-merge.
-- First review #61/ADR and rollout plan; no implementation under this documentation PR.
+- PR #69 (architecture/rollout documents) has merged. Review the concrete report schema in #61 before integration into providers or JobExecutor. No runtime behavior change in that contract-only slice.
 - After each slice: update contract/documentation only to match actual behavior, not to imply a planned feature exists.
 - Finalize M2 only after #44 + #37 audit/Definition of Done; do not close based solely on a number of completed issues.
 - Avoid arbitrary schedule estimates; limit scope based on actual CI, benchmark and review results.
@@ -87,3 +87,8 @@ Show original value, selected candidate, credible alternatives, reason, policy, 
 3. Which auto-selected candidates can flow downstream immediately, and which must await explicit user approval? Choose the default policy on evidence.
 4. Should a candidate retrieval cache exist in M2 or stay deferred until profiling proves need?
 5. Which policy identifiers and versions must enter SQLite keys, and how are existing entries safely invalidated?
+
+
+## 8. Report contract baseline
+
+See [Resolution Report Contract v1](10-resolution-report-contract.md) for the machine-readable format that will drive M3 review exports, M4 optional clarification and M5 UI. The initial PR only adds strict validation models and offline tests; existing providers, caching, DAG execution and CLI are unchanged. Defer data producer/consumer wiring and cancellation mechanics to #62–#68.
