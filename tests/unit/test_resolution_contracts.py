@@ -55,9 +55,7 @@ def _set(
         query=ResolutionQuery(
             name="Berlin",
             entity_type="city",
-            context=(
-                ResolutionAttribute(name="country_code", value="DE"),
-            ),
+            context=(ResolutionAttribute(name="country_code", value="DE"),),
         ),
         candidates=candidates if candidates is not None else (_candidate("2950159"),),
         search_complete=search_complete,
