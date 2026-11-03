@@ -38,16 +38,17 @@ class OpenMeteoGeocodingHandler:
 
         city = inputs.get("city")
         country = inputs.get("country")
-        administrative_area = inputs.get("administrative_area")
+        raw_area = inputs.get("administrative_area")
+        administrative_area: str | None = None
 
-        if "administrative_area" in inputs and (
-            not isinstance(administrative_area, str) or not administrative_area.strip()
-        ):
-            return OperationResult(
-                status="failure",
-                error_code="INVALID_INPUT",
-                message="Administrative area must be non-empty text when provided.",
-            )
+        if "administrative_area" in inputs:
+            if not isinstance(raw_area, str) or not raw_area.strip():
+                return OperationResult(
+                    status="failure",
+                    error_code="INVALID_INPUT",
+                    message="Administrative area must be non-empty text when provided.",
+                )
+            administrative_area = raw_area.strip()
 
         if (
             not isinstance(city, str)
