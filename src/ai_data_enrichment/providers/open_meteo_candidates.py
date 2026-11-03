@@ -83,6 +83,7 @@ def normalize_open_meteo_candidates(
     *,
     city: str,
     country_code: str,
+    administrative_area: str | None = None,
     result_limit: int = 10,
 ) -> CandidateSet:
     """Return verified exact-match candidates, not a resolution decision.
@@ -92,6 +93,8 @@ def normalize_open_meteo_candidates(
     """
     if not city.strip() or fullmatch(r"[A-Z]{2}", country_code) is None:
         raise ValueError("City and ISO country code are required.")
+    if administrative_area is not None and not administrative_area.strip():
+        raise ValueError("Optional administrative area must be nonblank.")
     if result_limit < 1 or len(results) > result_limit:
         raise ValueError("Open-Meteo candidate list exceeds the configured bound.")
 
@@ -163,7 +166,14 @@ def normalize_open_meteo_candidates(
         query=ResolutionQuery(
             name=city.strip(),
             entity_type="city",
-            context=(ResolutionAttribute(name="country_code", value=country_code),),
+            context=(
+                (ResolutionAttribute(name="country_code", value=country_code),)
+                if administrative_area is None
+                else (
+                    ResolutionAttribute(name="country_code", value=country_code),
+                    ResolutionAttribute(name="administrative_area", value=administrative_area.strip()),
+                )
+            ),
         ),
         candidates=tuple(candidates),
         search_complete=complete,
