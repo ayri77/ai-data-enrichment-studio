@@ -14,6 +14,7 @@ from ai_data_enrichment.providers.wikidata_constants import (
 )
 from ai_data_enrichment.providers.wikidata_parsing import (
     _best_ranked_statements,
+    _wikidata_identity_drift,
     _wikidata_api_failure,
 )
 
@@ -139,6 +140,14 @@ def verify_country(
                 "INVALID_RESPONSE",
                 "Invalid Wikidata country entity.",
             )
+
+        identity_issue = _wikidata_identity_drift(
+            entity_data,
+            requested_qid=country_qid,
+            incomplete_code="INCOMPLETE_VERIFICATION",
+        )
+        if identity_issue is not None:
+            return identity_issue
 
         country_claims = entity_data.get("claims")
 
