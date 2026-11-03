@@ -31,9 +31,9 @@ from ai_data_enrichment.resolution.models import (
 from ai_data_enrichment.resolution.mountain import MountainRankingStrategy
 
 _EXCLUDED_REASON_CODES = {
-    "Candidate has an explicitly non-mountain entity type.": "direct_non_mountain_class",
-    "Candidate is not classified as a mountain.": "no_mountain_class_path",
-    "Wikidata candidate entity does not exist.": "missing_source_entity",
+    "DIRECT_NON_MOUNTAIN_CLASS": "direct_non_mountain_class",
+    "NON_MOUNTAIN_CLASS": "no_mountain_class_path",
+    "SOURCE_ENTITY_MISSING": "missing_source_entity",
 }
 
 
@@ -155,25 +155,24 @@ class WikidataMountainResolutionService:
                         "reason_codes": ("source_mountain_type_and_country_verified",),
                     }
                 )
-            elif checked.error_code == "NOT_FOUND":
-                excluded = _EXCLUDED_REASON_CODES.get(checked.message or "")
-                if excluded is not None:
-                    replacements[qid] = candidate.model_copy(
-                        update={
-                            "entity_type": "non_mountain"
-                            if excluded != "missing_source_entity"
-                            else "unknown",
-                            "verification": "rejected",
-                            "reason_codes": (excluded,),
-                            "evidence": (Evidence(source="wikidata", reference=f"{qid}:P31"),)
-                            if excluded != "missing_source_entity"
-                            else (),
-                        }
-                    )
-                else:
-                    replacements[qid] = candidate.model_copy(
-                        update={"reason_codes": ("country_or_type_unverified",)}
-                    )
+            elif checked.error_code in _EXCLUDED_REASON_CODES:
+                excluded = _EXCLUDED_REASON_CODES[checked.error_code]
+                replacements[qid] = candidate.model_copy(
+                    update={
+                        "entity_type": "non_mountain"
+                        if excluded != "missing_source_entity"
+                        else "unknown",
+                        "verification": "rejected",
+                        "reason_codes": (excluded,),
+                        "evidence": (Evidence(source="wikidata", reference=f"{qid}:P31"),)
+                        if excluded != "missing_source_entity"
+                        else (),
+                    }
+                )
+            elif checked.error_code in {"NOT_FOUND", "UNVERIFIED_TYPE"}:
+                replacements[qid] = candidate.model_copy(
+                    update={"reason_codes": ("country_or_type_unverified",)}
+                )
             elif checked.error_code in {"INCOMPLETE_HIERARCHY", "INCOMPLETE_VERIFICATION"}:
                 replacements[qid] = candidate.model_copy(
                     update={"reason_codes": ("hierarchy_verification_incomplete",)}
