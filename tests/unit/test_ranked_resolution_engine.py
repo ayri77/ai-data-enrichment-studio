@@ -333,6 +333,11 @@ def test_invalid_resolution_input_does_not_contact_provider() -> None:
             },
             policy=_policy(),
         )
+    with pytest.raises(ValueError, match="Unregistered"):
+        resolver.resolve(
+            inputs={"city": "Berlin", "country": "Germany", "arbitrary_field": "hidden"},
+            policy=_policy(),
+        )
     assert not transport.requests
 
 
