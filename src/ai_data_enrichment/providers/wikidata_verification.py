@@ -19,8 +19,8 @@ from ai_data_enrichment.providers.wikidata_country import verify_country
 from ai_data_enrichment.providers.wikidata_ontology import mountain_class_path
 from ai_data_enrichment.providers.wikidata_parsing import (
     _ranked_entity_ids,
-    _wikidata_identity_drift,
     _wikidata_api_failure,
+    _wikidata_identity_drift,
 )
 
 
