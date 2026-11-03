@@ -1,6 +1,7 @@
 """Execute a validated DAG across bounded source-independent input records."""
 
 from collections.abc import Iterable, Mapping
+from uuid import uuid4
 
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan
 from ai_data_enrichment.execution.contracts import CapabilityHandler
@@ -21,10 +22,18 @@ from ai_data_enrichment.execution.job_models import (
     classify_row_outcome,
     prepare_input_records,
 )
-from ai_data_enrichment.execution.memoization import JobMemoization
+from ai_data_enrichment.execution.memoization import JobMemoization, MemoCapacity
+from ai_data_enrichment.execution.models import OperationResult
 from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
 from ai_data_enrichment.providers.registry import ProviderRegistry
 from ai_data_enrichment.providers.request_policy import ProviderRequestSession
+from ai_data_enrichment.resolution.job import (
+    AuditedResolutionHandler,
+    ResolutionAuditCollector,
+    ResolutionService,
+)
+from ai_data_enrichment.resolution.models import ResolutionPolicy
+from ai_data_enrichment.resolution.sqlite_cache import SQLiteResolutionCache
 
 
 class JobExecutor:
@@ -48,6 +57,9 @@ class JobExecutor:
         provider_registry: ProviderRegistry | None = None,
         approved_fallbacks: Mapping[str, ApprovedFallback] | None = None,
         semantic_contracts: Mapping[tuple[str, str], str] | None = None,
+        resolution_services: Mapping[str, ResolutionService] | None = None,
+        resolution_policies: Mapping[str, ResolutionPolicy] | None = None,
+        resolution_cache: SQLiteResolutionCache | None = None,
     ) -> None:
         self._handlers = dict(handlers)
         self._selected_providers = dict(selected_providers)
@@ -60,11 +72,17 @@ class JobExecutor:
         self._provider_registry = provider_registry
         self._approved_fallbacks = dict(approved_fallbacks or {})
         self._semantic_contracts = dict(semantic_contracts or {})
+        self._resolution_services = dict(resolution_services or {})
+        self._resolution_policies = dict(resolution_policies or {})
+        self._resolution_cache = resolution_cache
 
     def execute(
         self,
         plan: EnrichmentPlan,
         records: Iterable[InputRecord],
+        *,
+        job_id: str | None = None,
+        previous_job_id: str | None = None,
     ) -> JobExecutionResult:
         """Process a bounded job sequentially, preserving row IDs and order.
 
@@ -88,10 +106,30 @@ class JobExecutor:
                 f"configurations={missing_configs}."
             )
 
+        audited = set(self._resolution_services)
+        if audited != set(self._resolution_policies):
+            raise ValueError("Audited resolution services require matching policies.")
+        if audited - set(capabilities):
+            raise ValueError("Audited resolution capability is not present in the plan.")
+        if audited & set(self._approved_fallbacks):
+            raise ValueError("Audited resolution fallback requires a paired-report contract.")
+        for capability in audited:
+            if not self._capability_versions.get(capability) or not self._provider_versions.get(
+                capability
+            ):
+                raise ValueError(
+                    "Audited resolution requires explicit capability/provider versions."
+                )
+            binding = (capability, self._selected_providers[capability])
+            if binding in self._policy.persistent_cache_ttls:
+                if self._resolution_cache is None:
+                    raise ValueError("Audited persistent reuse requires a separate paired cache.")
+
         persistent_capabilities = [
             cap
             for cap in capabilities
-            if (cap, self._selected_providers[cap]) in self._policy.persistent_cache_ttls
+            if cap not in audited
+            and (cap, self._selected_providers[cap]) in self._policy.persistent_cache_ttls
         ]
         if persistent_capabilities:
             if self._persistent_cache is None:
@@ -137,11 +175,57 @@ class JobExecutor:
 
         if self._request_session is not None:
             self._request_session.begin_job()
-        memo = JobMemoization(self._policy, self._persistent_cache)
+        # The legacy cache cannot store resolution reports. Give its memo
+        # session only ordinary capability TTLs; audited TTLs use paired SQLite.
+        ordinary_ttls = {
+            binding: ttl
+            for binding, ttl in self._policy.persistent_cache_ttls.items()
+            if binding[0] not in audited
+        }
+        ordinary_memo_policy = self._policy.model_copy(
+            update={"persistent_cache_ttls": ordinary_ttls}
+        )
+        shared_memo_capacity = MemoCapacity(self._policy.max_memoized_results)
+        memo = JobMemoization(
+            ordinary_memo_policy,
+            self._persistent_cache,
+            shared_capacity=shared_memo_capacity,
+        )
         fallback_stats = FallbackStats()
+        request_session = self._request_session
         wrapped_handlers: dict[str, CapabilityHandler] = {}
+        audited_handlers: dict[str, AuditedResolutionHandler] = {}
+        collector = ResolutionAuditCollector() if audited else None
         for cap in capabilities:
             primary_id = self._selected_providers[cap]
+            if cap in audited:
+                service = self._resolution_services[cap]
+                assert self._capability_versions.get(cap) is not None
+                assert self._provider_versions.get(cap) is not None
+                audit_handler = AuditedResolutionHandler(
+                    capability_id=cap,
+                    provider_id=primary_id,
+                    configuration_id=self._configuration_ids[cap],
+                    capability_version=self._capability_versions[cap],
+                    provider_version=self._provider_versions[cap],
+                    service=service,
+                    policy=self._resolution_policies[cap],
+                    job_policy=self._policy,
+                    shared_capacity=shared_memo_capacity,
+                    persistent_cache=self._resolution_cache,
+                    wrap_provider=(
+                        (
+                            lambda handler, provider_id=primary_id: request_session.wrap_handler(
+                                provider_id, handler
+                            )
+                        )
+                        if request_session is not None
+                        else None
+                    ),
+                )
+                audited_handlers[cap] = audit_handler
+                wrapped_handlers[cap] = audit_handler
+                continue
             primary_raw = self._handlers[cap]
             if self._request_session is not None:
                 primary_raw = self._request_session.wrap_handler(primary_id, primary_raw)
@@ -180,32 +264,72 @@ class JobExecutor:
         statuses = {"success": 0, "partial": 0, "failure": 0}
         for start in range(0, len(prepared), self._policy.batch_size):
             for record in prepared[start : start + self._policy.batch_size]:
-                row_result = executor.execute_row(plan, record.values)
+
+                def observe(
+                    step_id: str,
+                    capability: str,
+                    result: OperationResult,
+                    *,
+                    record_id: str = record.record_id,
+                ) -> None:
+                    handler = audited_handlers.get(capability)
+                    if handler is None:
+                        return
+                    if handler.last is None or handler.last.operation != result:
+                        raise ValueError("Audited step result is missing its decision report.")
+                    if handler.last_operation_id is None or collector is None:
+                        raise ValueError("Audited operation identity was not retained.")
+                    collector.add(
+                        operation_key=handler.last_operation_id,
+                        report=handler.last.report,
+                        record_id=record_id,
+                        step_id=step_id,
+                    )
+
+                row_result = executor.execute_row(
+                    plan,
+                    record.values,
+                    on_step_executed=observe if collector is not None else None,
+                )
                 statuses[classify_row_outcome(row_result)] += 1
                 results.append(RecordExecution(record_id=record.record_id, row_result=row_result))
 
         counts = memo.snapshot_metrics()
+        extra = [handler.snapshot() for handler in audited_handlers.values()]
         metrics = JobExecutionMetrics(
             total_rows=len(results),
             successful_rows=statuses["success"],
             partial_rows=statuses["partial"],
             failed_rows=statuses["failure"],
-            logical_operations=counts.logical_operations,
+            logical_operations=counts.logical_operations + sum(x.logical for x in extra),
             fallback_attempts=fallback_stats.attempts,
             fallback_successes=fallback_stats.successes,
-            executed_handler_calls=counts.executed_handler_calls,
-            reused_operations=counts.reused_operations,
-            persistent_cache_hits=counts.persistent_cache_hits,
-            persistent_cache_misses=counts.persistent_cache_misses,
-            persistent_cache_writes=counts.persistent_cache_writes,
-            persistent_cache_invalid_entries=counts.persistent_cache_invalid_entries,
-            memoized_results=counts.memoized_results,
-            memo_capacity_skips=counts.memo_capacity_skips,
+            executed_handler_calls=counts.executed_handler_calls + sum(x.executed for x in extra),
+            reused_operations=counts.reused_operations + sum(x.reused for x in extra),
+            persistent_cache_hits=counts.persistent_cache_hits
+            + sum(x.persistent_hits for x in extra),
+            persistent_cache_misses=counts.persistent_cache_misses
+            + sum(x.persistent_misses for x in extra),
+            persistent_cache_writes=counts.persistent_cache_writes
+            + sum(x.persistent_writes for x in extra),
+            persistent_cache_invalid_entries=counts.persistent_cache_invalid_entries
+            + sum(x.persistent_invalid for x in extra),
+            memoized_results=counts.memoized_results + sum(x.memoized for x in extra),
+            memo_capacity_skips=counts.memo_capacity_skips + sum(x.capacity_skips for x in extra),
         )
         return JobExecutionResult(
             records=tuple(results),
             metrics=metrics,
             provider_requests=(
                 self._request_session.snapshot() if self._request_session is not None else {}
+            ),
+            resolution_report=(
+                collector.finalize(
+                    job_id=job_id or uuid4().hex,
+                    previous_job_id=previous_job_id,
+                    total_rows=len(results),
+                )
+                if collector is not None
+                else None
             ),
         )

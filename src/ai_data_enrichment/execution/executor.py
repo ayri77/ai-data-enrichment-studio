@@ -1,6 +1,6 @@
 """Execute a validated enrichment DAG for one dataset row."""
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from math import isfinite
 
 from ai_data_enrichment.domain.enrichment_plan import (
@@ -74,6 +74,8 @@ class DAGExecutor:
         self,
         plan: EnrichmentPlan,
         row: Mapping[str, RuntimeValue | None],
+        *,
+        on_step_executed: Callable[[str, str, OperationResult], None] | None = None,
     ) -> RowExecutionResult:
         """Execute a validated plan without modifying the source row."""
         completed: dict[str, OperationResult] = {}
@@ -177,6 +179,8 @@ class DAGExecutor:
             # OperationResult; do not turn arbitrary programming errors into
             # operational failures here.
             result = handler.execute(inputs=resolved_inputs, parameters=parameters)
+            if on_step_executed is not None:
+                on_step_executed(step.id, step.capability, result)
             record_outcome(step.id, result)
 
         return RowExecutionResult(steps=tuple(outcomes))

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from ai_data_enrichment.execution.models import RowExecutionResult, RuntimeValue
 from ai_data_enrichment.providers.request_policy import ProviderRequestCounters
+from ai_data_enrichment.resolution.models import ResolutionJobReport
 
 
 class InputRecord(BaseModel):
@@ -155,6 +156,7 @@ class JobExecutionResult(BaseModel):
     records: tuple[RecordExecution, ...]
     metrics: JobExecutionMetrics
     provider_requests: dict[str, ProviderRequestCounters] = Field(default_factory=dict)
+    resolution_report: ResolutionJobReport | None = None
 
     @model_validator(mode="after")
     def validate_records_and_metrics(self) -> Self:
@@ -173,6 +175,26 @@ class JobExecutionResult(BaseModel):
         }
         if any(actual.count(status) != count for status, count in counts.items()):
             raise ValueError("Job row outcome metrics do not match record results.")
+        if self.resolution_report is not None:
+            if self.resolution_report.processed_rows != len(self.records):
+                raise ValueError("Resolution report does not cover processed rows.")
+            if self.resolution_report.total_rows != len(self.records):
+                raise ValueError("Resolution report total does not match the job.")
+            lookup = {
+                (record.record_id, step.step_id): step.result
+                for record in self.records
+                for step in record.row_result.steps
+            }
+            seen: set[tuple[str, str]] = set()
+            for item in self.resolution_report.operations:
+                selected = item.report.decision.selected is not None
+                for link in item.record_links:
+                    key = (link.record_id, link.step_id)
+                    if key not in lookup or key in seen:
+                        raise ValueError("Duplicate or unknown resolution step reference.")
+                    if (lookup[key].status == "success") != selected:
+                        raise ValueError("Resolution decision and row execution disagree.")
+                    seen.add(key)
         return self
 
 
