@@ -210,7 +210,7 @@ def test_geocode_without_region_preserves_legacy_ambiguous_result() -> None:
     assert result.error_code == "AMBIGUOUS"
 
 
-@pytest.mark.parametrize("region", [" ", "DE-BE "][:1])
+@pytest.mark.parametrize("region", [" ", "", "\t"])
 def test_blank_region_is_invalid_without_http_request(region: str) -> None:
     transport = StubJsonTransport({"results": _berlin_locations()})
     handler = OpenMeteoGeocodingHandler(transport)
