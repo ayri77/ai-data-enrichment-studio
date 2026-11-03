@@ -49,7 +49,6 @@ def exact_open_meteo_matches(
     ]
 
 
-
 def normalize_open_meteo_candidates(
     results: Sequence[object],
     *,
