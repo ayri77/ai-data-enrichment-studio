@@ -18,13 +18,16 @@ from ai_data_enrichment.resolution.models import (
     ResolutionQuery,
     ResolutionRecordLink,
     ResolutionReport,
+    ResolutionStatus,
+    SelectionBasis,
+    VerificationState,
 )
 
 
 def _candidate(
     entity_id: str,
     *,
-    verification: str = "verified",
+    verification: VerificationState = "verified",
     entity_type: str = "city",
 ) -> ResolutionCandidate:
     return ResolutionCandidate(
@@ -78,9 +81,9 @@ def _policy(*, ranked: bool = False) -> ResolutionPolicy:
 
 
 def _decision(
-    status: str = "resolved",
+    status: ResolutionStatus = "resolved",
     selected: EntityRef | None = None,
-    basis: str | None = "unique_verified",
+    basis: SelectionBasis | None = "unique_verified",
 ) -> ResolutionDecision:
     return ResolutionDecision(
         status=status,
