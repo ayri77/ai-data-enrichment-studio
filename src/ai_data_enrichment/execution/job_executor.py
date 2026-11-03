@@ -173,6 +173,7 @@ class JobExecutor:
             self._request_session.begin_job()
         memo = JobMemoization(self._policy, self._persistent_cache)
         fallback_stats = FallbackStats()
+        request_session = self._request_session
         wrapped_handlers: dict[str, CapabilityHandler] = {}
         audited_handlers: dict[str, AuditedResolutionHandler] = {}
         collector = ResolutionAuditCollector() if audited else None
@@ -193,10 +194,10 @@ class JobExecutor:
                     job_policy=self._policy,
                     persistent_cache=self._resolution_cache,
                     wrap_provider=(
-                        lambda handler, provider_id=primary_id: self._request_session.wrap_handler(
+                        (lambda handler, provider_id=primary_id: request_session.wrap_handler(
                             provider_id, handler
-                        )
-                        if self._request_session is not None
+                        ))
+                        if request_session is not None
                         else None
                     ),
                 )
