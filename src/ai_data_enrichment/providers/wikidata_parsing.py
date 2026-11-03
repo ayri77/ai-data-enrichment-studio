@@ -23,7 +23,7 @@ def _wikidata_identity_drift(
     actual = entity.get("id")
     if actual is None:
         return None
-    if not isinstance(actual, str) or re.fullmatch(r"Q[1-9]\\d*", actual) is None:
+    if not isinstance(actual, str) or re.fullmatch(r"Q[1-9]\d*", actual) is None:
         return OperationResult(
             status="failure",
             error_code="INVALID_RESPONSE",
