@@ -14,7 +14,7 @@ This is *not* a decision to implement one universal scoring formula. The common 
 
 ### Live evidence motivating the work
 
-- **Capitals (historical motivation):** Open-Meteo returns two exact-name Berlin entities in DE: GeoNames `2950159` (PPLC, State of Berlin) and `2950158` (PPL, Schleswig-Holstein). The legacy strict handler yields `AMBIGUOUS`, while the **opt-in audited ranked service** can choose the capital when policy permits; A configurable prominence preference may choose the capital *with a visible alternative and an audit trail*, but an explicit Schleswig-Holstein context must override it.
+- **Capitals (historical motivation):** Open-Meteo returns two exact-name Berlin entities in DE: GeoNames `2950159` (PPLC, State of Berlin) and `2950158` (PPL, Schleswig-Holstein). The legacy strict handler yields `AMBIGUOUS`, while the **opt-in audited ranked service** can choose the capital when policy permits, retaining alternatives and an audit trail. An explicit Schleswig-Holstein context must override any prominence preference.
 - **Mountains (historical motivation):** Wikidata search returns `Q513` Mount Everest with `P31=Q8502` (mountain), `P17` for Nepal/China and an elevation claim. The legacy traversal could hit unrelated film classes; the audited #64 service now filters narrow directly incompatible film types and abstains when a plausible candidate remains unchecked. An incomplete verification is **not** no match, and a present elevation claim is **not** yet a validated quantity.
 - **Misspellings:** The primary exact-input search must remain observable. A separate future data-repair assistant may suggest `Hambourg` → `Hamburg` *after* recording the failed initial search; no silent input mutation.
 
