@@ -312,6 +312,7 @@ The repository follows a **design-for-extension, implement-for-current-needs** a
 | [07 — M2 Provider Reliability](docs/07-m2-provider-reliability.md) | Implemented opt-in HTTP retries, per-provider request budgets and registered fallback contracts (#36) |
 | [08 — Resolution Foundation](docs/08-resolution-foundation.md) | Proposed hybrid architecture: source-specific candidate verification, shared policies, audit and review semantics (#61) |
 | [09 — Resolution Rollout](docs/09-resolution-rollout.md) | Work plan, issue sequence, milestone boundaries and acceptance gates (#61–#68) |
+| [10 — Resolution Report Contract](docs/10-resolution-report-contract.md) | Proposed versioned candidate/decision/audit/job report format for review and UI; contract-only (#61) |
 
 Technical documentation and code are in **English**. Academic submission materials for Neoversity will be prepared in **Ukrainian**.
 
