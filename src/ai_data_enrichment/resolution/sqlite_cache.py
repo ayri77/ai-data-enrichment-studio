@@ -16,7 +16,7 @@ from typing import Literal, Self
 
 from pydantic import ValidationError
 
-from ai_data_enrichment.execution.models import OperationResult
+from ai_data_enrichment.execution.models import EntityRef, GeoPoint, OperationResult
 from ai_data_enrichment.execution.result_codec import deserialize_success, serialize_success
 from ai_data_enrichment.resolution.models import ResolutionReport
 
@@ -59,8 +59,20 @@ def validate_paired_result(
         raise ValueError("Audited operation must select a verified source candidate.")
     if not operation.evidence or operation.evidence != candidate.evidence:
         raise ValueError("Operation Evidence must equal selected candidate Evidence.")
-    if operation.value is None:
-        raise ValueError("Successful audited operation has no value.")
+    if isinstance(operation.value, EntityRef):
+        if operation.value != report.decision.selected:
+            raise ValueError("Selected source identity disagrees with operation EntityRef.")
+    elif isinstance(operation.value, GeoPoint):
+        facts = {attribute.name: attribute.value for attribute in candidate.attributes}
+        if (
+            type(facts.get("latitude")) is not float
+            or type(facts.get("longitude")) is not float
+            or operation.value.latitude != facts["latitude"]
+            or operation.value.longitude != facts["longitude"]
+        ):
+            raise ValueError("Selected coordinates disagree with verified candidate.")
+    else:
+        raise ValueError("Unsupported audited resolution output type.")
 
 
 def _digest(key: str) -> None:
