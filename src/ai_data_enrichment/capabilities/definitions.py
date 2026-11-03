@@ -14,7 +14,7 @@ def get_geocode_spec() -> CapabilitySpec:
 
     return CapabilitySpec(
         id="geocode",
-        version="1.0",
+        version="1.1",
         description="Resolve geographical coordinates",
         inputs={
             "city": InputSpec(
@@ -24,6 +24,11 @@ def get_geocode_spec() -> CapabilitySpec:
             "country": InputSpec(
                 type=DataType.TEXT,
                 description="Country name",
+            ),
+            "administrative_area": InputSpec(
+                type=DataType.TEXT,
+                required=False,
+                description="Optional state, province or administrative region",
             ),
         },
         parameters={},

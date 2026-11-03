@@ -14,6 +14,10 @@ from ai_data_enrichment.execution.models import (
 )
 from ai_data_enrichment.providers.http_results import transport_failure_result
 from ai_data_enrichment.providers.http_transport import JsonTransport, JsonTransportError
+from ai_data_enrichment.providers.open_meteo_candidates import (
+    administrative_area_matches,
+    exact_open_meteo_matches,
+)
 
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 
@@ -34,6 +38,17 @@ class OpenMeteoGeocodingHandler:
 
         city = inputs.get("city")
         country = inputs.get("country")
+        raw_area = inputs.get("administrative_area")
+        administrative_area: str | None = None
+
+        if "administrative_area" in inputs:
+            if not isinstance(raw_area, str) or not raw_area.strip():
+                return OperationResult(
+                    status="failure",
+                    error_code="INVALID_INPUT",
+                    message="Administrative area must be non-empty text when provided.",
+                )
+            administrative_area = raw_area.strip()
 
         if (
             not isinstance(city, str)
@@ -114,16 +129,35 @@ class OpenMeteoGeocodingHandler:
                 message="Geocoding API 'results' must be a list.",
             )
 
-        normalized_city = city.strip().casefold()
+        matches = exact_open_meteo_matches(
+            results,
+            city=city,
+            country_code=expected_country_code,
+        )
 
-        matches = [
-            candidate
-            for candidate in results
-            if isinstance(candidate, dict)
-            and candidate.get("country_code") == expected_country_code
-            and isinstance(candidate.get("name"), str)
-            and candidate["name"].strip().casefold() == normalized_city
-        ]
+        if administrative_area is not None and matches:
+            # A region is an explicit hard constraint, never a popularity hint.
+            # Unknown region metadata cannot prove uniqueness.
+            matching_region: list[dict[str, object]] = []
+            missing_region_metadata = False
+            for candidate in matches:
+                actual_region = candidate.get("admin1")
+                if not isinstance(actual_region, str) or not actual_region.strip():
+                    missing_region_metadata = True
+                elif administrative_area_matches(
+                    administrative_area,
+                    country_code=expected_country_code,
+                    actual_admin1=actual_region,
+                ):
+                    matching_region.append(candidate)
+
+            if missing_region_metadata:
+                return OperationResult(
+                    status="failure",
+                    error_code="CONTEXT_UNVERIFIED",
+                    message="Some matching locations lack verifiable administrative area.",
+                )
+            matches = matching_region
 
         if not matches:
             return OperationResult(
