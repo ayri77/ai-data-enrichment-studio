@@ -1,5 +1,7 @@
 """Offline scenarios for provider-neutral decisions and Open-Meteo ranked resolution."""
 
+from collections.abc import Sequence
+
 import pytest
 from pydantic import ValidationError
 from tests.support.http import StubJsonTransport
@@ -56,7 +58,7 @@ def _policy(
 
 
 def _resolve(
-    results: list[object],
+    results: Sequence[object],
     *,
     policy: ResolutionPolicy,
     region: str | None = None,
