@@ -160,13 +160,14 @@ class WikidataMountainResolutionService:
                 if excluded is not None:
                     replacements[qid] = candidate.model_copy(
                         update={
-                            "entity_type": "non_mountain" if excluded != "missing_source_entity"
+                            "entity_type": "non_mountain"
+                            if excluded != "missing_source_entity"
                             else "unknown",
                             "verification": "rejected",
                             "reason_codes": (excluded,),
-                            "evidence": (
-                                Evidence(source="wikidata", reference=f"{qid}:P31"),
-                            ) if excluded != "missing_source_entity" else (),
+                            "evidence": (Evidence(source="wikidata", reference=f"{qid}:P31"),)
+                            if excluded != "missing_source_entity"
+                            else (),
                         }
                     )
                 else:
@@ -261,9 +262,7 @@ class WikidataMountainResolutionService:
         )
         selection = report.decision.selected
         if selection is not None:
-            verified = next(
-                c for c in candidate_set.candidates if c.reference == selection
-            )
+            verified = next(c for c in candidate_set.candidates if c.reference == selection)
             return WikidataResolutionOutcome(
                 operation=OperationResult(
                     status="success", value=selection, evidence=verified.evidence
