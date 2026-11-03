@@ -61,9 +61,7 @@ class BenchmarkFixtureTransport:
         self.attempts = 0
         self.wikidata = OfflineWikidataTransport()
 
-    def get_json(
-        self, *, url: str, params: Mapping[str, str], timeout_seconds: float
-    ) -> object:
+    def get_json(self, *, url: str, params: Mapping[str, str], timeout_seconds: float) -> object:
         self.attempts += 1
         if timeout_seconds != 10.0:
             raise ValueError("Unexpected timeout.")
@@ -275,9 +273,7 @@ def run_scenario(
             provider_id=source_id,
             handler=WikidataElevationHandler(transport),
         )
-        resolution_services = {
-            "resolve_entity": WikidataMountainResolutionService(transport)
-        }
+        resolution_services = {"resolve_entity": WikidataMountainResolutionService(transport)}
         resolution_policies = {
             "resolve_entity": ResolutionPolicy(
                 policy_id="strict_mountains", version="1", strategy="strict"
@@ -315,9 +311,7 @@ def run_scenario(
         name = audit.report.decision.status
         decision_counts[name] = decision_counts.get(name, 0) + 1
     evidence_count = sum(
-        len(step.result.evidence)
-        for record in result.records
-        for step in record.row_result.steps
+        len(step.result.evidence) for record in result.records for step in record.row_result.steps
     )
     counters = result.provider_requests[source_id]
 
@@ -360,8 +354,7 @@ def run_scenario(
             assert counters.transport_attempts == 2
             assert len(audits) == 2
             berlin = [
-                audit for audit in audits
-                if audit.report.candidate_set.query.name == "Berlin"
+                audit for audit in audits if audit.report.candidate_set.query.name == "Berlin"
             ]
             assert len(berlin) == 1
             assert berlin[0].report.decision.status == "auto_resolved"
@@ -377,8 +370,7 @@ def run_scenario(
             )
             assert len(audits[0].report.candidate_set.candidates) == 2
             assert any(
-                c.verification == "rejected"
-                for c in audits[0].report.candidate_set.candidates
+                c.verification == "rejected" for c in audits[0].report.candidate_set.candidates
             )
     elif variant == "strict":
         assert rows == 1
@@ -395,10 +387,7 @@ def run_scenario(
         assert decision_counts.get("incomplete_verification") == 1
         assert result.records[0].row_result.steps[-1].result.error_code == "DEPENDENCY_FAILED"
         assert audits[0].report.decision.selected is None
-        assert any(
-            c.verification == "unchecked"
-            for c in audits[0].report.candidate_set.candidates
-        )
+        assert any(c.verification == "unchecked" for c in audits[0].report.candidate_set.candidates)
 
     return BenchmarkResult(
         scenario=scenario,
