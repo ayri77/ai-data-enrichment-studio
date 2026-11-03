@@ -12,6 +12,7 @@ from typing import Protocol
 
 from ai_data_enrichment.execution.contracts import CapabilityHandler
 from ai_data_enrichment.execution.job_models import JobExecutionPolicy
+from ai_data_enrichment.execution.memoization import MemoCapacity
 from ai_data_enrichment.execution.models import OperationResult, RuntimeValue
 from ai_data_enrichment.execution.operation_keys import persistent_key_digest
 from ai_data_enrichment.resolution.models import (
@@ -112,6 +113,7 @@ class AuditedResolutionHandler:
         service: ResolutionService,
         policy: ResolutionPolicy,
         job_policy: JobExecutionPolicy,
+        shared_capacity: MemoCapacity,
         persistent_cache: SQLiteResolutionCache | None,
         wrap_provider: "ProviderWrapper | None" = None,
     ) -> None:
@@ -128,6 +130,7 @@ class AuditedResolutionHandler:
         self._provider_version = provider_version
         self.policy = policy
         self._job_policy = job_policy
+        self._shared_capacity = shared_capacity
         self._cache = persistent_cache
         self._invoker = _ResolutionInvoker(service, policy)
         self._provider_handler: CapabilityHandler = (
@@ -229,7 +232,7 @@ class AuditedResolutionHandler:
     def _retain(self, digest: str, pair: ResolutionCacheHit, allowed: bool) -> None:
         if not allowed:
             return
-        if len(self._memory) < self._job_policy.max_memoized_results:
+        if self._shared_capacity.reserve():
             self._memory[digest] = pair
         else:
             self._skips += 1
