@@ -501,7 +501,10 @@ def test_wikidata_audited_job_produces_verified_entity_for_elevation_dependency(
         },
     )
     rows = [
-        InputRecord(record_id=f"row-{index}", values={"Mountain": "Mount Everest", "Country": "Nepal"})
+        InputRecord(
+            record_id=f"row-{index}",
+            values={"Mountain": "Mount Everest", "Country": "Nepal"},
+        )
         for index in (1, 2)
     ]
     result = job.execute(plan, rows, job_id="mountain-enrichment-2")
