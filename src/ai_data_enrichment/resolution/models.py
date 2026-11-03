@@ -143,6 +143,8 @@ class CandidateSet(_ResolutionModel):
         if self.search_complete and self.verification_complete:
             if self.incomplete_reason is not None or self.provider_error_code is not None:
                 raise ValueError("A complete candidate set cannot report partial retrieval.")
+            if any(candidate.verification == "unchecked" for candidate in self.candidates):
+                raise ValueError("Verification cannot be complete with unchecked candidates.")
         elif not (self.incomplete_reason or self.provider_error_code):
             raise ValueError("Incomplete candidate set requires a reason or provider error.")
         for value in (self.incomplete_reason, self.provider_error_code):
@@ -247,6 +249,24 @@ class ResolutionReport(_ResolutionModel):
             if not is_complete and decision.basis != "user_override":
                 raise ValueError("Incomplete verification cannot be auto-accepted.")
 
+        if decision.basis == "unique_verified":
+            assessed = {
+                assessment.reference: assessment
+                for assessment in self.assessments
+            }
+            eligible = [
+                candidate
+                for candidate in candidate_set.candidates
+                if candidate.verification == "verified"
+                and (
+                    assessed[candidate.reference].eligibility == "eligible"
+                    if candidate.reference in assessed
+                    else True
+                )
+            ]
+            if len(eligible) != 1 or eligible[0].reference != decision.selected:
+                raise ValueError("Unique selection must exclude all other verified candidates.")
+
         if decision.status == "auto_resolved":
             if self.policy.strategy != "ranked" or not self.policy.auto_accept_ranked:
                 raise ValueError("Auto-selection requires an enabled ranked policy.")
@@ -335,6 +355,8 @@ class ResolutionJobReport(_ResolutionModel):
     def check_summary(self) -> Self:
         if self.processed_rows > self.total_rows:
             raise ValueError("Processed rows cannot exceed total rows.")
+        if self.status == "completed" and self.processed_rows != self.total_rows:
+            raise ValueError("Completed job must account for every input row.")
         if self.previous_job_id == self.job_id:
             raise ValueError("A job cannot be its own previous job.")
         operation_ids = [entry.operation_id for entry in self.operations]
