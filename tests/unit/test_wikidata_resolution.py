@@ -206,7 +206,10 @@ def test_candidate_budget_prevents_uncertain_auto_acceptance_and_preserves_obser
         policy=_policy(ranked=True),
     )
     assert outcome.operation.error_code == "INCOMPLETE_VERIFICATION"
-    assert outcome.report.candidate_set.incomplete_reason == "candidate_verification_budget_exceeded"
+    assert (
+        outcome.report.candidate_set.incomplete_reason
+        == "candidate_verification_budget_exceeded"
+    )
     assert len(outcome.report.candidate_set.candidates) == 3
     assert sum(c.verification == "unchecked" for c in outcome.report.candidate_set.candidates) == 1
     assert len(transport.get_json.call_args_list) <= 5
