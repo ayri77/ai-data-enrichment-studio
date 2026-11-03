@@ -8,8 +8,8 @@ from tests.support.http import StubJsonTransport
 from ai_data_enrichment.domain.capability import Identifier
 from ai_data_enrichment.domain.enrichment_plan import (
     ColumnReference,
-    InputReference,
     EnrichmentPlan,
+    InputReference,
     OutputMapping,
     PlanStep,
     StepOutputReference,
