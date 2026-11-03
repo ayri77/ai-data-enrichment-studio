@@ -432,6 +432,8 @@ def run_acceptance(rows: int = 1000) -> dict[str, object]:
         "kind": "m2-controlled-offline-acceptance",
         "network": "disabled; transport is synthetic",
         "timing_scope": "JobExecutor.execute only; excludes plan validation and fixture setup",
-        "timing_note": "Measured elapsed seconds on current host; not a provider network latency SLA",
+        "timing_note": (
+            "Measured elapsed seconds on current host; not a provider network latency SLA"
+        ),
         "benchmarks": [result.as_dict() for result in benchmarks],
     }
