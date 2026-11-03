@@ -229,8 +229,14 @@ class ResolutionReport(_ResolutionModel):
         candidate_set = self.candidate_set
         decision = self.decision
         is_complete = candidate_set.search_complete and candidate_set.verification_complete
-        candidate_ids = {c.reference for c in candidate_set.candidates}
-        assessed_ids = [assessment.reference for assessment in self.assessments]
+        candidate_ids = {
+            (candidate.reference.source, candidate.reference.entity_id)
+            for candidate in candidate_set.candidates
+        }
+        assessed_ids = [
+            (assessment.reference.source, assessment.reference.entity_id)
+            for assessment in self.assessments
+        ]
         if len(assessed_ids) != len(set(assessed_ids)):
             raise ValueError("Candidate assessments must not repeat identities.")
         if any(ref not in candidate_ids for ref in assessed_ids):
