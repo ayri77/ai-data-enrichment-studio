@@ -55,6 +55,10 @@ class OpenMeteoResolutionService:
         This is intentionally *not* a CapabilityHandler yet: silently discarding
         a report while accepting a ranked result would break audit guarantees.
         """
+        unknown = set(inputs) - {"city", "country", "administrative_area"}
+        if unknown:
+            raise ValueError("Unregistered geocoding resolution input.")
+
         city = inputs.get("city")
         country = inputs.get("country")
         region = inputs.get("administrative_area")
