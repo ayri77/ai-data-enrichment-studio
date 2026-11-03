@@ -513,3 +513,48 @@ def test_candidate_assessment_must_refer_to_reported_candidate() -> None:
                 ),
             ),
         )
+
+
+def test_complete_candidate_set_cannot_hide_unchecked_candidate() -> None:
+    with pytest.raises(ValidationError):
+        _set(candidates=(_candidate("2950159", verification="unchecked"),))
+
+
+def test_unique_selection_rejects_multiple_verified_matches_without_exclusion() -> None:
+    with pytest.raises(ValidationError):
+        ResolutionReport(
+            candidate_set=_set(candidates=(_candidate("2950159"), _candidate("2950158"))),
+            policy=_policy(),
+            decision=_decision(),
+        )
+
+
+def test_unique_selection_can_use_explicit_hard_constraint_exclusions() -> None:
+    report = ResolutionReport(
+        candidate_set=_set(candidates=(_candidate("2950159"), _candidate("2950158"))),
+        policy=_policy(),
+        decision=_decision(),
+        assessments=(
+            CandidateAssessment(
+                reference=_candidate("2950159").reference,
+                eligibility="eligible",
+                reason_codes=("requested_region_matches",),
+            ),
+            CandidateAssessment(
+                reference=_candidate("2950158").reference,
+                eligibility="excluded",
+                reason_codes=("region_conflict",),
+            ),
+        ),
+    )
+    assert report.decision.status == "resolved"
+
+
+def test_completed_job_cannot_silently_omit_unprocessed_rows() -> None:
+    with pytest.raises(ValidationError):
+        ResolutionJobReport(
+            job_id="job-partial",
+            status="completed",
+            total_rows=100,
+            processed_rows=20,
+        )
