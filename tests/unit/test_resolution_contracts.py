@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from ai_data_enrichment.execution.models import EntityRef, Evidence
 from ai_data_enrichment.resolution.models import (
+    CandidateAssessment,
     CandidateSet,
     ResolutionAttribute,
     ResolutionCandidate,
@@ -100,6 +101,18 @@ def _report(*, ranked: bool = False) -> ResolutionReport:
             status="auto_resolved" if ranked else "resolved",
             basis="ranking_policy" if ranked else "unique_verified",
         ),
+        assessments=(
+            (
+                CandidateAssessment(
+                    reference=_candidate("2950159").reference,
+                    eligibility="eligible",
+                    rank=1,
+                    reason_codes=("prominent_capital",),
+                ),
+            )
+            if ranked
+            else ()
+        ),
     )
 
 
@@ -119,6 +132,20 @@ def test_auto_resolved_berlin_preserves_alternatives_without_probabilities() -> 
         candidate_set=_set(candidates=(_candidate("2950159"), berlin_small)),
         policy=_policy(ranked=True),
         decision=_decision(status="auto_resolved", basis="ranking_policy"),
+        assessments=(
+            CandidateAssessment(
+                reference=_candidate("2950159").reference,
+                eligibility="eligible",
+                rank=1,
+                reason_codes=("prominent_capital",),
+            ),
+            CandidateAssessment(
+                reference=berlin_small.reference,
+                eligibility="eligible",
+                rank=2,
+                reason_codes=("exact_name",),
+            ),
+        ),
     )
     assert report.decision.selected == _candidate("2950159").reference
     assert len(report.candidate_set.candidates) == 2
@@ -435,4 +462,54 @@ def test_operation_links_and_job_counts_are_consistent() -> None:
             total_rows=1,
             processed_rows=1,
             operations=(valid, valid),
+        )
+
+
+def test_ranked_selection_requires_unique_eligible_first_place() -> None:
+    with pytest.raises(ValidationError):
+        ResolutionReport(
+            candidate_set=_set(candidates=(_candidate("2950159"), _candidate("2950158"))),
+            policy=_policy(ranked=True),
+            decision=_decision(status="auto_resolved", basis="ranking_policy"),
+            assessments=(
+                CandidateAssessment(
+                    reference=_candidate("2950159").reference,
+                    eligibility="eligible",
+                    rank=1,
+                    reason_codes=("prominent_capital",),
+                ),
+                CandidateAssessment(
+                    reference=_candidate("2950158").reference,
+                    eligibility="eligible",
+                    rank=1,
+                    reason_codes=("exact_name",),
+                ),
+            ),
+        )
+
+
+def test_candidate_assessment_rejects_rank_for_unchecked_entity() -> None:
+    with pytest.raises(ValidationError):
+        CandidateAssessment(
+            reference=_candidate("2950159").reference,
+            eligibility="unchecked",
+            rank=1,
+            reason_codes=("not_verified",),
+        )
+
+
+def test_candidate_assessment_must_refer_to_reported_candidate() -> None:
+    with pytest.raises(ValidationError):
+        ResolutionReport(
+            candidate_set=_set(),
+            policy=_policy(),
+            decision=_decision(),
+            assessments=(
+                CandidateAssessment(
+                    reference=_candidate("2950158").reference,
+                    eligibility="eligible",
+                    rank=1,
+                    reason_codes=("exact_name",),
+                ),
+            ),
         )
