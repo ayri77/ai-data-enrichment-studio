@@ -58,7 +58,7 @@ def _scripted_wikidata(entities: dict[str, object]) -> Mock:
     return transport
 
 
-@pytest.mark.parametrize("reported_id", ["Q148", "Q999", 123])
+@pytest.mark.parametrize("reported_id", ["Q148", "Q999", 123, None])
 def test_mountain_claims_for_other_entity_never_verify_requested_qid(
     reported_id: object,
 ) -> None:
