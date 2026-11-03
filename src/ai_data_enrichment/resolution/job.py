@@ -39,8 +39,11 @@ _APPROVED_PARAMETERS = {
 
 
 class ResolutionOutcome(Protocol):
-    operation: OperationResult
-    report: ResolutionReport
+    @property
+    def operation(self) -> OperationResult: ...
+
+    @property
+    def report(self) -> ResolutionReport: ...
 
 
 class ResolutionService(Protocol):
