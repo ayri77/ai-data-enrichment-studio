@@ -263,8 +263,7 @@ def test_missing_region_metadata_requires_review_not_false_selected_entity() -> 
     assert outcome.report.decision.status == "needs_review"
     assert outcome.operation.status == "failure"
     assert any(
-        "administrative_area_unverified" in a.reason_codes
-        for a in outcome.report.assessments
+        "administrative_area_unverified" in a.reason_codes for a in outcome.report.assessments
     )
 
 
