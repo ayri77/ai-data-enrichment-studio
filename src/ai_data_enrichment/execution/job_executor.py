@@ -198,9 +198,11 @@ class JobExecutor:
                     job_policy=self._policy,
                     persistent_cache=self._resolution_cache,
                     wrap_provider=(
-                        (lambda handler, provider_id=primary_id: request_session.wrap_handler(
-                            provider_id, handler
-                        ))
+                        (
+                            lambda handler, provider_id=primary_id: request_session.wrap_handler(
+                                provider_id, handler
+                            )
+                        )
                         if request_session is not None
                         else None
                     ),
@@ -246,6 +248,7 @@ class JobExecutor:
         statuses = {"success": 0, "partial": 0, "failure": 0}
         for start in range(0, len(prepared), self._policy.batch_size):
             for record in prepared[start : start + self._policy.batch_size]:
+
                 def observe(
                     step_id: str,
                     capability: str,
