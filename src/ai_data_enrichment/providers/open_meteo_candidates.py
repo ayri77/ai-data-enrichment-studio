@@ -72,9 +72,10 @@ def administrative_area_matches(
         if not code.startswith(f"{country_code}-"):
             return False
         subdivision = pycountry.subdivisions.get(code=code)
-        if subdivision is None:
+        subdivision_name = getattr(subdivision, "name", None)
+        if not isinstance(subdivision_name, str) or not subdivision_name.strip():
             return False
-        requested_name = subdivision.name
+        requested_name = subdivision_name
     return _area_name(requested_name) == _area_name(actual_admin1)
 
 
