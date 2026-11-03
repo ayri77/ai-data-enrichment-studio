@@ -20,9 +20,9 @@ def _wikidata_identity_drift(
     explicitly resolved, a mismatched ID cannot verify the requested entity.
     An omitted ID is tolerated for backwards-compatible minimal fixtures.
     """
-    actual = entity.get("id")
-    if actual is None:
+    if "id" not in entity:
         return None
+    actual = entity["id"]
     if not isinstance(actual, str) or re.fullmatch(r"Q[1-9]\d*", actual) is None:
         return OperationResult(
             status="failure",
