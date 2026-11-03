@@ -1,6 +1,7 @@
 """Offline scenarios for provider-neutral decisions and Open-Meteo ranked resolution."""
 
 from collections.abc import Sequence
+from json import dumps
 
 import pytest
 from pydantic import ValidationError
@@ -372,4 +373,4 @@ def test_report_validation_rejects_nonexistent_selected_candidate() -> None:
     payload = report.model_dump(mode="json")
     payload["decision"]["selected"]["entity_id"] = "nonexistent"
     with pytest.raises(ValidationError, match="verified listed candidate"):
-        ResolutionReport.model_validate(payload)
+        ResolutionReport.model_validate_json(dumps(payload))
