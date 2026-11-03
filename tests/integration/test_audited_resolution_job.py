@@ -181,7 +181,10 @@ def test_strict_ambiguity_is_grouped_but_not_cached_as_success() -> None:
     assert result.metrics.executed_handler_calls == 3
     assert result.metrics.reused_operations == 0
     assert len(transport.requests) == 3
-    assert all(r.row_result.steps[1].result.error_code == "DEPENDENCY_FAILED" for r in result.records)
+    assert all(
+        r.row_result.steps[1].result.error_code == "DEPENDENCY_FAILED"
+        for r in result.records
+    )
     assert result.resolution_report is not None
     assert result.resolution_report.status == "awaiting_review"
     assert len(result.resolution_report.operations) == 1
@@ -203,7 +206,9 @@ def test_1000_rows_preserve_two_region_decisions_and_source_provenance() -> None
     assert len(transport.requests) == 2
     assert result.resolution_report is not None
     assert len(result.resolution_report.operations) == 2
-    assert sorted(len(item.record_links) for item in result.resolution_report.operations) == [500, 500]
+    assert sorted(
+        len(item.record_links) for item in result.resolution_report.operations
+    ) == [500, 500]
     assert sum(len(item.record_links) for item in result.resolution_report.operations) == 1000
     assert {item.report.decision.selected.entity_id for item in result.resolution_report.operations
             if item.report.decision.selected is not None} == {"2950158", "2950159"}
@@ -239,7 +244,10 @@ def test_paired_sqlite_cache_reuses_provenance_across_jobs_and_policy_versions(
     assert fifth.metrics.persistent_cache_misses == 1
     assert first.resolution_report is not None
     assert second.resolution_report is not None
-    assert first.resolution_report.operations[0].report == second.resolution_report.operations[0].report
+    assert (
+        first.resolution_report.operations[0].report
+        == second.resolution_report.operations[0].report
+    )
     assert second.resolution_report.previous_job_id == "job-1"
     assert first.resolution_report.operations[0].operation_id == (
         second.resolution_report.operations[0].operation_id
