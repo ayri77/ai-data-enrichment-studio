@@ -187,6 +187,7 @@ class AuditedResolutionHandler:
                 self._invalid += 1
 
         self._executed += 1
+        self._invoker.latest = None
         result = self._provider_handler.execute(inputs=inputs, parameters=parameters)
         pair = self._invoker.latest
         if pair is None:
