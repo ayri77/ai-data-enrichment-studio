@@ -111,6 +111,13 @@ def verify_wikidata_mountain_candidate(
     if isinstance(class_ids, OperationResult):
         return class_ids
 
+    if not class_ids:
+        return OperationResult(
+            status="failure",
+            error_code="NOT_FOUND",
+            message="Candidate has no verifiable P31 class.",
+        )
+
     # Reject only a direct, curated, incompatible ontology class.
     # Unknown parallel P31 types still require bounded ontology verification.
     if class_ids and class_ids.issubset(WIKIDATA_DIRECT_NON_MOUNTAIN_CLASSES):
