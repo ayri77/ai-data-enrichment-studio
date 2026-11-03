@@ -161,3 +161,18 @@ This shape **represents** cancellation; it does not add pause/abort/resume behav
 - Candidate assessments cannot name absent candidates; duplicate identities/attributes/record links and impossible job row counts are invalid.
 - No raw provider payloads, credentials, large unbounded logs or sensitive source fields should be dumped into resolution attributes. Future producers must enforce allowlisted/sanitized fields and candidate count limits.
 - Ranking features, provider adapters, cache key derivation, audit transport through `JobExecutor`, file persistence, user responses, LLM proposals, cancellation mechanics and UI are separately owned by #62–#68.
+
+
+## 6. First optional context and provider normalization slice (#62)
+
+**Implementation status:** The `geocode` capability contract becomes v1.1 with optional `administrative_area: Text`, recognized and type-checked through the existing `PlanValidator`. A plan can bind a workbook column called `Bundesland` to that input without changing its physical header. The legacy `city` + `country` geocoder remains available and still fails closed on multiple exact-name matches.
+
+**Provider-specific Open-Meteo semantics:** Without an administrative area, the existing strict result selection is unchanged. If supplied, the region acts as a hard filter on matching provider `admin1` fields (case/space-insensitive name or recognized ISO 3166-2 region code for the same country). An unknown `admin1` among exact matches yields `CONTEXT_UNVERIFIED` rather than pretending uniqueness. Unsupported region aliases are **not** silently fuzzy-corrected. An explicitly mapped but blank cell currently yields `MISSING_VALUE` before the handler; the user may omit the optional input mapping if it is not available. Graceful per-row omission of blank optional context would require an explicit executor contract update.
+
+`normalize_open_meteo_candidates` is a **pure adapter helper**, with source-qualified GeoNames IDs, checked coordinates, region, population and known administrative roles; unrecognized feature codes do not imply an invented classification. Saturating the bounded 10-result page records `search_complete=False`. These candidate sets are not yet emitted in `JobExecutionResult` (#65).
+
+**Wikidata semantics:** `normalize_wikidata_search_candidates` turns exact-label/alias search matches into `unchecked` source-qualified candidates. A result such as `Q513` is not yet a verified mountain, and a film matching the search term is not classified as a mountain merely because the user requested one. The source-specific P31/P279/P17 checks and the report wiring remain #64/#65. Search-completion metadata stays separate from identity verification.
+
+**Cache isolation:** The unchanged operation-key logic already includes the typed `administrative_area` input when supplied, preventing a Berlin/State of Berlin result from colliding with Berlin/Schleswig-Holstein. Provider configuration/capability versions must be updated deliberately for persistent reuse.
+
+No LLM ranking, generalized rule language, automatic input repair, Excel/CLI review workflow, or web UI is introduced in #62.
