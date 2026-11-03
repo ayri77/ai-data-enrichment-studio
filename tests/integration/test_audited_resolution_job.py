@@ -125,9 +125,7 @@ def _job(
             batch_size=33,
             max_memoized_results=max_memoized_results,
             memoizable_providers=frozenset(
-                (
-                    {("geocode", "open-meteo")} if memoize else set()
-                )
+                ({("geocode", "open-meteo")} if memoize else set())
                 | ({("geodesic_distance", "local")} if memoize_local else set())
             ),
             persistent_cache_ttls=(
