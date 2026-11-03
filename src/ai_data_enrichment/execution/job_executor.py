@@ -23,6 +23,7 @@ from ai_data_enrichment.execution.job_models import (
     prepare_input_records,
 )
 from ai_data_enrichment.execution.memoization import JobMemoization
+from ai_data_enrichment.execution.models import OperationResult
 from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
 from ai_data_enrichment.providers.registry import ProviderRegistry
 from ai_data_enrichment.providers.request_policy import ProviderRequestSession
@@ -116,8 +117,11 @@ class JobExecutor:
             if not self._capability_versions.get(capability) or not self._provider_versions.get(
                 capability
             ):
-                raise ValueError("Audited resolution requires explicit capability/provider versions.")
-            if (capability, self._selected_providers[capability]) in self._policy.persistent_cache_ttls:
+                raise ValueError(
+                    "Audited resolution requires explicit capability/provider versions."
+                )
+            binding = (capability, self._selected_providers[capability])
+            if binding in self._policy.persistent_cache_ttls:
                 if self._resolution_cache is None:
                     raise ValueError("Audited persistent reuse requires a separate paired cache.")
 
@@ -242,7 +246,13 @@ class JobExecutor:
         statuses = {"success": 0, "partial": 0, "failure": 0}
         for start in range(0, len(prepared), self._policy.batch_size):
             for record in prepared[start : start + self._policy.batch_size]:
-                def observe(step_id: str, capability: str, result: object) -> None:
+                def observe(
+                    step_id: str,
+                    capability: str,
+                    result: OperationResult,
+                    *,
+                    record_id: str = record.record_id,
+                ) -> None:
                     handler = audited_handlers.get(capability)
                     if handler is None:
                         return
@@ -253,7 +263,7 @@ class JobExecutor:
                     collector.add(
                         operation_key=handler.last_operation_id,
                         report=handler.last.report,
-                        record_id=record.record_id,
+                        record_id=record_id,
                         step_id=step_id,
                     )
 
@@ -277,9 +287,12 @@ class JobExecutor:
             fallback_successes=fallback_stats.successes,
             executed_handler_calls=counts.executed_handler_calls + sum(x.executed for x in extra),
             reused_operations=counts.reused_operations + sum(x.reused for x in extra),
-            persistent_cache_hits=counts.persistent_cache_hits + sum(x.persistent_hits for x in extra),
-            persistent_cache_misses=counts.persistent_cache_misses + sum(x.persistent_misses for x in extra),
-            persistent_cache_writes=counts.persistent_cache_writes + sum(x.persistent_writes for x in extra),
+            persistent_cache_hits=counts.persistent_cache_hits
+            + sum(x.persistent_hits for x in extra),
+            persistent_cache_misses=counts.persistent_cache_misses
+            + sum(x.persistent_misses for x in extra),
+            persistent_cache_writes=counts.persistent_cache_writes
+            + sum(x.persistent_writes for x in extra),
             persistent_cache_invalid_entries=counts.persistent_cache_invalid_entries
             + sum(x.persistent_invalid for x in extra),
             memoized_results=counts.memoized_results + sum(x.memoized for x in extra),
