@@ -6,6 +6,7 @@ mountain identity.
 """
 
 import re
+from collections.abc import Sequence
 
 from ai_data_enrichment.execution.models import EntityRef
 from ai_data_enrichment.providers.wikidata_constants import (
@@ -25,7 +26,7 @@ from ai_data_enrichment.resolution.models import (
 
 
 def normalize_wikidata_search_candidates(
-    search_items: list[object],
+    search_items: Sequence[object],
     *,
     name: str,
     country_code: str,
