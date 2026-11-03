@@ -5,7 +5,7 @@ normalized, typed candidates and never interprets GeoNames feature codes.
 This module is pure: it makes no HTTP calls and takes no ranking decisions.
 """
 
-from collections.abc import Mapping
+from collections.abc import Sequence
 from re import fullmatch
 
 import pycountry
@@ -31,7 +31,7 @@ _AREA_PREFIXES = ("state of ", "free and hanseatic city of ")
 
 
 def exact_open_meteo_matches(
-    results: list[object],
+    results: Sequence[object],
     *,
     city: str,
     country_code: str,
@@ -79,7 +79,7 @@ def administrative_area_matches(
 
 
 def normalize_open_meteo_candidates(
-    results: list[object],
+    results: Sequence[object],
     *,
     city: str,
     country_code: str,
