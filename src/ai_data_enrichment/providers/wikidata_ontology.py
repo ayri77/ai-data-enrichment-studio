@@ -14,8 +14,8 @@ from ai_data_enrichment.providers.wikidata_constants import (
 )
 from ai_data_enrichment.providers.wikidata_parsing import (
     _ranked_entity_ids,
-    _wikidata_identity_drift,
     _wikidata_api_failure,
+    _wikidata_identity_drift,
 )
 
 
