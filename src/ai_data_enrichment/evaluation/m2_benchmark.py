@@ -20,7 +20,7 @@ from ai_data_enrichment.evaluation.smoke import (
 )
 from ai_data_enrichment.execution.job_executor import JobExecutor
 from ai_data_enrichment.execution.job_models import InputRecord, JobExecutionPolicy
-from ai_data_enrichment.execution.models import EntityRef, GeoPoint, Quantity
+from ai_data_enrichment.execution.models import EntityRef, Quantity
 from ai_data_enrichment.providers.geodesic import GeodesicDistanceHandler
 from ai_data_enrichment.providers.http_transport import JsonTransport
 from ai_data_enrichment.providers.open_meteo import GEOCODING_URL, OpenMeteoGeocodingHandler
@@ -323,11 +323,14 @@ def run_scenario(
 
     # These are acceptance invariants, NOT performance-duration thresholds.
     assert result.metrics.total_rows == rows
-    assert result.metrics.logical_operations == (
+    expected_logical = (
         (3 if scenario == "capitals" else 2) * rows
-        if variant == "normal" else
-        (3 if scenario == "capitals" else 2) * rows - (rows - 1 if scenario == "mountains" else 0)
+        if variant == "normal"
+        else 2
+        if variant == "strict"
+        else 1
     )
+    assert result.metrics.logical_operations == expected_logical
     assert result.metrics.logical_operations == (
         result.metrics.executed_handler_calls
         + result.metrics.reused_operations
