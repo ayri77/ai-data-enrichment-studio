@@ -62,9 +62,7 @@ class OpenMeteoResolutionService:
             raise ValueError("Resolution requires a nonblank city.")
         if not isinstance(country, str) or not country.strip():
             raise ValueError("Resolution requires a nonblank country.")
-        if "administrative_area" in inputs and (
-            not isinstance(region, str) or not region.strip()
-        ):
+        if "administrative_area" in inputs and (not isinstance(region, str) or not region.strip()):
             raise ValueError("Explicit administrative area must be nonblank text.")
         area = region.strip() if isinstance(region, str) else None
         try:
