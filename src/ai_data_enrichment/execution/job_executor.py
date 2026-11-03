@@ -175,7 +175,17 @@ class JobExecutor:
 
         if self._request_session is not None:
             self._request_session.begin_job()
-        memo = JobMemoization(self._policy, self._persistent_cache)
+        # The legacy cache cannot store resolution reports. Give its memo
+        # session only ordinary capability TTLs; audited TTLs use paired SQLite.
+        ordinary_ttls = {
+            binding: ttl
+            for binding, ttl in self._policy.persistent_cache_ttls.items()
+            if binding[0] not in audited
+        }
+        ordinary_memo_policy = self._policy.model_copy(
+            update={"persistent_cache_ttls": ordinary_ttls}
+        )
+        memo = JobMemoization(ordinary_memo_policy, self._persistent_cache)
         fallback_stats = FallbackStats()
         request_session = self._request_session
         wrapped_handlers: dict[str, CapabilityHandler] = {}
