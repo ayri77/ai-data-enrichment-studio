@@ -48,8 +48,7 @@ class ResolutionService(Protocol):
 
     def resolve(
         self, *, inputs: Mapping[str, RuntimeValue], policy: ResolutionPolicy
-    ) -> ResolutionOutcome:
-        ...
+    ) -> ResolutionOutcome: ...
 
 
 def effective_configuration_id(configuration_id: str, policy: ResolutionPolicy) -> str:
@@ -247,8 +246,7 @@ class AuditedResolutionHandler:
 
 
 class ProviderWrapper(Protocol):
-    def __call__(self, handler: CapabilityHandler) -> CapabilityHandler:
-        ...
+    def __call__(self, handler: CapabilityHandler) -> CapabilityHandler: ...
 
 
 def _blocked_operation_report(
@@ -299,8 +297,7 @@ class ResolutionAuditCollector:
         self._entries: dict[str, tuple[ResolutionReport, list[ResolutionRecordLink]]] = {}
 
     def add(
-        self, *,
-        operation_key: str, report: ResolutionReport, record_id: str, step_id: str
+        self, *, operation_key: str, report: ResolutionReport, record_id: str, step_id: str
     ) -> None:
         # Include the report's content: repeated failures may yield different
         # candidate sets if a provider changes between attempts.
