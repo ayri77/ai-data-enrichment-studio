@@ -33,6 +33,7 @@ from ai_data_enrichment.providers.wikidata_parsing import (
     _best_ranked_statements,
     _candidate_matches_name,
     _parse_elevation_quantity,
+    _wikidata_identity_drift,
     _wikidata_api_failure,
 )
 from ai_data_enrichment.providers.wikidata_search import fetch_wikidata_search
@@ -125,6 +126,14 @@ class WikidataElevationHandler:
                     error_code="NOT_FOUND",
                     message="Wikidata elevation entity does not exist.",
                 )
+            if isinstance(entity_data, dict):
+                identity_issue = _wikidata_identity_drift(
+                    entity_data,
+                    requested_qid=entity.entity_id,
+                    incomplete_code="INCOMPLETE_VERIFICATION",
+                )
+                if identity_issue is not None:
+                    return identity_issue
 
         try:
             claims = payload["entities"][entity.entity_id]["claims"]
