@@ -120,9 +120,7 @@ def normalize_open_meteo_candidates(
         if admin1 is not None:
             if not isinstance(admin1, str) or not admin1.strip():
                 raise ValueError("Open-Meteo administrative area must be nonblank text.")
-            attributes.append(
-                ResolutionAttribute(name="administrative_area", value=admin1.strip())
-            )
+            attributes.append(ResolutionAttribute(name="administrative_area", value=admin1.strip()))
 
         feature_code = match.get("feature_code")
         if feature_code is not None:
@@ -130,9 +128,7 @@ def normalize_open_meteo_candidates(
                 raise ValueError("Open-Meteo feature code must be text.")
             role = _OPEN_METEO_ROLES.get(feature_code)
             if role is not None:
-                attributes.append(
-                    ResolutionAttribute(name="administrative_role", value=role)
-                )
+                attributes.append(ResolutionAttribute(name="administrative_role", value=role))
 
         population = match.get("population")
         if population is not None:
@@ -156,9 +152,7 @@ def normalize_open_meteo_candidates(
                 entity_type=entity_type,
                 verification="verified",
                 attributes=tuple(attributes),
-                evidence=(
-                    Evidence(source="open-meteo", reference=f"geonames:{raw_id}"),
-                ),
+                evidence=(Evidence(source="open-meteo", reference=f"geonames:{raw_id}"),),
             )
         )
 
