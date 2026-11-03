@@ -20,7 +20,10 @@ from ai_data_enrichment.execution.models import GeoPoint, RuntimeValue
 from ai_data_enrichment.providers.geodesic import GeodesicDistanceHandler
 from ai_data_enrichment.providers.open_meteo import OpenMeteoGeocodingHandler
 from ai_data_enrichment.providers.open_meteo_resolution import OpenMeteoResolutionService
-from ai_data_enrichment.providers.request_policy import ProviderRequestPolicy, ProviderRequestSession
+from ai_data_enrichment.providers.request_policy import (
+    ProviderRequestPolicy,
+    ProviderRequestSession,
+)
 from ai_data_enrichment.resolution.models import ResolutionJobReport, ResolutionPolicy
 from ai_data_enrichment.resolution.sqlite_cache import SQLiteResolutionCache
 
