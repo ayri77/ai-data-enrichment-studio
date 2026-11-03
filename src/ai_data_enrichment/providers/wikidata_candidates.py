@@ -59,7 +59,11 @@ def normalize_wikidata_search_candidates(
         if not isinstance(label, str) or not label.strip():
             raise ValueError("Matched Wikidata candidate has no valid label.")
 
-        matched_by = "label" if _normalize_entity_name(label) == _normalize_entity_name(name) else "alias"
+        matched_by = (
+            "label"
+            if _normalize_entity_name(label) == _normalize_entity_name(name)
+            else "alias"
+        )
         candidates.append(
             ResolutionCandidate(
                 reference=EntityRef(source="wikidata", entity_id=qid),
