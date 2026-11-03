@@ -11,7 +11,9 @@ from re import fullmatch
 from pydantic import ValidationError
 
 from ai_data_enrichment.execution.models import EntityRef, Evidence, GeoPoint
-from ai_data_enrichment.resolution.geography import administrative_area_matches
+from ai_data_enrichment.resolution.geography import (
+    administrative_area_matches as administrative_area_matches,
+)
 from ai_data_enrichment.resolution.models import (
     CandidateSet,
     ResolutionAttribute,
