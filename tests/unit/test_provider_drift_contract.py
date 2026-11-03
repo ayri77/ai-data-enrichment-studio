@@ -167,9 +167,7 @@ def test_malformed_open_meteo_error_envelope_is_not_treated_as_no_match(
 
 def test_wikidata_no_redirect_preserves_correct_entity_provenance() -> None:
     transport = _scripted_wikidata({"Q513": _mountain(), "Q837": _country()})
-    result = verify_wikidata_mountain_candidate(
-        transport, qid="Q513", expected_country_code="NP"
-    )
+    result = verify_wikidata_mountain_candidate(transport, qid="Q513", expected_country_code="NP")
     assert result.status == "success"
     assert result.value == EntityRef(source="wikidata", entity_id="Q513")
     assert result.evidence
