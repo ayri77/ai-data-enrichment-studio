@@ -17,6 +17,22 @@ from ai_data_enrichment.execution.operation_keys import (
 from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
 
 
+class MemoCapacity:
+    """One job-wide cap shared across legacy and audited success-only memoizers."""
+
+    def __init__(self, limit: int) -> None:
+        if limit < 0:
+            raise ValueError("Memo capacity must be nonnegative.")
+        self._limit = limit
+        self._used = 0
+
+    def reserve(self) -> bool:
+        if self._used >= self._limit:
+            return False
+        self._used += 1
+        return True
+
+
 class _MemoizingHandler:
     """Preserve CapabilityHandler.execute while applying two cache levels."""
 
@@ -118,11 +134,13 @@ class JobMemoization:
         self,
         policy: JobExecutionPolicy,
         persistent_cache: SQLiteOperationCache | None = None,
+        shared_capacity: MemoCapacity | None = None,
     ) -> None:
         if policy.persistent_cache_ttls and persistent_cache is None:
             raise ValueError("Persistent cache TTLs require an explicit SQLite cache.")
         self._policy = policy
         self._persistent_cache = persistent_cache
+        self._capacity = shared_capacity or MemoCapacity(policy.max_memoized_results)
         self._cache: dict[_OperationKey, OperationResult] = {}
         self._logical_operations = 0
         self._executed_handler_calls = 0
@@ -135,7 +153,7 @@ class JobMemoization:
 
     def _retain_success(self, key: _OperationKey, result: OperationResult) -> None:
         """Keep approved successes up to the configured in-memory capacity."""
-        if len(self._cache) < self._policy.max_memoized_results:
+        if self._capacity.reserve():
             self._cache[key] = result
         else:
             self._memo_capacity_skips += 1
