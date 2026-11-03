@@ -1,7 +1,7 @@
 # Resolution Foundation — Hybrid Universal Entity Resolution
 
 **Document ID:** ADR-RES-001  
-**Status:** Proposed for review (architectural direction agreed; schemas, thresholds and implementation not yet approved)  
+**Status:** Architecture direction accepted (PR #69 merged); report contract v1 under review in #61  
 **Date:** 2026-11-03  
 **Owner:** M2 Execution Engine, related to #3 and #61  
 **Dependencies:** existing M1 planner/validator, M2 provider contracts, #34–#36 reliability and cache
@@ -97,3 +97,8 @@ Use [Resolution delivery roadmap](09-resolution-rollout.md) and issues #61–#68
 5. Handling of uncertain search completeness without accidentally treating it as a verified unique answer.
 
 **Not in this design PR:** runtime code changes, speculative score thresholds, LLM-based auto-repair, full UI, multi-provider entity reconciliation or arbitrary rules DSL.
+
+
+## 9. First concrete contract (review candidate)
+
+The schema and user-readable examples are specified in [Resolution Report Contract v1](10-resolution-report-contract.md). This is a separate resolution/result/audit format from `OperationResult` and introduces no automatic ranking or pause/resume behavior until later implementation issues. Confirm the report contract, including ranked opt-in, incomplete-search abstention, user-confirmed decisions, partial-run envelope, and record links, before integrating the adapters (#62–#65).
