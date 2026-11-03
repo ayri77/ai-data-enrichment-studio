@@ -105,6 +105,8 @@ class OpenMeteoResolutionService:
 
         if not isinstance(payload, dict):
             return self._invalid_response(query, policy)
+        if "error" in payload and type(payload["error"]) is not bool:
+            return self._invalid_response(query, policy)
         if payload.get("error") is True:
             return self._failure(
                 query=query,
