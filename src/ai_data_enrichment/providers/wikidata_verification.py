@@ -81,7 +81,7 @@ def verify_wikidata_mountain_candidate(
     if "missing" in entity_data:
         return OperationResult(
             status="failure",
-            error_code="NOT_FOUND",
+            error_code="SOURCE_ENTITY_MISSING",
             message="Wikidata candidate entity does not exist.",
         )
 
@@ -114,7 +114,7 @@ def verify_wikidata_mountain_candidate(
     if not class_ids:
         return OperationResult(
             status="failure",
-            error_code="NOT_FOUND",
+            error_code="UNVERIFIED_TYPE",
             message="Candidate has no verifiable P31 class.",
         )
 
@@ -123,7 +123,7 @@ def verify_wikidata_mountain_candidate(
     if class_ids and class_ids.issubset(WIKIDATA_DIRECT_NON_MOUNTAIN_CLASSES):
         return OperationResult(
             status="failure",
-            error_code="NOT_FOUND",
+            error_code="DIRECT_NON_MOUNTAIN_CLASS",
             message="Candidate has an explicitly non-mountain entity type.",
         )
 
@@ -135,7 +135,7 @@ def verify_wikidata_mountain_candidate(
     if class_path is None:
         return OperationResult(
             status="failure",
-            error_code="NOT_FOUND",
+            error_code="NON_MOUNTAIN_CLASS",
             message="Candidate is not classified as a mountain.",
         )
 
