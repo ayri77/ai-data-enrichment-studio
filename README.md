@@ -6,15 +6,17 @@
 ![Python](https://img.shields.io/badge/Python-3.12%2B-blue)
 
 
-> **Status: active development — M2 Execution Engine.**
-> M1 Planner & Validator is complete. M2 includes an in-memory DAG
-> executor, approved provider registry, Open-Meteo geocoding,
-> Wikidata mountain resolution/elevation lookup, and deterministic geodesic distance calculation.
-> CLI-driven execution and enriched Excel output are not yet available.
-> **Proposed next M2 extension (not implemented):** hybrid provider-aware candidate
-> retrieval + universal, configurable Entity Resolution and decision audit.
-> See [Resolution Foundation](docs/08-resolution-foundation.md) and
-> [delivery plan](docs/09-resolution-rollout.md).
+> **Status: active development — M2 final acceptance (#44 / #37).**
+> M1 Planner & Validator is complete. M2 has the typed DAG and provider
+> execution engine, bounded multi-row jobs, caching, rate/retry policies, and
+> the opt-in **audited Resolution Engine** (merged PRs #69–#74).
+> Ranked geographic resolution and Wikidata mountain verification retain
+> candidate alternatives, decisions, source Evidence and per-row audit links.
+> The legacy strict path remains the default when audited services are not configured.
+> **CLI-driven job execution and enriched Excel output are not yet available** (M3).
+> See [Resolution Foundation](docs/08-resolution-foundation.md),
+> [delivery plan](docs/09-resolution-rollout.md) and
+> [provider drift audit](docs/11-provider-drift-audit.md).
 
 
 ## Why this project?
@@ -78,11 +80,12 @@ Implemented:
 - Independent scenario-level planning evaluation for Mountains and Capitals.
 - Bounded in-memory multi-row execution and job-scoped deduplication of approved successful operations.
 - Optional versioned SQLite reuse of verified successful operations across independent jobs, with TTL and source Evidence.
+- Opt-in shared Resolution Engine with deterministic geographic ranking, bounded Wikidata candidate verification, and typed `ResolutionReport` (strict/abstaining by default).
+- Opt-in JobExecutor audit: per-record/step links, safe in-job reuse, separate policy-aware SQLite storage of paired results and decision reports.
 - Automated tests, Ruff, Pyright, and GitHub Actions CI.
 
 Not implemented yet:
 
-- Configurable ranked Entity Resolution, normalized candidate/decision reports and review audit (proposed; not implemented).
 - CLI-driven execution of generated enrichment plans.
 - Execution recovery, durable orchestration and automatic provider fallback selection.
 - Enriched Excel workbook generation and result provenance.
@@ -185,16 +188,28 @@ Mount Everest; the live Wikidata result can differ or fail because of current
 source data, ambiguity or provider rate limits. Do not treat smoke fixtures as
 independent ground-truth accuracy evaluation.
 
-### Resolution Foundation proposal
+### Audited Resolution Foundation (M2)
 
-**Proposed resolution workflow (not implemented):** provider adapters should yield
-normalized candidates and verified attributes; a shared decision layer applies
-hard context constraints and pluggable ranking strategies. Prominence-based
-auto-selection is opt-in and must retain alternatives and an audit trail.
-Incomplete search, genuine no-match and transport failures stay distinct;
-an optional later LLM assistant may suggest clarifications or repairs without
-silently rewriting input data. The existing strict handlers remain the current
-runtime behavior until reviewed implementation PRs merge.
+**Implemented, opt-in (PRs #69–#74):** provider adapters retrieve and verify
+normalized candidates, while the shared `ResolutionEngine` applies source-independent
+decision semantics with provider-specific ranking strategies. `JobExecutor` can
+connect `OpenMeteoResolutionService` and `WikidataMountainResolutionService`
+through explicitly selected `resolution_services` and `resolution_policies`,
+returning a typed `ResolutionJobReport` with each operation's alternatives,
+reason codes, completeness and per-row links.
+
+Uncertain or incomplete candidates never become a successful downstream result.
+Prominence-based auto-selection is explicitly enabled, not inferred from the
+LLM or search position. The same candidate decision plus its evidence is cached
+as a pair with the corresponding successful result, under policy/version/context-
+specific keys. Strict legacy handlers still run when opt-in is absent.
+See [Resolution Report Contract](docs/10-resolution-report-contract.md).
+
+**Not yet delivered:** reviewed user overrides, selective reruns, persisted
+Excel output and reporting UI (M3–M5). A developer-only one-record live smoke
+script exercises the *legacy strict* providers; audited source verification is
+currently covered by offline fixtures. Any live provider request must be
+explicitly opt-in.
 
 ## Quick start
 

@@ -1,7 +1,7 @@
 # Resolution Foundation — Hybrid Universal Entity Resolution
 
 **Document ID:** ADR-RES-001  
-**Status:** Architecture direction accepted (PR #69 merged); report contract v1 under review in #61  
+**Status:** ADR accepted and M2 implementation merged (#61–#65, PRs #69–#74); final #44/#37 acceptance pending  
 **Date:** 2026-11-03  
 **Owner:** M2 Execution Engine, related to #3 and #61  
 **Dependencies:** existing M1 planner/validator, M2 provider contracts, #34–#36 reliability and cache
@@ -14,8 +14,8 @@ This is *not* a decision to implement one universal scoring formula. The common 
 
 ### Live evidence motivating the work
 
-- **Capitals:** Open-Meteo returns two exact-name Berlin entities in DE: GeoNames `2950159` (PPLC, State of Berlin) and `2950158` (PPL, Schleswig-Holstein). The current exact-name/country handler yields `AMBIGUOUS`, while Hamburg succeeds. A configurable prominence preference may choose the capital *with a visible alternative and an audit trail*, but an explicit Schleswig-Holstein context must override it.
-- **Mountains:** Wikidata search returns `Q513` Mount Everest with `P31=Q8502` (mountain), `P17` for Nepal/China and an elevation claim. Checking subsequent search candidates triggers unrelated film class traversal and `INCOMPLETE_HIERARCHY`. An incomplete verification is **not** no match, and a present elevation claim is **not** yet a validated quantity.
+- **Capitals (historical motivation):** Open-Meteo returns two exact-name Berlin entities in DE: GeoNames `2950159` (PPLC, State of Berlin) and `2950158` (PPL, Schleswig-Holstein). The legacy strict handler yields `AMBIGUOUS`, while the **opt-in audited ranked service** can choose the capital when policy permits, retaining alternatives and an audit trail. An explicit Schleswig-Holstein context must override any prominence preference.
+- **Mountains (historical motivation):** Wikidata search returns `Q513` Mount Everest with `P31=Q8502` (mountain), `P17` for Nepal/China and an elevation claim. The legacy traversal could hit unrelated film classes; the audited #64 service now filters narrow directly incompatible film types and abstains when a plausible candidate remains unchecked. An incomplete verification is **not** no match, and a present elevation claim is **not** yet a validated quantity.
 - **Misspellings:** The primary exact-input search must remain observable. A separate future data-repair assistant may suggest `Hambourg` → `Hamburg` *after* recording the failed initial search; no silent input mutation.
 
 ## 2. Responsibility boundaries

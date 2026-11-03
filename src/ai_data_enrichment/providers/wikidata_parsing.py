@@ -7,6 +7,37 @@ from ai_data_enrichment.execution.models import OperationResult, Quantity
 from ai_data_enrichment.providers.wikidata_constants import WIKIDATA_Q_METRE
 
 
+def _wikidata_identity_drift(
+    entity: dict[str, object],
+    *,
+    requested_qid: str,
+    incomplete_code: str,
+) -> OperationResult | None:
+    """Reject changed entity IDs from redirects instead of misattributing Evidence.
+
+    wbgetentities may key a redirected response by the original requested QID
+    while its returned entity's own 'id' is different. Until redirects are
+    explicitly resolved, a mismatched ID cannot verify the requested entity.
+    An omitted ID is tolerated for backwards-compatible minimal fixtures.
+    """
+    if "id" not in entity:
+        return None
+    actual = entity["id"]
+    if not isinstance(actual, str) or re.fullmatch(r"Q[1-9]\d*", actual) is None:
+        return OperationResult(
+            status="failure",
+            error_code="INVALID_RESPONSE",
+            message="Wikidata entity contains an invalid ID.",
+        )
+    if actual != requested_qid:
+        return OperationResult(
+            status="failure",
+            error_code=incomplete_code,
+            message="Wikidata returned a different entity ID (possible redirect).",
+        )
+    return None
+
+
 def _normalize_entity_name(value: str) -> str:
     """Normalize entity names for case-insensitive exact matching."""
     return " ".join(value.split()).casefold()

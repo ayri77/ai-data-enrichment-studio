@@ -15,6 +15,7 @@ from ai_data_enrichment.providers.wikidata_constants import (
 from ai_data_enrichment.providers.wikidata_parsing import (
     _ranked_entity_ids,
     _wikidata_api_failure,
+    _wikidata_identity_drift,
 )
 
 
@@ -105,6 +106,14 @@ def mountain_class_path(
                     error_code="INCOMPLETE_HIERARCHY",
                     message="Referenced Wikidata class is missing.",
                 )
+
+            identity_issue = _wikidata_identity_drift(
+                entity,
+                requested_qid=class_qid,
+                incomplete_code="INCOMPLETE_HIERARCHY",
+            )
+            if identity_issue is not None:
+                return identity_issue
 
             claims = entity.get("claims", {})
 

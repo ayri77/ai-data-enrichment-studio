@@ -97,6 +97,13 @@ class OpenMeteoGeocodingHandler:
                 message="Geocoding API returned a non-object response.",
             )
 
+        if "error" in payload and type(payload["error"]) is not bool:
+            return OperationResult(
+                status="failure",
+                error_code="INVALID_RESPONSE",
+                message="Geocoding API error flag must be boolean.",
+            )
+
         if payload.get("error") is True:
             reason = payload.get("reason")
 
