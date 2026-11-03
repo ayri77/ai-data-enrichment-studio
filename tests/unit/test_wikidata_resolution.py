@@ -63,9 +63,7 @@ def _transport(
         provided.update(entities)
     page_idx = 0
 
-    def respond(
-        *, url: str, params: Mapping[str, str], timeout_seconds: float
-    ) -> object:
+    def respond(*, url: str, params: Mapping[str, str], timeout_seconds: float) -> object:
         nonlocal page_idx
         assert url == "https://www.wikidata.org/w/api.php"
         assert timeout_seconds == 10.0
@@ -207,8 +205,7 @@ def test_candidate_budget_prevents_uncertain_auto_acceptance_and_preserves_obser
     )
     assert outcome.operation.error_code == "INCOMPLETE_VERIFICATION"
     assert (
-        outcome.report.candidate_set.incomplete_reason
-        == "candidate_verification_budget_exceeded"
+        outcome.report.candidate_set.incomplete_reason == "candidate_verification_budget_exceeded"
     )
     assert len(outcome.report.candidate_set.candidates) == 3
     assert sum(c.verification == "unchecked" for c in outcome.report.candidate_set.candidates) == 1
@@ -229,7 +226,9 @@ def test_search_page_limit_retains_unverified_hits_and_does_not_fetch_entities()
     assert outcome.operation.error_code == "INCOMPLETE_VERIFICATION"
     assert outcome.report.candidate_set.incomplete_reason == "search_pages_incomplete"
     assert [c.reference.entity_id for c in outcome.report.candidate_set.candidates] == [
-        "Q513", "Q61882061", "Q9200"
+        "Q513",
+        "Q61882061",
+        "Q9200",
     ]
     assert all(c.verification == "unchecked" for c in outcome.report.candidate_set.candidates)
     assert len(transport.get_json.call_args_list) == 3
