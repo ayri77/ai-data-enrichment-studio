@@ -88,7 +88,10 @@ def _deserialize(raw: str, provider_id: str) -> ResolutionCacheHit:
     try:
         data: object = loads(raw)
         if not isinstance(data, dict) or set(data) != {
-            "format", "provider_id", "operation", "report"
+            "format",
+            "provider_id",
+            "operation",
+            "report",
         }:
             raise ValueError("Invalid audited cache entry shape.")
         if data["format"] != _FORMAT or data["provider_id"] != provider_id:
@@ -139,7 +142,8 @@ class SQLiteResolutionCache:
         db = self._connection
         version = db.execute("PRAGMA user_version").fetchone()[0]
         tables = {
-            row[0] for row in db.execute(
+            row[0]
+            for row in db.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             )
         }
