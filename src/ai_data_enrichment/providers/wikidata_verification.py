@@ -19,6 +19,7 @@ from ai_data_enrichment.providers.wikidata_country import verify_country
 from ai_data_enrichment.providers.wikidata_ontology import mountain_class_path
 from ai_data_enrichment.providers.wikidata_parsing import (
     _ranked_entity_ids,
+    _wikidata_identity_drift,
     _wikidata_api_failure,
 )
 
@@ -84,6 +85,14 @@ def verify_wikidata_mountain_candidate(
             error_code="SOURCE_ENTITY_MISSING",
             message="Wikidata candidate entity does not exist.",
         )
+
+    identity_issue = _wikidata_identity_drift(
+        entity_data,
+        requested_qid=qid,
+        incomplete_code="INCOMPLETE_VERIFICATION",
+    )
+    if identity_issue is not None:
+        return identity_issue
 
     claims = entity_data.get("claims")
 
