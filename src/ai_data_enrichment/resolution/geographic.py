@@ -96,10 +96,11 @@ class GeographicRankingStrategy:
             for tier in tiers:
                 group = [c for c in eligible if _role_strength(c) == tier]
                 populations = [_population(c) for c in group]
-                if len(group) > 1 and all(value is not None for value in populations):
+                known_populations = [value for value in populations if value is not None]
+                if len(group) > 1 and len(known_populations) == len(group):
                     # All values in a comparable peer group are known.
                     # Ranking is not a calibrated probability.
-                    for population in sorted(set(populations), reverse=True):
+                    for population in sorted(set(known_populations), reverse=True):
                         for candidate in group:
                             if _population(candidate) == population:
                                 ranks[_key(candidate.reference)] = rank_counter
