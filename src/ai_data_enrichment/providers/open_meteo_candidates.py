@@ -8,10 +8,12 @@ This module is pure: it makes no HTTP calls and takes no ranking decisions.
 from collections.abc import Sequence
 from re import fullmatch
 
-import pycountry
 from pydantic import ValidationError
 
 from ai_data_enrichment.execution.models import EntityRef, Evidence, GeoPoint
+from ai_data_enrichment.resolution.geography import (
+    administrative_area_matches as administrative_area_matches,
+)
 from ai_data_enrichment.resolution.models import (
     CandidateSet,
     ResolutionAttribute,
@@ -27,7 +29,6 @@ _OPEN_METEO_ROLES = {
     "PPLA3": "administrative_seat",
     "PPLA4": "administrative_seat",
 }
-_AREA_PREFIXES = ("state of ", "free and hanseatic city of ")
 
 
 def exact_open_meteo_matches(
@@ -46,37 +47,6 @@ def exact_open_meteo_matches(
         and isinstance(candidate.get("name"), str)
         and candidate["name"].strip().casefold() == normalized_city
     ]
-
-
-def _area_name(value: str) -> str:
-    """Provider-specific display-name normalization, never fuzzy geography."""
-    name = " ".join(value.casefold().split())
-    for prefix in _AREA_PREFIXES:
-        if name.startswith(prefix):
-            return name[len(prefix) :]
-    return name
-
-
-def administrative_area_matches(
-    requested: str,
-    *,
-    country_code: str,
-    actual_admin1: str,
-) -> bool:
-    """Match displayed admin1 or an ISO 3166-2 code for the specified country."""
-    requested_name = requested.strip()
-    if not requested_name:
-        return False
-    if fullmatch(r"[a-zA-Z]{2}-[a-zA-Z0-9]{1,3}", requested_name):
-        code = requested_name.upper()
-        if not code.startswith(f"{country_code}-"):
-            return False
-        subdivision = pycountry.subdivisions.get(code=code)
-        subdivision_name = getattr(subdivision, "name", None)
-        if not isinstance(subdivision_name, str) or not subdivision_name.strip():
-            return False
-        requested_name = subdivision_name
-    return _area_name(requested_name) == _area_name(actual_admin1)
 
 
 def normalize_open_meteo_candidates(
