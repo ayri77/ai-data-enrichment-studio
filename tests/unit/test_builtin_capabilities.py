@@ -39,7 +39,7 @@ def test_builtin_capabilities_include_geocode() -> None:
     capabilities = get_builtin_capabilities()
     geocode_capability = next((c for c in capabilities if c.id == "geocode"), None)
     assert geocode_capability is not None
-    assert geocode_capability.version == "1.0"
+    assert geocode_capability.version == "1.1"
     assert geocode_capability.inputs == {
         "city": InputSpec(
             type=DataType.TEXT,
@@ -48,6 +48,11 @@ def test_builtin_capabilities_include_geocode() -> None:
         "country": InputSpec(
             type=DataType.TEXT,
             description="Country name",
+        ),
+        "administrative_area": InputSpec(
+            type=DataType.TEXT,
+            required=False,
+            description="Optional state, province or administrative region",
         ),
     }
     assert geocode_capability.parameters == {}
