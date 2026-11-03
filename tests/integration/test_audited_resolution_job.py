@@ -5,8 +5,10 @@ from pathlib import Path
 import pytest
 from tests.support.http import StubJsonTransport
 
+from ai_data_enrichment.domain.capability import Identifier
 from ai_data_enrichment.domain.enrichment_plan import (
     ColumnReference,
+    InputReference,
     EnrichmentPlan,
     OutputMapping,
     PlanStep,
@@ -14,7 +16,7 @@ from ai_data_enrichment.domain.enrichment_plan import (
 )
 from ai_data_enrichment.execution.job_executor import JobExecutor
 from ai_data_enrichment.execution.job_models import InputRecord, JobExecutionPolicy
-from ai_data_enrichment.execution.models import GeoPoint
+from ai_data_enrichment.execution.models import GeoPoint, RuntimeValue
 from ai_data_enrichment.providers.geodesic import GeodesicDistanceHandler
 from ai_data_enrichment.providers.open_meteo import OpenMeteoGeocodingHandler
 from ai_data_enrichment.providers.open_meteo_resolution import OpenMeteoResolutionService
@@ -47,7 +49,7 @@ def _locations() -> list[dict[str, object]]:
 
 
 def _plan(*, region: bool = False) -> EnrichmentPlan:
-    refs = {
+    refs: dict[Identifier, InputReference] = {
         "city": ColumnReference(kind="column", name="City"),
         "country": ColumnReference(kind="column", name="Country"),
     }
@@ -130,7 +132,7 @@ def _job(
 
 
 def _record(i: int, *, state: str | None = None) -> InputRecord:
-    values = {"City": "Berlin", "Country": "Germany"}
+    values: dict[str, RuntimeValue | None] = {"City": "Berlin", "Country": "Germany"}
     if state is not None:
         values["Bundesland"] = state
     return InputRecord(record_id=f"row-{i}", values=values)
