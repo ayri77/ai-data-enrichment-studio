@@ -250,10 +250,7 @@ class ResolutionReport(_ResolutionModel):
                 raise ValueError("Incomplete verification cannot be auto-accepted.")
 
         if decision.basis == "unique_verified":
-            assessed = {
-                assessment.reference: assessment
-                for assessment in self.assessments
-            }
+            assessed = {assessment.reference: assessment for assessment in self.assessments}
             eligible = [
                 candidate
                 for candidate in candidate_set.candidates
