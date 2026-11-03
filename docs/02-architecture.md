@@ -742,3 +742,11 @@ These decisions will be addressed in subsequent design documents and Architectur
 
 **Document status:** Conceptual architecture proposal.  
 **Next document:** `docs/03-domain-model.md`.
+
+---
+
+## 15. Implementation addendum — hybrid resolution boundary (proposed, 2026-11-03)
+
+Follow [Resolution Foundation ADR](08-resolution-foundation.md) and its [delivery plan](09-resolution-rollout.md) for the proposed M2-to-M5 work. The new design separates source-specific candidate retrieval/type/country verification from a shared decision-policy layer with per-record audit and explicit incomplete/review outcomes. Provider P/Q IDs and GeoNames feature codes remain adapter concerns. LLM-assisted clarification is optional and non-authoritative.
+
+This supplements the conceptual architecture; it does not replace the implemented `CapabilityHandler`, `OperationResult(success|failure)`, `DAGExecutor`, `JobExecutor`, provider approval, HTTP request budgets, or success-only cache. The exact report/side-channel interface must be reviewed before any runtime change (#61). UI review and data repair remain later milestone work (#66–#68). Historical open questions in section 13 are not a claim that M1/M2 foundations are absent.
