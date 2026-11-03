@@ -68,7 +68,7 @@ def normalize_wikidata_search_candidates(
                 label=label.strip(),
                 entity_type="unknown",
                 verification="unchecked",
-                attributes=(ResolutionAttribute(name="match_kind", value=matched_by),)
+                attributes=(ResolutionAttribute(name="match_kind", value=matched_by),),
                 reason_codes=("search_match_only",),
             )
         )
