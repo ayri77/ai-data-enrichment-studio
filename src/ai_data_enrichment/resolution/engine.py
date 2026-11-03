@@ -65,14 +65,10 @@ class ResolutionEngine:
                 raise ValueError("Strategy cannot accept an unverified source candidate.")
 
         eligible = [
-            assessment
-            for assessment in ranked.candidates
-            if assessment.eligibility == "eligible"
+            assessment for assessment in ranked.candidates if assessment.eligibility == "eligible"
         ]
         unchecked = [
-            assessment
-            for assessment in ranked.candidates
-            if assessment.eligibility == "unchecked"
+            assessment for assessment in ranked.candidates if assessment.eligibility == "unchecked"
         ]
         complete = candidate_set.search_complete and candidate_set.verification_complete
 
@@ -103,11 +99,7 @@ class ResolutionEngine:
                 explanation="Exactly one verified candidate satisfies the required context.",
             )
         else:
-            winners = [
-                item
-                for item in eligible
-                if item.rank == 1
-            ]
+            winners = [item for item in eligible if item.rank == 1]
             auto_select = (
                 policy.strategy == "ranked"
                 and policy.auto_accept_ranked
