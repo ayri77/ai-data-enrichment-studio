@@ -90,9 +90,7 @@ class GeographicRankingStrategy:
                 ranks[_key(candidate.reference)] = 1
         else:
             rank_counter = 1
-            tiers = sorted(
-                {_role_strength(candidate) for candidate in eligible}, reverse=True
-            )
+            tiers = sorted({_role_strength(candidate) for candidate in eligible}, reverse=True)
             for tier in tiers:
                 group = [c for c in eligible if _role_strength(c) == tier]
                 populations = [_population(c) for c in group]
