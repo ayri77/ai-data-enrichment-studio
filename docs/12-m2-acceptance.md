@@ -1,6 +1,6 @@
 # M2 Execution Engine — Final Acceptance Evidence (#37)
 
-**Status:** Acceptance candidate in draft [PR #76](https://github.com/ayri77/ai-data-enrichment-studio/pull/76); do not close the epic before owner review and merge.  
+**Status:** M2 completed; [PR #76](https://github.com/ayri77/ai-data-enrichment-studio/pull/76) merged, #37 and Epic #3 closed; [merged-main CI #41786307173](https://github.com/ayri77/ai-data-enrichment-studio/actions/runs/41786307173) passed. Benchmarks are offline controlled fixtures only.  
 **Date:** 2026-11-03  
 **Precondition:** Provider contract audit #44 merged as PR #75. Resolution Foundation #61–#65 merged as PRs #69–#74.  
 **Measured CI:** [GitHub Actions #41687157762](https://github.com/ayri77/ai-data-enrichment-studio/actions/runs/41687157762), commit `eacf4ec0f73f45dd1cb5b4f4fff4258f673b43b1`, Ubuntu GitHub-hosted runner, Python 3.12 via uv.
@@ -72,4 +72,4 @@ Evidence and decision invariants:
 
 ## 4. Final M2 review gate
 
-**Technical fixture-based acceptance is green at PR #76 head.** Completion of #37 and Epic #3 should happen **only after** owner review/merge of PR #76 and verification of the merged `main` CI. Once merged, mark the M2 items complete and open M3 execution+Excel output tasks. Do not describe workbook end-to-end enrichment or audited live API reliability as shipped features.
+**Completed:** Owner merged PR #76; #37 and Epic #3 are closed and merged `main` CI #41786307173 is green. M3 now owns Excel table selection/record ingestion, workbook-preserving output, user clarification/export and independent numeric evaluation. Do not describe workbook end-to-end enrichment or audited live API reliability as shipped features. See [M3 table-selection design proposal](13-m3-excel-table-selection.md).
