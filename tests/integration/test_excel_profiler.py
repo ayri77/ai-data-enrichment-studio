@@ -11,6 +11,7 @@ from openpyxl import Workbook, load_workbook
 from ai_data_enrichment.domain.dataset_profile import PrimitiveType
 from ai_data_enrichment.ingestion.excel_profiler import profile_worksheet
 from ai_data_enrichment.ingestion.profiling_limits import ProfilingLimits
+from ai_data_enrichment.ingestion.table_selection import TableSelection
 
 CellValue = str | int | float | bool | date | datetime | time | None
 ExcelRows = list[list[CellValue]]
@@ -942,4 +943,58 @@ def test_excel_profiler_preserves_typed_temporal_values(
             "DateTime": "2026-10-27T14:45:00",
             "Description": "Eve",
         }
+    ]
+
+
+def test_profiles_selected_offset_table(tmp_path: Path) -> None:
+    path = tmp_path / "report.xlsx"
+
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet.title = "Report"
+
+    # Content outside the selected table.
+    sheet["A1"] = "Annual Report"
+    sheet["F6"] = "Unrelated column"
+
+    # Selected table: B6:D10.
+    sheet["B6"] = "City"
+    sheet["C6"] = "Country"
+    sheet["D6"] = "Distance"
+
+    sheet["B7"] = "Berlin"
+    sheet["C7"] = "Germany"
+
+    # Row 8 is intentionally empty.
+
+    sheet["B9"] = "Hamburg"
+    sheet["C9"] = "Germany"
+
+    workbook.save(path)
+    workbook.close()
+
+    selection = TableSelection(
+        sheet_name="Report",
+        range_ref="B6:D10",
+    )
+
+    profile = profile_worksheet(
+        path=path,
+        sheet_name="Report",
+        dataset_id="report-cities",
+        selection=selection,
+    )
+
+    assert [column.name for column in profile.columns] == [
+        "City",
+        "Country",
+        "Distance",
+    ]
+
+    assert profile.row_count == 2
+
+    assert profile.sample_records == [
+        {"City": "Berlin", "Country": "Germany", "Distance": None},
+        {"City": "Hamburg", "Country": "Germany", "Distance": None},
     ]

@@ -11,6 +11,7 @@ from ai_data_enrichment.domain.enrichment_plan import (
     OutputMapping,
     PlanStep,
     StepOutputReference,
+    required_input_columns,
 )
 
 
@@ -662,3 +663,33 @@ def test_enrichment_plan_rejects_unknown_nested_fields() -> None:
     assert len(errors) == 1
     assert errors[0]["loc"] == ("steps", 0, "unexpected")
     assert errors[0]["type"] == "extra_forbidden"
+
+
+def test_required_input_columns_collects_unique_references() -> None:
+    plan = EnrichmentPlan(
+        version="1",
+        steps=[
+            PlanStep(
+                id="location_from",
+                capability="geocode",
+                inputs={
+                    "city": ColumnReference(kind="column", name="City"),
+                    "country": ColumnReference(kind="column", name="Country"),
+                },
+                parameters={},
+            ),
+            PlanStep(
+                id="location_to",
+                capability="geocode",
+                inputs={
+                    "city": ColumnReference(kind="column", name="City"),
+                    "country": LiteralValue(kind="literal", value="Germany"),
+                },
+                parameters={},
+            ),
+        ],
+        outputs=[],
+        assumptions=[],
+    )
+
+    assert required_input_columns(plan) == ("City", "Country")
