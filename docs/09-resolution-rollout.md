@@ -1,6 +1,6 @@
 # Resolution Foundation — Delivery Plan and Milestone Boundaries
 
-**Status:** #61–#65 implemented and merged through PR #74; M2 final #44/#37 acceptance in progress (2026-11-03)  
+**Status:** M2 completed on 2026-11-04: #61–#65, #44, #37 implemented/reviewed through PRs #69–#76 and [merged-main CI](https://github.com/ayri77/ai-data-enrichment-studio/actions/runs/41786307173) passed; M3 output and review remain open.  
 **Architecture:** [ADR-RES-001](08-resolution-foundation.md)  
 **Parent epics:** [M2 #3](https://github.com/ayri77/ai-data-enrichment-studio/issues/3), [M3 #4](https://github.com/ayri77/ai-data-enrichment-studio/issues/4), [M4 #5](https://github.com/ayri77/ai-data-enrichment-studio/issues/5), [M5 #6](https://github.com/ayri77/ai-data-enrichment-studio/issues/6)
 
@@ -15,7 +15,7 @@ At merge of PR #60 (`main` `58615516f83411d51c1eba4d809e84bf47b8adfe`), **histor
 - The existing public CLI does **not** execute a user workbook through output enrichment; no workbook-preserving result writer, end-to-end numeric truth evaluation, Review Workspace or LLM repair exists.
 - #37 was closed after PR #60 while its final live follow-up/quality audit was still noted as outstanding. Reopen/retain it as the final M2 gate; #44 provider drift audit remains open.
 
-**Current M2 integration:** PRs #69–#74 merged, including normalized provider candidates, policy-based ranking/abstention, audited `JobExecutor`, paired-result SQLite and per-record review links. #44 still audits external provider contracts and #37 must produce timed benchmark evidence before M2 closure. The public CLI still cannot enrich an XLSX. The status and feature inventory in the historical section above are not current.
+**Final M2 integration (current):** PRs #69–#76 are merged, including normalized provider candidates, policy-based ranking/abstention, audited `JobExecutor`, paired-result SQLite and per-record review links, source drift audit #44, and controlled timed 1000-row benchmarks #37. The merged `main` CI is green. This does **not** establish external provider accuracy, 1000 distinct lookups, or end-to-end Excel output. The public CLI still cannot enrich an XLSX. The first historical subsection above records prior issues only.
 
 ## 2. Delivery sequence and issue ownership
 
@@ -78,9 +78,9 @@ Show original value, selected candidate, credible alternatives, reason, policy, 
 ## 6. Work method and release gates
 
 - Work in **small issue → feature branch → draft PR → offline tests/CI → review → merge** slices. User reviews changes before code implementation and before merge; no implicit auto-merge.
-- PR #69 and #61–#65 have merged; the contract-only historical step preceded and is distinct from the implemented audited runtime. #44 and #37 remain blocking M2 acceptance checks.
-- After each slice: update contract/documentation only to match actual behavior, not to imply a planned feature exists.
-- Finalize M2 only after #44 + #37 audit/Definition of Done; do not close based solely on a number of completed issues.
+- PR #69 and #61–#65 have merged; #44 and #37 were completed by PRs #75 and #76 and M2 Epic #3 is closed.
+- After each slice: update contract/documentation to match implemented behavior, not to imply planned features exist.
+- M3 acceptance remains open: Table Selection/input records, workbook-preserving output, review manifest, independent numeric truth evaluation and full-file CLI runs. See [M3 Excel Table Selection proposal](13-m3-excel-table-selection.md).
 - Avoid arbitrary schedule estimates; limit scope based on actual CI, benchmark and review results.
 
 ## 7. Questions reserved for the #61 design review
