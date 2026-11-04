@@ -1008,8 +1008,24 @@ Changes discovered during development should be incorporated through focused rev
 
 ---
 
-## 17. Post-M1 resolution/context extension (proposed, 2026-11-03)
+## 17. Post-M1 resolution/context extension (implemented in M2)
 
-Current `geocode` capability has mandatory `city` and `country` and no optional administrative region. Under [ADR-RES-001](08-resolution-foundation.md), typed *registered* optional inputs (initially `administrative_area`) may be bound to arbitrary spreadsheet column headers by `EnrichmentPlan.inputs`, then checked by `PlanValidator`. Unknown semantic keys must remain invalid. An optional context field is per-row data; prominence selection is application-owned `ResolutionPolicy`, whereas max pages/hierarchy/requests are bounded provider/transport policy. Neither scores nor resource limits are unvalidated free-form LLM-generated parameters.
+The `geocode` capability has mandatory `city` and `country` plus a
+registered optional `administrative_area` input, which `EnrichmentPlan.inputs`
+can bind to a dataset column; `PlanValidator` validates the semantic input.
+Unknown semantic keys remain invalid. Geographic prominence preferences
+are application-owned `ResolutionPolicy`, and request budgets are approved
+provider/transport policy, never arbitrary LLM-proposed code or endpoints.
 
-Provider adapters normalize candidates and verify their own source semantics; a shared resolution layer makes auditable decisions or abstains. Preserve existing `CapabilityHandler` and `OperationResult` contracts until #61 resolves the exact report interface. See [Resolution Rollout](09-resolution-rollout.md) for #62–#68 ownership. This is a **proposal**, not an implemented change to the initial capability schema or planner.
+Adapters normalize/verify candidates and the opt-in shared resolution layer
+returns audited selection or abstention through a report separate from
+`OperationResult`; no breaking replacement of `CapabilityHandler` is
+required. See [Resolution Foundation](08-resolution-foundation.md),
+[report contract](10-resolution-report-contract.md) and [M2 acceptance](12-m2-acceptance.md).
+
+**M3 planned change:** Input-column names will eventually refer to one
+explicitly selected logical table, not implicitly an entire sheet. The current
+`profile_worksheet` assumes a first-row header; the [Excel table-selection
+proposal](13-m3-excel-table-selection.md) defines the additional source
+boundary without changing the plan's source-independent column-reference
+contract.
