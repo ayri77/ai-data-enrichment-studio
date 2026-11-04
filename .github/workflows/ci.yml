@@ -39,3 +39,6 @@ jobs:
 
       - name: Pytest
         run: uv run --locked pytest -m "not live" --cov=ai_data_enrichment --cov-report=term-missing
+
+      - name: M2 controlled audited acceptance benchmark (1000 rows per scenario)
+        run: uv run --locked python scripts/benchmark_m2.py --rows 1000

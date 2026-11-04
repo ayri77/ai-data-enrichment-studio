@@ -139,6 +139,24 @@ and opt-in fallback attempts/successes are separately observable (#36).
 
 Execution through the CLI and Excel output are not yet implemented.
 
+### M2 measured offline acceptance benchmark (developer tool)
+
+The [M2 acceptance report](docs/12-m2-acceptance.md) documents two
+**1000-row, real-DAG / mocked-provider** workloads and adversarial abstention
+fixtures. This is a reproducible fixture benchmark, not production external
+API latency or independent factual-accuracy validation:
+
+```bash
+uv run --locked python scripts/benchmark_m2.py --rows 1000
+```
+
+The CI workflow runs this after lint, type checks and pytest. It reports
+logical DAG operations, executed handlers, memo reuse, synthetic transport
+attempts, per-record resolution links, Evidence counts, and measured
+`JobExecutor.execute` time. It does not open network connections, read
+production data, or modify workbooks. The benchmark currently measures a
+*small number of repeated distinct queries*, not 1000 unique entities.
+
 ### Reproducible M2 smoke scenarios (developer tool)
 
 These checks use the real `PlanValidator`, `JobExecutor`, provider adapters,
