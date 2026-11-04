@@ -1,7 +1,7 @@
 # Resolution Foundation — Hybrid Universal Entity Resolution
 
 **Document ID:** ADR-RES-001  
-**Status:** ADR accepted and M2 implementation merged (#61–#65, PRs #69–#74); final #44/#37 acceptance pending  
+**Status:** ADR accepted; M2 implementation #61–#65 plus provider drift #44 and acceptance #37 merged (PRs #69–#76); M2 completed, [green merged-main CI](https://github.com/ayri77/ai-data-enrichment-studio/actions/runs/41786307173)  
 **Date:** 2026-11-03  
 **Owner:** M2 Execution Engine, related to #3 and #61  
 **Dependencies:** existing M1 planner/validator, M2 provider contracts, #34–#36 reliability and cache

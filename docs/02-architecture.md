@@ -745,8 +745,36 @@ These decisions will be addressed in subsequent design documents and Architectur
 
 ---
 
-## 15. Implementation addendum — hybrid resolution boundary (proposed, 2026-11-03)
+## 15. Implementation addendum — M2 hybrid resolution boundary (implemented)
 
-Follow [Resolution Foundation ADR](08-resolution-foundation.md) and its [delivery plan](09-resolution-rollout.md) for the proposed M2-to-M5 work. The new design separates source-specific candidate retrieval/type/country verification from a shared decision-policy layer with per-record audit and explicit incomplete/review outcomes. Provider P/Q IDs and GeoNames feature codes remain adapter concerns. LLM-assisted clarification is optional and non-authoritative.
+The [Resolution Foundation ADR](08-resolution-foundation.md), [rollout](09-resolution-rollout.md)
+and [M2 acceptance evidence](12-m2-acceptance.md) record the implemented and merged
+#61–#65 resolution design, provider drift checks #44, and final benchmark #37
+(PRs #69–#76). Source-specific adapters verify candidates; the shared audited
+resolution layer makes explicit policy-controlled selections or abstains.
+The result/report pair and per-row audit link are implemented as opt-in
+`JobExecutor` dependencies. Strict legacy providers remain available by default.
 
-This supplements the conceptual architecture; it does not replace the implemented `CapabilityHandler`, `OperationResult(success|failure)`, `DAGExecutor`, `JobExecutor`, provider approval, HTTP request budgets, or success-only cache. The exact report/side-channel interface must be reviewed before any runtime change (#61). UI review and data repair remain later milestone work (#66–#68). Historical open questions in section 13 are not a claim that M1/M2 foundations are absent.
+This adds to, rather than replaces, the existing `CapabilityHandler`,
+`OperationResult(success|failure)`, `DAGExecutor`, `JobExecutor`,
+provider policy and success-only cache. Provider P/Q IDs and GeoNames feature
+codes stay in adapters. M3 owns Excel workbook output, human review artifacts
+and numeric ground-truth evaluation; M4–M5 own orchestration and UI.
+
+## 16. Proposed M3 Excel logical-table selection boundary (not implemented)
+
+A **logical dataset** must not implicitly mean the entire first worksheet or
+the first row of a sheet. One workbook can have multiple worksheets and one
+sheet can have several separate tables, headers below row 1, notes, merged
+cells or an explicitly named Excel Table.
+
+The current `inspect_workbook()` and `profile_worksheet()` both use an
+initial first-row assumption, and `JobExecutor` requires already normalized
+`InputRecord` values. M3 is defining a shared selection contract that will
+bind exactly **one selected region** across profiling, plan column validation,
+record ingestion, original-cell tracking and authorized output. An uncertain
+automatically proposed region must require confirmation, not silent execution.
+
+See the **proposal**, [M3 Excel Table Selection](13-m3-excel-table-selection.md).
+The full preservation and row mapping contract remains open for implementation.
+Historical conceptual questions in sections 13–14 do not supersede completed M1/M2 contracts.

@@ -6,17 +6,18 @@
 ![Python](https://img.shields.io/badge/Python-3.12%2B-blue)
 
 
-> **Status: active development — M2 final acceptance (#44 / #37).**
-> M1 Planner & Validator is complete. M2 has the typed DAG and provider
-> execution engine, bounded multi-row jobs, caching, rate/retry policies, and
-> the opt-in **audited Resolution Engine** (merged PRs #69–#74).
+> **Status: active development — M2 complete, M3 in design and implementation.**
+> M1 Planner & Validator is complete. M2 passed the controlled offline
+> acceptance gate (#37, #44, merged PRs #69–#76 and green main CI).
+> M2 includes the typed DAG and provider execution engine, bounded multi-row
+> jobs, caching, rate/retry policies, and the opt-in **audited Resolution Engine**.
 > Ranked geographic resolution and Wikidata mountain verification retain
 > candidate alternatives, decisions, source Evidence and per-row audit links.
 > The legacy strict path remains the default when audited services are not configured.
 > **CLI-driven job execution and enriched Excel output are not yet available** (M3).
-> See [Resolution Foundation](docs/08-resolution-foundation.md),
-> [delivery plan](docs/09-resolution-rollout.md) and
-> [provider drift audit](docs/11-provider-drift-audit.md).
+> See [M2 acceptance](docs/12-m2-acceptance.md),
+> [Resolution Foundation](docs/08-resolution-foundation.md) and
+> [M3 Excel table-selection proposal](docs/13-m3-excel-table-selection.md).
 
 
 ## Why this project?
@@ -71,7 +72,9 @@ These are **design goals**, not claims about the capabilities of the current boo
 Implemented:
 
 - Installable Python 3.12+ package managed with uv.
-- Read-only Excel workbook inspection and bounded worksheet profiling.
+- Read-only Excel workbook inspection and bounded worksheet profiling
+  (currently assume headers in the first worksheet row; arbitrary table regions
+  and named-table selection are not yet supported).
 - Typed capability registry with four built-in semantic capabilities.
 - Structured EnrichmentPlan models with DAG dependencies.
 - Deterministic plan validation with structured diagnostics.
@@ -86,6 +89,8 @@ Implemented:
 
 Not implemented yet:
 
+- A confirmed Excel table-selection / complete record-reader boundary for
+  arbitrary worksheet regions; the M3 contract is being designed.
 - CLI-driven execution of generated enrichment plans.
 - Execution recovery, durable orchestration and automatic provider fallback selection.
 - Enriched Excel workbook generation and result provenance.

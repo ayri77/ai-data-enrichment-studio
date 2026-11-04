@@ -1007,6 +1007,31 @@ The following topics require detailed design:
 
 ---
 
-## 13. Implementation addendum — candidate and decision domain (proposed, 2026-11-03)
+## 13. Implementation addendum — M2 resolution contracts (implemented)
 
-A resolution decision should not be conflated with `OperationResult` execution success/failure. Proposed domain contracts include `ResolutionContext`, source-qualified `ResolutionCandidate`, `CandidateSet` completeness, versioned `ResolutionPolicy`, `ResolutionDecision` and row-linked `ResolutionAudit`; these are conceptual types **not implemented yet**. See [ADR-RES-001](08-resolution-foundation.md) and [delivery roadmap](09-resolution-rollout.md) for strict vs ranked policy, audit under deduplication and staged M2–M5 ownership. Existing domain concepts above remain authoritative for current runtime until an approved implementation PR.
+A resolution decision is distinct from `OperationResult` execution
+success/failure. `resolution/models.py` now implements source-qualified
+`ResolutionCandidate`, `CandidateSet`, `ResolutionPolicy`,
+`ResolutionDecision`, `ResolutionReport`, `ResolutionOperationAudit`,
+`ResolutionRecordLink` and `ResolutionJobReport`. Approved provider
+adapters produce and verify candidates, while the opt-in audited
+`JobExecutor` retains per-record/step report links, outcomes and Evidence
+across eligible dedup/cache. See [ADR-RES-001](08-resolution-foundation.md),
+[contract](10-resolution-report-contract.md), and [M2 acceptance](12-m2-acceptance.md).
+The legacy strict path remains backward compatible.
+
+## 14. Proposed M3 source-table selection domain (not implemented)
+
+`DatasetProfile` remains a **bounded, source-independent summary** of one
+logical dataset, never the full set of source records. A future Excel-specific
+`TableSelection` (working name) must identify a concrete worksheet and
+rectangular logical table and preserve physical cell/row coordinates for
+output without leaking `openpyxl` objects to `JobExecutor`.
+
+The same confirmed selection must govern profiler sampling, plan column
+binding, execution records and workbook output. Separately declared Excel
+Tables and arbitrary unformatted ranges require distinct discovery methods;
+unknown or competing candidate regions must be presented for user review.
+Detailed proposed fields, compatibility rules and unresolved questions are in
+[M3 Excel Table Selection](13-m3-excel-table-selection.md). These are
+**proposals**, not shipped API contracts.
