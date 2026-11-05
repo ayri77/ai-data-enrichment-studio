@@ -92,3 +92,18 @@ class EnrichmentPlan(PlanContract):
         if not value.strip():
             raise ValueError("Version must not be empty")
         return value
+
+
+def required_input_columns(
+    plan: EnrichmentPlan,
+) -> tuple[str, ...]:
+    """Collect unique source columns referenced by plan steps."""
+
+    return tuple(
+        dict.fromkeys(
+            reference.name
+            for step in plan.steps
+            for reference in step.inputs.values()
+            if isinstance(reference, ColumnReference)
+        )
+    )

@@ -16,7 +16,9 @@ from ai_data_enrichment.domain.dataset_profile import (
     DatasetProfile,
     PrimitiveType,
 )
+from ai_data_enrichment.ingestion.excel_headers import validate_excel_headers
 from ai_data_enrichment.ingestion.profiling_limits import ProfilingLimits
+from ai_data_enrichment.ingestion.table_selection import TableSelection
 
 
 def _to_json_value(
@@ -141,6 +143,8 @@ def profile_worksheet(
     sheet_name: str,
     dataset_id: str,
     limits: ProfilingLimits | None = None,
+    *,
+    selection: TableSelection | None = None,
 ) -> DatasetProfile:
     """Profile an Excel worksheet without modifying its contents."""
 
@@ -162,26 +166,28 @@ def profile_worksheet(
             raise ValueError(f"Worksheet '{sheet_name}' not found")
 
         worksheet = workbook[sheet_name]
-        rows = worksheet.iter_rows(values_only=False)
+
+        if selection is None:
+            # Preserve the legacy first-row-header behavior.
+            rows = worksheet.iter_rows(values_only=False)
+        else:
+            if selection.sheet_name != sheet_name:
+                raise ValueError("Table selection worksheet does not match sheet_name")
+
+            min_col, min_row, max_col, max_row = selection.bounds
+
+            rows = worksheet.iter_rows(
+                min_row=min_row,
+                max_row=max_row,
+                min_col=min_col,
+                max_col=max_col,
+                values_only=False,
+            )
 
         # Header names become column identifiers in generated plans; duplicates are ambiguous.
         raw_header = next(rows, ())
 
-        if not raw_header:
-            raise ValueError("Worksheet has no header row")
-
-        headers: list[str] = []
-
-        for index, cell in enumerate(raw_header, start=1):
-            name = cell.value
-
-            if not isinstance(name, str) or not name.strip():
-                raise ValueError(f"Invalid column name at position {index}")
-
-            if name in headers:
-                raise ValueError(f"Duplicate column name: {name}")
-
-            headers.append(name)
+        headers = list(validate_excel_headers(cell.value for cell in raw_header))
 
         # Scan every nonempty row for counts/types, but retain only a bounded sample.
         row_count = 0
