@@ -11,7 +11,7 @@ from ai_data_enrichment.domain.enrichment_plan import (
     PlanStep,
     required_input_columns,
 )
-from ai_data_enrichment.ingestion.excel_records import read_input_records
+from ai_data_enrichment.ingestion.excel_records import read_input_records, read_input_batch
 from ai_data_enrichment.ingestion.table_selection import TableSelection
 
 
@@ -148,7 +148,7 @@ def test_reads_numeric_input_columns(tmp_path: Path) -> None:
 
 def test_rejects_input_exceeding_max_rows(tmp_path: Path) -> None:
     path = tmp_path / "cities.xlsx"
-
+ 
     workbook = Workbook()
     sheet = workbook.active
     assert sheet is not None
@@ -222,3 +222,50 @@ def test_preserves_missing_input_values(tmp_path: Path) -> None:
         {"City": "Berlin", "Country": None},
         {"City": "Hamburg", "Country": "Germany"},
     ]
+
+
+def test_input_batch_preserves_physical_row_mapping(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "cities.xlsx"
+
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+
+    sheet.title = "Cities!2026"
+
+    sheet["B6"] = "City"
+    sheet["C6"] = "Country"
+
+    sheet["B7"] = "Berlin"
+    sheet["C7"] = "Germany"
+
+    # Row 8 is intentionally empty.
+
+    sheet["B9"] = "Hamburg"
+    sheet["C9"] = "Germany"
+
+    workbook.save(path)
+    workbook.close()
+
+    batch = read_input_batch(
+        path,
+        selection=TableSelection(
+            "Cities!2026",
+            "B6:C9",
+        ),
+        input_columns=("City", "Country"),
+    )
+
+    assert [
+        record.record_id for record in batch.records
+    ] == [
+        "Cities!2026!7",
+        "Cities!2026!9",
+    ]
+
+    assert dict(batch.row_by_record_id) == {
+        "Cities!2026!7": 7,
+        "Cities!2026!9": 9,
+    }

@@ -6,10 +6,22 @@ from pathlib import Path
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
+from collections.abc import Mapping
+from dataclasses import dataclass
+from types import MappingProxyType
+
 from ai_data_enrichment.execution.job_models import InputRecord
 from ai_data_enrichment.execution.models import RuntimeValue
 from ai_data_enrichment.ingestion.excel_headers import validate_excel_headers
 from ai_data_enrichment.ingestion.table_selection import TableSelection
+
+
+@dataclass(frozen=True, slots=True)
+class ExcelInputBatch:
+    """Input records with an explicit source-row mapping."""
+
+    records: tuple[InputRecord, ...]
+    row_by_record_id: Mapping[str, int]
 
 
 def _to_runtime_value(
@@ -38,13 +50,13 @@ def _to_runtime_value(
     raise ValueError(f"Unsupported input type in {coordinate}: {type(value).__name__}")
 
 
-def read_input_records(
+def read_input_batch(
     path: Path,
     *,
     selection: TableSelection,
     input_columns: tuple[str, ...],
     max_rows: int = 1000,
-) -> tuple[InputRecord, ...]:
+) -> ExcelInputBatch:
     """Read worksheet records without modifying the source workbook."""
 
     if max_rows < 1:
@@ -85,6 +97,7 @@ def read_input_records(
                 raise ValueError(f"Input column not found: {name}")
 
         records: list[InputRecord] = []
+        row_by_record_id: dict[str, int] = {}        
 
         for row_number, row in enumerate(
             rows,
@@ -113,14 +126,38 @@ def read_input_records(
             if len(records) >= max_rows:
                 raise ValueError(f"Input exceeds max_rows={max_rows}")
 
+            record_id = f"{selection.sheet_name}!{row_number}"
+
             records.append(
                 InputRecord(
-                    record_id=f"{selection.sheet_name}!{row_number}",
+                    record_id=record_id,
                     values=values,
                 )
             )
 
-        return tuple(records)
+            row_by_record_id[record_id] = row_number
+        
+        return ExcelInputBatch(
+            records=tuple(records),
+            row_by_record_id=MappingProxyType(row_by_record_id),
+        )
 
     finally:
         workbook.close()
+
+
+def read_input_records(
+    path: Path,
+    *,
+    selection: TableSelection,
+    input_columns: tuple[str, ...],
+    max_rows: int = 1000,
+) -> tuple[InputRecord, ...]:
+    """Read execution records using the existing public interface."""
+
+    return read_input_batch(
+        path,
+        selection=selection,
+        input_columns=input_columns,
+        max_rows=max_rows,
+    ).records
