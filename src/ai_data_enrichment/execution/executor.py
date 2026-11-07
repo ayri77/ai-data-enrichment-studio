@@ -76,6 +76,7 @@ class DAGExecutor:
         row: Mapping[str, RuntimeValue | None],
         *,
         on_step_executed: Callable[[str, str, OperationResult], None] | None = None,
+        step_handlers: Mapping[str, CapabilityHandler] | None = None,
     ) -> RowExecutionResult:
         """Execute a validated plan without modifying the source row."""
         completed: dict[str, OperationResult] = {}
@@ -146,7 +147,7 @@ class DAGExecutor:
                 )
                 continue
 
-            handler = self._handlers.get(step.capability)
+            handler = (step_handlers or {}).get(step.id, self._handlers.get(step.capability))
             if handler is None:
                 raise ValueError(f"No handler registered for capability '{step.capability}'.")
 

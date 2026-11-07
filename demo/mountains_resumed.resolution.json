@@ -1,0 +1,94 @@
+{
+  "schema_version": "1.0",
+  "job_id": "4fe1d7c6f8214893bf36ceff8a67583d",
+  "previous_job_id": "720093d2054049bfbd72a9700f225fcc",
+  "status": "completed",
+  "total_rows": 1,
+  "processed_rows": 1,
+  "operations": [
+    {
+      "operation_id": "e2fe076abceda3f67ac46c0e6bc4bd18d8390cb38947c895aa3af2b1119accc4",
+      "revision": 1,
+      "report": {
+        "schema_version": "1.0",
+        "candidate_set": {
+          "query": {
+            "name": "Mount Everest",
+            "entity_type": "mountain",
+            "context": [
+              {
+                "name": "country_code",
+                "value": "NP",
+                "evidence": []
+              }
+            ]
+          },
+          "provider_id": "wikidata",
+          "candidates": [
+            {
+              "reference": {
+                "source": "wikidata",
+                "entity_id": "Q513"
+              },
+              "label": "Mount Everest",
+              "entity_type": "mountain",
+              "verification": "verified",
+              "attributes": [
+                {
+                  "name": "country_code",
+                  "value": "NP",
+                  "evidence": [
+                    {
+                      "source": "wikidata",
+                      "reference": "Q513:P31,P17;Q837:P297"
+                    }
+                  ]
+                }
+              ],
+              "evidence": [
+                {
+                  "source": "wikidata",
+                  "reference": "Q513:P31,P17;Q837:P297"
+                }
+              ],
+              "reason_codes": [
+                "user_approved_freshly_verified"
+              ]
+            }
+          ],
+          "search_complete": false,
+          "verification_complete": true,
+          "incomplete_reason": "search_skipped_after_explicit_user_approval",
+          "provider_error_code": null
+        },
+        "policy": {
+          "policy_id": "mountain_strict",
+          "version": "1.0",
+          "strategy": "strict",
+          "auto_accept_ranked": false,
+          "prefer_prominent": false
+        },
+        "decision": {
+          "status": "resolved",
+          "selected": {
+            "source": "wikidata",
+            "entity_id": "Q513"
+          },
+          "basis": "user_override",
+          "reason_codes": [
+            "user_approved",
+            "fresh_source_verified"
+          ],
+          "explanation": "User selected this verified source entity in the previous job; its mountain type and country were verified again."
+        },
+        "assessments": []
+      },
+      "record_links": [
+        {
+          "record_id": "Mountains!2",
+          "step_id": "resolve"
+        }
+      ]
+    }
+  ]
+}

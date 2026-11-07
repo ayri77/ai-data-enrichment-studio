@@ -12,6 +12,7 @@ from ai_data_enrichment.providers.http_transport import JsonTransport, JsonTrans
 from ai_data_enrichment.providers.wikidata_constants import (
     WIKIDATA_API_URL,
     WIKIDATA_DIRECT_NON_MOUNTAIN_CLASSES,
+    WIKIDATA_P_COUNTRY,
     WIKIDATA_P_INSTANCE_OF,
     WIKIDATA_P_SUBCLASS_OF,
 )
@@ -134,6 +135,16 @@ def verify_wikidata_mountain_candidate(
             status="failure",
             error_code="DIRECT_NON_MOUNTAIN_CLASS",
             message="Candidate has an explicitly non-mountain entity type.",
+        )
+
+    # Without country evidence, ontology traversal cannot make
+    # the candidate satisfy the required geographic constraint.
+    if WIKIDATA_P_COUNTRY not in claims:
+        return verify_country(
+            transport,
+            qid=qid,
+            claims=claims,
+            expected_country_code=expected_country_code,
         )
 
     class_path = mountain_class_path(transport, class_ids)

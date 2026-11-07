@@ -325,3 +325,43 @@ def test_unknown_context_is_rejected_before_any_provider_call() -> None:
             policy=_policy(),
         )
     transport.get_json.assert_not_called()
+
+
+def test_missing_country_skips_expensive_class_traversal() -> None:
+    transport = _transport(
+        [
+            _search_hit("Q513"),
+            _search_hit("Q84260471"),
+        ],
+        entities={
+            "Q84260471": {
+                "id": "Q84260471",
+                "claims": {
+                    "P31": [entity_statement("Q11446")],
+                },
+            },
+        },
+    )
+
+    outcome = WikidataMountainResolutionService(transport).resolve(
+        inputs={"name": "Mount Everest", "country": "Nepal"},
+        policy=_policy(),
+    )
+
+    # The main mountain is verified, but the second candidate
+    # remains uncertain because its country is unknown.
+    assert outcome.report.decision.status == "incomplete_verification"
+
+    candidates = {
+        item.reference.entity_id: item for item in outcome.report.candidate_set.candidates
+    }
+    assert candidates["Q513"].verification == "verified"
+    assert candidates["Q84260471"].verification == "unchecked"
+
+    # No traversal into the unrelated class hierarchy.
+    requested_ids = [
+        call.kwargs["params"]["ids"]
+        for call in transport.get_json.call_args_list
+        if "ids" in call.kwargs["params"]
+    ]
+    assert "Q11446" not in requested_ids

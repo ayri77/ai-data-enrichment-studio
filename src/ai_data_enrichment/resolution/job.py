@@ -10,6 +10,7 @@ from hashlib import sha256
 from json import dumps
 from typing import Protocol
 
+from ai_data_enrichment.domain.enrichment_plan import PlanStep
 from ai_data_enrichment.execution.contracts import CapabilityHandler
 from ai_data_enrichment.execution.job_models import JobExecutionPolicy
 from ai_data_enrichment.execution.memoization import MemoCapacity
@@ -53,6 +54,22 @@ class ResolutionService(Protocol):
     def resolve(
         self, *, inputs: Mapping[str, RuntimeValue], policy: ResolutionPolicy
     ) -> ResolutionOutcome: ...
+
+
+class ApprovedResolutionService(ResolutionService, Protocol):
+    """Contract for a user-approved resolution service."""
+
+    def validate_step(
+        self,
+        step: PlanStep,
+        *,
+        provider_id: str,
+    ) -> None: ...
+
+    def validate_inputs(
+        self,
+        inputs: Mapping[str, RuntimeValue],
+    ) -> None: ...
 
 
 def effective_configuration_id(configuration_id: str, policy: ResolutionPolicy) -> str:
