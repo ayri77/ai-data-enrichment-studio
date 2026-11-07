@@ -12,18 +12,14 @@ def project_operation_field(
     """Extract a scalar field from a successful operation result."""
 
     if result.status != "success" or result.value is None:
-        raise ValueError(
-            "Cannot project an unsuccessful operation result"
-        )
+        raise ValueError("Cannot project an unsuccessful operation result")
 
     value = result.value
 
     # Primitive runtime values expose a virtual "value" field.
     if isinstance(value, (str, float)):
         if value_field != "value":
-            raise ValueError(
-                f"Unsupported output field: {value_field}"
-            )
+            raise ValueError(f"Unsupported output field: {value_field}")
         return value
 
     # Structured runtime values must be Pydantic models.
@@ -34,6 +30,4 @@ def project_operation_field(
         if isinstance(projected, (str, float)):
             return projected
 
-    raise ValueError(
-        f"Unsupported output field: {value_field}"
-    )
+    raise ValueError(f"Unsupported output field: {value_field}")

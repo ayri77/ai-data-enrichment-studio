@@ -17,6 +17,9 @@ from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan
 from ai_data_enrichment.evaluation.planning import evaluate_planning_case
 from ai_data_enrichment.ingestion.excel_inspector import inspect_workbook
 from ai_data_enrichment.ingestion.excel_profiler import profile_worksheet
+from ai_data_enrichment.ingestion.table_selection import TableSelection
+from ai_data_enrichment.orchestration.excel_runner import ExcelEnrichmentRunner
+from ai_data_enrichment.orchestration.live_executor import build_live_executor
 from ai_data_enrichment.planning.llm_planner import (
     LLMPlanner,
     PlanGenerationError,
@@ -25,6 +28,7 @@ from ai_data_enrichment.planning.openai_client import (
     OpenAICompletionError,
     OpenAIPlanClient,
 )
+from ai_data_enrichment.resolution.resume import load_resume_selections
 from ai_data_enrichment.validation.plan_validator import PlanValidator
 
 app = typer.Typer(help="Evidence-driven AI Data Enrichment Studio.", no_args_is_help=True)
@@ -61,6 +65,156 @@ def inspect(
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=2) from exc
     typer.echo(json.dumps(asdict(summary), indent=2, ensure_ascii=False))
+
+
+@app.command("run")
+def run_enrichment(
+    source: Annotated[Path, typer.Argument(help="Source XLSX workbook.")],
+    plan_path: Annotated[Path, typer.Option("--plan")],
+    sheet: Annotated[str, typer.Option("--sheet")],
+    range_ref: Annotated[str, typer.Option("--range")],
+    columns_file: Annotated[Path, typer.Option("--columns-file")],
+    output: Annotated[Path, typer.Option("--output")],
+    allow_network: Annotated[
+        bool,
+        typer.Option("--allow-network"),
+    ] = False,
+    max_rows: Annotated[
+        int,
+        typer.Option("--max-rows"),
+    ] = 20,
+    approvals_file: Annotated[
+        Path | None, typer.Option("--approvals-file", help="Validated user selection manifest.")
+    ] = None,
+    source_report: Annotated[
+        Path | None, typer.Option("--source-report", help="Original audited resolution report.")
+    ] = None,
+) -> None:
+    """Execute a saved plan and create an enriched XLSX workbook."""
+
+    if (approvals_file is None) != (source_report is None):
+        typer.echo(
+            "Error: --approvals-file and --source-report must be supplied together.", err=True
+        )
+        raise typer.Exit(code=2)
+
+    if not allow_network:
+        typer.echo(
+            "Error: Live providers require --allow-network.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    if not 1 <= max_rows <= 1000:
+        typer.echo(
+            "Error: max_rows must be between 1 and 1000.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    try:
+        plan = EnrichmentPlan.model_validate_json(plan_path.read_text(encoding="utf-8"))
+
+        bindings = json.loads(columns_file.read_text(encoding="utf-8"))
+
+        if not isinstance(bindings, dict) or any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in bindings.items()
+        ):
+            raise ValueError("Columns file must contain a JSON object of string mappings")
+
+        selection = TableSelection(
+            sheet_name=sheet,
+            range_ref=range_ref,
+        )
+
+        resume_selections = {}
+        previous_job_id = None
+        if approvals_file is not None and source_report is not None:
+            resume_selections, previous_job_id = load_resume_selections(
+                source_path=source,
+                plan=plan,
+                approvals_path=approvals_file,
+                source_report_path=source_report,
+            )
+
+        # A new audit must never replace a report retained for review/resume.
+        report_path = output.with_name(f"{output.stem}.resolution.json")
+        if report_path.exists():
+            raise FileExistsError(report_path)
+
+        registry = _build_registry()
+
+        executor = build_live_executor(
+            registry,
+            max_rows=max_rows,
+            audit_mountains=any(step.capability == "resolve_entity" for step in plan.steps),
+            resume_selections=resume_selections,
+        )
+
+        enrichment_runner = ExcelEnrichmentRunner(
+            registry=registry,
+            executor=executor,
+            max_rows=max_rows,
+        )
+
+        result = enrichment_runner.run(
+            source_path=source,
+            output_path=output,
+            selection=selection,
+            plan=plan,
+            output_columns=bindings,
+            dataset_id=source.stem,
+            previous_job_id=previous_job_id,
+        )
+
+        report = result.job_result.resolution_report
+        if report is not None:
+            with report_path.open("x", encoding="utf-8") as stream:
+                stream.write(report.model_dump_json(indent=2))
+
+    except (OSError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    metrics = result.job_result.metrics
+
+    typer.echo(f"Enriched workbook: {result.output_path}")
+    typer.echo(
+        f"Rows: {metrics.total_rows}, "
+        f"success: {metrics.successful_rows}, "
+        f"partial: {metrics.partial_rows}, "
+        f"failed: {metrics.failed_rows}"
+    )
+
+    for record in result.job_result.records:
+        for step in record.row_result.steps:
+            operation = step.result
+
+            if operation.status == "failure":
+                typer.echo(
+                    f"Record: {record.record_id} | "
+                    f"Step: {step.step_id} | "
+                    f"Error: {operation.error_code} | "
+                    f"Message: {operation.message}",
+                    err=True,
+                )
+
+    report = result.job_result.resolution_report
+
+    if report is not None:
+        typer.echo(f"Resolution report: {report_path}")
+
+        for item in report.operations:
+            decision = item.report.decision
+
+            typer.echo(f"Resolution status: {decision.status}")
+
+            for candidate in item.report.candidate_set.candidates:
+                if candidate.verification == "verified":
+                    typer.echo(
+                        f"Verified candidate: {candidate.label} ({candidate.reference.entity_id})"
+                    )
 
 
 @plan_app.command("validate")

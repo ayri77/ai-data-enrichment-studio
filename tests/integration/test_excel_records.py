@@ -11,7 +11,7 @@ from ai_data_enrichment.domain.enrichment_plan import (
     PlanStep,
     required_input_columns,
 )
-from ai_data_enrichment.ingestion.excel_records import read_input_records, read_input_batch
+from ai_data_enrichment.ingestion.excel_records import read_input_batch, read_input_records
 from ai_data_enrichment.ingestion.table_selection import TableSelection
 
 
@@ -148,7 +148,7 @@ def test_reads_numeric_input_columns(tmp_path: Path) -> None:
 
 def test_rejects_input_exceeding_max_rows(tmp_path: Path) -> None:
     path = tmp_path / "cities.xlsx"
- 
+
     workbook = Workbook()
     sheet = workbook.active
     assert sheet is not None
@@ -258,9 +258,7 @@ def test_input_batch_preserves_physical_row_mapping(
         input_columns=("City", "Country"),
     )
 
-    assert [
-        record.record_id for record in batch.records
-    ] == [
+    assert [record.record_id for record in batch.records] == [
         "Cities!2026!7",
         "Cities!2026!9",
     ]

@@ -1,0 +1,48 @@
+{
+  "version": "1.0",
+  "steps": [
+    {
+      "id": "resolve",
+      "capability": "resolve_entity",
+      "inputs": {
+        "name": {
+          "kind": "column",
+          "name": "Mountain"
+        },
+        "country": {
+          "kind": "column",
+          "name": "Country"
+        }
+      },
+      "parameters": {
+        "entity_type": "mountain"
+      }
+    },
+    {
+      "id": "elevation",
+      "capability": "lookup_property",
+      "inputs": {
+        "entity": {
+          "kind": "step_output",
+          "step_id": "resolve"
+        }
+      },
+      "parameters": {
+        "property": "elevation"
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "step_id": "elevation",
+      "value_field": "value",
+      "target_column": "elevation_m"
+    },
+    {
+      "step_id": "elevation",
+      "value_field": "unit",
+      "target_column": "elevation_unit"
+    }
+  ],
+  "assumptions": []
+}

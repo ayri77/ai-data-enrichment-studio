@@ -29,16 +29,11 @@ from ai_data_enrichment.execution.models import (
 from ai_data_enrichment.ingestion.excel_profiler import profile_worksheet
 from ai_data_enrichment.ingestion.excel_records import read_input_batch
 from ai_data_enrichment.ingestion.table_selection import TableSelection
-from ai_data_enrichment.output.excel_output_mapping import (
-    build_output_header_writes,
-    build_output_value_writes,
-)
-from ai_data_enrichment.output.excel_writer import write_excel_cells
-from ai_data_enrichment.providers.registry import ProviderRegistry
-from ai_data_enrichment.validation.plan_validator import PlanValidator
 from ai_data_enrichment.orchestration.excel_runner import (
     ExcelEnrichmentRunner,
 )
+from ai_data_enrichment.providers.registry import ProviderRegistry
+from ai_data_enrichment.validation.plan_validator import PlanValidator
 
 
 class FixtureResolver:
@@ -302,12 +297,6 @@ def test_real_job_executor_writes_enriched_excel(
         "Mountain 1",
     ]
     assert lookup.calls == ["Q1000", "Q1999", "Q1001"]
-
-    output_columns = {
-        "elevation_m": "F",
-        "elevation_unit": "G",
-    }
-
     assert source.read_bytes() == original_bytes
 
     enriched = load_workbook(output, data_only=False)

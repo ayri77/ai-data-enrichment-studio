@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "source_job_id": "720093d2054049bfbd72a9700f225fcc",
+  "workbook_sha256": "716a679dad9145b4fe867c2c88dee9db409e11f62fc0c84ed03ac2600b16bd0f",
+  "approvals": [
+    {
+      "record_id": "Mountains!2",
+      "step_id": "resolve",
+      "operation_id": "f7337f68826dc711ba88d1eaf223c82716b4b449ee0b79a582c01aafbe957aa5",
+      "source": "wikidata",
+      "entity_id": "Q513"
+    }
+  ]
+}

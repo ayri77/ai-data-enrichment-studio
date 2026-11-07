@@ -3,9 +3,9 @@
 from collections.abc import Iterable, Mapping
 from uuid import uuid4
 
-from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan
+from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan, StepOutputReference
 from ai_data_enrichment.execution.contracts import CapabilityHandler
-from ai_data_enrichment.execution.executor import DAGExecutor
+from ai_data_enrichment.execution.executor import DAGExecutor, _resolve_input
 from ai_data_enrichment.execution.fallback import (
     ApprovedFallback,
     FallbackStats,
@@ -28,6 +28,7 @@ from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
 from ai_data_enrichment.providers.registry import ProviderRegistry
 from ai_data_enrichment.providers.request_policy import ProviderRequestSession
 from ai_data_enrichment.resolution.job import (
+    ApprovedResolutionService,
     AuditedResolutionHandler,
     ResolutionAuditCollector,
     ResolutionService,
@@ -60,6 +61,8 @@ class JobExecutor:
         resolution_services: Mapping[str, ResolutionService] | None = None,
         resolution_policies: Mapping[str, ResolutionPolicy] | None = None,
         resolution_cache: SQLiteResolutionCache | None = None,
+        approved_resolution_services: Mapping[tuple[str, str], ApprovedResolutionService]
+        | None = None,
     ) -> None:
         self._handlers = dict(handlers)
         self._selected_providers = dict(selected_providers)
@@ -75,6 +78,7 @@ class JobExecutor:
         self._resolution_services = dict(resolution_services or {})
         self._resolution_policies = dict(resolution_policies or {})
         self._resolution_cache = resolution_cache
+        self._approved_resolution_services = dict(approved_resolution_services or {})
 
     def execute(
         self,
@@ -113,6 +117,36 @@ class JobExecutor:
             raise ValueError("Audited resolution capability is not present in the plan.")
         if audited & set(self._approved_fallbacks):
             raise ValueError("Audited resolution fallback requires a paired-report contract.")
+
+        # Check every scoped selection before *any* row can contact a provider.
+        record_by_id = {record.record_id: record for record in prepared}
+        step_by_id = {step.id: step for step in plan.steps}
+        for (record_id, step_id), service in self._approved_resolution_services.items():
+            record = record_by_id.get(record_id)
+            step = step_by_id.get(step_id)
+
+            if record is None or step is None:
+                raise ValueError("Approval targets an unknown record or step.")
+
+            if step.capability not in audited:
+                raise ValueError("Approval requires an audited resolution step.")
+
+            service.validate_step(
+                step,
+                provider_id=self._selected_providers[step.capability],
+            )
+
+            if any(isinstance(ref, StepOutputReference) for ref in step.inputs.values()):
+                raise ValueError("Approved resolution inputs must be available before execution.")
+            try:
+                inputs = {
+                    name: _resolve_input(ref, record.values, {})
+                    for name, ref in step.inputs.items()
+                }
+            except KeyError as exc:
+                raise ValueError("Approved resolution input column is missing.") from exc
+            service.validate_inputs(inputs)
+
         for capability in audited:
             if not self._capability_versions.get(capability) or not self._provider_versions.get(
                 capability
@@ -258,6 +292,37 @@ class JobExecutor:
             wrapped_handlers[cap] = _FallbackCoordinator(
                 primary=primary, alternate=alternate, approved=approved, stats=fallback_stats
             )
+
+        # User choices are authorization for exactly one row/step. Never read or
+        # populate the ordinary memo or persistent cache with these results.
+        approved_handlers: dict[tuple[str, str], AuditedResolutionHandler] = {}
+        approval_policy = self._policy.model_copy(
+            update={"memoizable_providers": frozenset(), "persistent_cache_ttls": {}}
+        )
+        for key, service in self._approved_resolution_services.items():
+            cap = step_by_id[key[1]].capability
+            primary_id = self._selected_providers[cap]
+            approved_handlers[key] = AuditedResolutionHandler(
+                capability_id=cap,
+                provider_id=primary_id,
+                configuration_id=self._configuration_ids[cap],
+                capability_version=self._capability_versions[cap],
+                provider_version=self._provider_versions[cap],
+                service=service,
+                policy=self._resolution_policies[cap],
+                job_policy=approval_policy,
+                shared_capacity=shared_memo_capacity,
+                persistent_cache=None,
+                wrap_provider=(
+                    (
+                        lambda handler, provider_id=primary_id: request_session.wrap_handler(
+                            provider_id, handler
+                        )
+                    )
+                    if request_session is not None
+                    else None
+                ),
+            )
         executor = DAGExecutor(wrapped_handlers)
 
         results: list[RecordExecution] = []
@@ -272,7 +337,9 @@ class JobExecutor:
                     *,
                     record_id: str = record.record_id,
                 ) -> None:
-                    handler = audited_handlers.get(capability)
+                    handler = approved_handlers.get((record_id, step_id))
+                    if handler is None:
+                        handler = audited_handlers.get(capability)
                     if handler is None:
                         return
                     if handler.last is None or handler.last.operation != result:
@@ -290,12 +357,20 @@ class JobExecutor:
                     plan,
                     record.values,
                     on_step_executed=observe if collector is not None else None,
+                    step_handlers={
+                        step_id: handler
+                        for (record_id, step_id), handler in approved_handlers.items()
+                        if record_id == record.record_id
+                    },
                 )
                 statuses[classify_row_outcome(row_result)] += 1
                 results.append(RecordExecution(record_id=record.record_id, row_result=row_result))
 
         counts = memo.snapshot_metrics()
-        extra = [handler.snapshot() for handler in audited_handlers.values()]
+        extra = [
+            handler.snapshot()
+            for handler in (*audited_handlers.values(), *approved_handlers.values())
+        ]
         metrics = JobExecutionMetrics(
             total_rows=len(results),
             successful_rows=statuses["success"],

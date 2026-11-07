@@ -1,14 +1,13 @@
 """Convert Excel worksheet rows into typed execution records."""
 
+from collections.abc import Mapping
+from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
+from types import MappingProxyType
 
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
-
-from collections.abc import Mapping
-from dataclasses import dataclass
-from types import MappingProxyType
 
 from ai_data_enrichment.execution.job_models import InputRecord
 from ai_data_enrichment.execution.models import RuntimeValue
@@ -97,7 +96,7 @@ def read_input_batch(
                 raise ValueError(f"Input column not found: {name}")
 
         records: list[InputRecord] = []
-        row_by_record_id: dict[str, int] = {}        
+        row_by_record_id: dict[str, int] = {}
 
         for row_number, row in enumerate(
             rows,
@@ -136,7 +135,7 @@ def read_input_batch(
             )
 
             row_by_record_id[record_id] = row_number
-        
+
         return ExcelInputBatch(
             records=tuple(records),
             row_by_record_id=MappingProxyType(row_by_record_id),

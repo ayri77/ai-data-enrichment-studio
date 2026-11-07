@@ -1,17 +1,15 @@
-
 """Write explicitly selected cells to a new XLSX workbook."""
 
-from collections.abc import Mapping, Iterable
+import os
+from collections.abc import Iterable, Mapping
 from math import isfinite
 from pathlib import Path
-
-import os
 from tempfile import mkstemp
 from zipfile import ZipFile
 
 from openpyxl import load_workbook
-from openpyxl.utils.cell import coordinate_to_tuple
 from openpyxl.cell.cell import Cell, MergedCell
+from openpyxl.utils.cell import coordinate_to_tuple
 from openpyxl.worksheet.worksheet import Worksheet
 
 
@@ -24,9 +22,7 @@ def _checked_empty_target_cell(
     try:
         row, column = coordinate_to_tuple(coordinate)
     except (ValueError, TypeError) as exc:
-        raise ValueError(
-            f"Invalid cell coordinate: {coordinate}"
-        ) from exc
+        raise ValueError(f"Invalid cell coordinate: {coordinate}") from exc
 
     if not 1 <= row <= 1_048_576:
         raise ValueError(f"Row out of range: {coordinate}")
@@ -37,14 +33,10 @@ def _checked_empty_target_cell(
     cell = sheet.cell(row=row, column=column)
 
     if isinstance(cell, MergedCell):
-        raise ValueError(
-            f"Target cell belongs to a merged range: {coordinate}"
-        )
+        raise ValueError(f"Target cell belongs to a merged range: {coordinate}")
 
     if cell.value is not None:
-        raise ValueError(
-            f"Target cell is not empty: {coordinate}"
-        )
+        raise ValueError(f"Target cell is not empty: {coordinate}")
 
     return cell
 
@@ -88,14 +80,10 @@ def write_excel_cells(
             cell = _checked_empty_target_cell(sheet, coordinate)
 
             if not (isinstance(value, str) or type(value) is float):
-                raise ValueError(
-                    f"Unsupported output value at {coordinate}"
-                )
+                raise ValueError(f"Unsupported output value at {coordinate}")
 
             if type(value) is float and not isfinite(value):
-                raise ValueError(
-                    f"Non-finite output value at {coordinate}"
-                )
+                raise ValueError(f"Non-finite output value at {coordinate}")
 
             pending.append((cell, value))
 
@@ -125,9 +113,7 @@ def write_excel_cells(
                 corrupt_member = archive.testzip()
 
                 if corrupt_member is not None:
-                    raise ValueError(
-                        f"Corrupt XLSX archive member: {corrupt_member}"
-                    )
+                    raise ValueError(f"Corrupt XLSX archive member: {corrupt_member}")
 
             # Verify that openpyxl can open the generated workbook.
             verified = load_workbook(
@@ -138,9 +124,7 @@ def write_excel_cells(
 
             try:
                 if sheet_name not in verified.sheetnames:
-                    raise ValueError(
-                        "Generated workbook lost the selected worksheet"
-                    )
+                    raise ValueError("Generated workbook lost the selected worksheet")
             finally:
                 verified.close()
 
@@ -172,9 +156,7 @@ def validate_excel_targets(
 
     try:
         if sheet_name not in workbook.sheetnames:
-            raise ValueError(
-                f"Worksheet '{sheet_name}' not found"
-            )
+            raise ValueError(f"Worksheet '{sheet_name}' not found")
 
         sheet = workbook[sheet_name]
 

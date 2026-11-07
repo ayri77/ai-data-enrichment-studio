@@ -1,15 +1,14 @@
 """Integration tests for the excel_writer module."""
 
-import pytest
-
 from pathlib import Path
 
+import pytest
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
 
 from ai_data_enrichment.output.excel_writer import (
-    write_excel_cells,
     validate_excel_targets,
+    write_excel_cells,
 )
 
 
@@ -66,9 +65,6 @@ def test_writes_new_workbook_and_preserves_source(
     finally:
         original.close()
         enriched.close()
-
-
-import pytest
 
 
 @pytest.mark.parametrize(
@@ -395,8 +391,6 @@ def test_writer_rechecks_targets_after_preflight(
     # The other process's changes must remain untouched.
     workbook = load_workbook(source)
     try:
-        assert workbook["Sheet"]["B2"].value == (
-            "Added by another process"
-        )
+        assert workbook["Sheet"]["B2"].value == ("Added by another process")
     finally:
         workbook.close()

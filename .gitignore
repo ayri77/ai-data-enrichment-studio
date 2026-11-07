@@ -29,3 +29,6 @@ outputs/
 *.sqlite3
 
 # Note: uv.lock MUST be committed.
+
+# Local experiments and temporary artifacts
+/temp/

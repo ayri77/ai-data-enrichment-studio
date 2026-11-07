@@ -21,13 +21,13 @@ from ai_data_enrichment.output.excel_output_mapping import (
     build_output_header_writes,
     build_output_value_writes,
 )
-from ai_data_enrichment.validation.plan_validator import (
-    PlanValidationPolicy,
-    PlanValidator,
-)
 from ai_data_enrichment.output.excel_writer import (
     validate_excel_targets,
     write_excel_cells,
+)
+from ai_data_enrichment.validation.plan_validator import (
+    PlanValidationPolicy,
+    PlanValidator,
 )
 
 
@@ -67,6 +67,7 @@ class ExcelEnrichmentRunner:
         plan: EnrichmentPlan,
         output_columns: Mapping[str, str],
         dataset_id: str,
+        previous_job_id: str | None = None,
     ) -> ExcelEnrichmentResult:
         """Validate, execute and publish one selected Excel table."""
 
@@ -92,10 +93,7 @@ class ExcelEnrichmentRunner:
         ).validate(plan)
 
         if not validation.valid:
-            details = "; ".join(
-                f"{error.code}: {error.message}"
-                for error in validation.errors
-            )
+            details = "; ".join(f"{error.code}: {error.message}" for error in validation.errors)
             raise ValueError(f"Invalid enrichment plan: {details}")
 
         # Validate output column bindings before execution.
@@ -138,6 +136,7 @@ class ExcelEnrichmentRunner:
         job_result = self._executor.execute(
             plan,
             batch.records,
+            previous_job_id=previous_job_id,
         )
 
         # Map successful operation results to original Excel rows.

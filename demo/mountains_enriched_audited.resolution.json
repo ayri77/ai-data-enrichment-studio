@@ -1,0 +1,542 @@
+{
+  "schema_version": "1.0",
+  "job_id": "720093d2054049bfbd72a9700f225fcc",
+  "previous_job_id": null,
+  "status": "awaiting_review",
+  "total_rows": 1,
+  "processed_rows": 1,
+  "operations": [
+    {
+      "operation_id": "f7337f68826dc711ba88d1eaf223c82716b4b449ee0b79a582c01aafbe957aa5",
+      "revision": 1,
+      "report": {
+        "schema_version": "1.0",
+        "candidate_set": {
+          "query": {
+            "name": "Mount Everest",
+            "entity_type": "mountain",
+            "context": [
+              {
+                "name": "country_code",
+                "value": "NP",
+                "evidence": []
+              }
+            ]
+          },
+          "provider_id": "wikidata",
+          "candidates": [
+            {
+              "reference": {
+                "source": "wikidata",
+                "entity_id": "Q513"
+              },
+              "label": "Mount Everest",
+              "entity_type": "mountain",
+              "verification": "verified",
+              "attributes": [
+                {
+                  "name": "match_kind",
+                  "value": "label",
+                  "evidence": []
+                },
+                {
+                  "name": "country_code",
+                  "value": "NP",
+                  "evidence": [
+                    {
+                      "source": "wikidata",
+                      "reference": "Q513:P31,P17;Q837:P297"
+                    }
+                  ]
+                }
+              ],
+              "evidence": [
+                {
+                  "source": "wikidata",
+                  "reference": "Q513:P31,P17;Q837:P297"
+                }
+              ],
+              "reason_codes": [
+                "source_mountain_type_and_country_verified"
+              ]
+            },
+            {
+              "reference": {
+                "source": "wikidata",
+                "entity_id": "Q61882061"
+              },
+              "label": "The Climbers",
+              "entity_type": "unknown",
+              "verification": "unchecked",
+              "attributes": [
+                {
+                  "name": "match_kind",
+                  "value": "alias",
+                  "evidence": []
+                }
+              ],
+              "evidence": [],
+              "reason_codes": [
+                "search_match_only"
+              ]
+            },
+            {
+              "reference": {
+                "source": "wikidata",
+                "entity_id": "Q21939846"
+              },
+              "label": "Mount Everest",
+              "entity_type": "unknown",
+              "verification": "unchecked",
+              "attributes": [
+                {
+                  "name": "match_kind",
+                  "value": "label",
+                  "evidence": []
+                }
+              ],
+              "evidence": [],
+              "reason_codes": [
+                "country_or_type_unverified"
+              ]
+            },
+            {
+              "reference": {
+                "source": "wikidata",
+                "entity_id": "Q84260471"
+              },
+              "label": "Mount Everest",
+              "entity_type": "unknown",
+              "verification": "unchecked",
+              "attributes": [
+                {
+                  "name": "match_kind",
+                  "value": "label",
+                  "evidence": []
+                }
+              ],
+              "evidence": [],
+              "reason_codes": [
+                "country_or_type_unverified"
+              ]
+            },
+            {
+              "reference": {
+                "source": "wikidata",
+                "entity_id": "Q19977041"
+              },
+              "label": "Mount Everest",
+              "entity_type": "unknown",
+              "verification": "unchecked",
+              "attributes": [
+                {
+                  "name": "match_kind",
+                  "value": "label",
+                  "evidence": []
+                }
+              ],
+              "evidence": [],
+              "reason_codes": [
+                "country_or_type_unverified"
+              ]
+            },
+            {
+              "reference": {
+                "source": "wikidata",
+                "entity_id": "Q31505139"
+              },
+              "label": "Mount Everest",
+              "entity_type": "unknown",
+              "verification": "unchecked",
+              "attributes": [
+                {
+                  "name": "match_kind",
+                  "value": "label",
+                  "evidence": []
+                }
+              ],
+              "evidence": [],
+              "reason_codes": [
+                "country_or_type_unverified"
+              ]
+            },
+            {
+              "reference": {
+                "source": "wikidata",
+                "entity_id": "Q97986716"
+              },
+              "label": "Mount Everest",
+              "entity_type": "unknown",
+              "verification": "unchecked",
+              "attributes": [
+                {
+                  "name": "match_kind",
+                  "value": "label",
+                  "evidence": []
+                }
+              ],
+              "evidence": [],
+              "reason_codes": [
+                "search_match_only"
+              ]
+            },
+            {
+              "reference": {
+                "source": "wikidata",
+                "entity_id": "Q61728657"
+              },
+              "label": "Mount Everest",
+              "entity_type": "unknown",
+              "verification": "unchecked",
+              "attributes": [
+                {
+                  "name": "match_kind",
+                  "value": "label",
+                  "evidence": []
+                }
+              ],
+              "evidence": [],
+              "reason_codes": [
+                "country_or_type_unverified"
+              ]
+            },
+            {
+              "reference": {
+                "source": "wikidata",
+                "entity_id": "Q119187184"
+              },
+              "label": "Mount Everest",
+              "entity_type": "unknown",
+              "verification": "unchecked",
+              "attributes": [
+                {
+                  "name": "match_kind",
+                  "value": "label",
+                  "evidence": []
+                }
+              ],
+              "evidence": [],
+              "reason_codes": [
+                "country_or_type_unverified"
+              ]
+            },
+            {
+              "reference": {
+                "source": "wikidata",
+                "entity_id": "Q5416949"
+              },
+              "label": "Everest",
+              "entity_type": "unknown",
+              "verification": "unchecked",
+              "attributes": [
+                {
+                  "name": "match_kind",
+                  "value": "alias",
+                  "evidence": []
+                }
+              ],
+              "evidence": [],
+              "reason_codes": [
+                "search_match_only"
+              ]
+            },
+            {
+              "reference": {
+                "source": "wikidata",
+                "entity_id": "Q60102972"
+              },
+              "label": "Mount Everest",
+              "entity_type": "unknown",
+              "verification": "unchecked",
+              "attributes": [
+                {
+                  "name": "match_kind",
+                  "value": "label",
+                  "evidence": []
+                }
+              ],
+              "evidence": [],
+              "reason_codes": [
+                "country_or_type_unverified"
+              ]
+            },
+            {
+              "reference": {
+                "source": "wikidata",
+                "entity_id": "Q60259462"
+              },
+              "label": "Mount Everest",
+              "entity_type": "unknown",
+              "verification": "unchecked",
+              "attributes": [
+                {
+                  "name": "match_kind",
+                  "value": "label",
+                  "evidence": []
+                }
+              ],
+              "evidence": [],
+              "reason_codes": [
+                "country_or_type_unverified"
+              ]
+            },
+            {
+              "reference": {
+                "source": "wikidata",
+                "entity_id": "Q59014625"
+              },
+              "label": "Mount Everest",
+              "entity_type": "unknown",
+              "verification": "unchecked",
+              "attributes": [
+                {
+                  "name": "match_kind",
+                  "value": "label",
+                  "evidence": []
+                }
+              ],
+              "evidence": [],
+              "reason_codes": [
+                "country_or_type_unverified"
+              ]
+            },
+            {
+              "reference": {
+                "source": "wikidata",
+                "entity_id": "Q60106019"
+              },
+              "label": "Mount Everest",
+              "entity_type": "unknown",
+              "verification": "unchecked",
+              "attributes": [
+                {
+                  "name": "match_kind",
+                  "value": "label",
+                  "evidence": []
+                }
+              ],
+              "evidence": [],
+              "reason_codes": [
+                "country_or_type_unverified"
+              ]
+            },
+            {
+              "reference": {
+                "source": "wikidata",
+                "entity_id": "Q22170873"
+              },
+              "label": "Mount Everest",
+              "entity_type": "unknown",
+              "verification": "unchecked",
+              "attributes": [
+                {
+                  "name": "match_kind",
+                  "value": "label",
+                  "evidence": []
+                }
+              ],
+              "evidence": [],
+              "reason_codes": [
+                "country_or_type_unverified"
+              ]
+            }
+          ],
+          "search_complete": true,
+          "verification_complete": false,
+          "incomplete_reason": "candidate_verification_budget_exceeded",
+          "provider_error_code": null
+        },
+        "policy": {
+          "policy_id": "mountain_strict",
+          "version": "1.0",
+          "strategy": "strict",
+          "auto_accept_ranked": false,
+          "prefer_prominent": false
+        },
+        "decision": {
+          "status": "incomplete_verification",
+          "selected": null,
+          "basis": null,
+          "reason_codes": [
+            "source_incomplete"
+          ],
+          "explanation": "Candidate search or verification was not completed."
+        },
+        "assessments": [
+          {
+            "reference": {
+              "source": "wikidata",
+              "entity_id": "Q119187184"
+            },
+            "eligibility": "unchecked",
+            "rank": null,
+            "reason_codes": [
+              "country_or_type_unverified"
+            ]
+          },
+          {
+            "reference": {
+              "source": "wikidata",
+              "entity_id": "Q19977041"
+            },
+            "eligibility": "unchecked",
+            "rank": null,
+            "reason_codes": [
+              "country_or_type_unverified"
+            ]
+          },
+          {
+            "reference": {
+              "source": "wikidata",
+              "entity_id": "Q21939846"
+            },
+            "eligibility": "unchecked",
+            "rank": null,
+            "reason_codes": [
+              "country_or_type_unverified"
+            ]
+          },
+          {
+            "reference": {
+              "source": "wikidata",
+              "entity_id": "Q22170873"
+            },
+            "eligibility": "unchecked",
+            "rank": null,
+            "reason_codes": [
+              "country_or_type_unverified"
+            ]
+          },
+          {
+            "reference": {
+              "source": "wikidata",
+              "entity_id": "Q31505139"
+            },
+            "eligibility": "unchecked",
+            "rank": null,
+            "reason_codes": [
+              "country_or_type_unverified"
+            ]
+          },
+          {
+            "reference": {
+              "source": "wikidata",
+              "entity_id": "Q513"
+            },
+            "eligibility": "eligible",
+            "rank": 1,
+            "reason_codes": [
+              "verified_mountain_and_country",
+              "exact_label"
+            ]
+          },
+          {
+            "reference": {
+              "source": "wikidata",
+              "entity_id": "Q5416949"
+            },
+            "eligibility": "unchecked",
+            "rank": null,
+            "reason_codes": [
+              "search_match_only"
+            ]
+          },
+          {
+            "reference": {
+              "source": "wikidata",
+              "entity_id": "Q59014625"
+            },
+            "eligibility": "unchecked",
+            "rank": null,
+            "reason_codes": [
+              "country_or_type_unverified"
+            ]
+          },
+          {
+            "reference": {
+              "source": "wikidata",
+              "entity_id": "Q60102972"
+            },
+            "eligibility": "unchecked",
+            "rank": null,
+            "reason_codes": [
+              "country_or_type_unverified"
+            ]
+          },
+          {
+            "reference": {
+              "source": "wikidata",
+              "entity_id": "Q60106019"
+            },
+            "eligibility": "unchecked",
+            "rank": null,
+            "reason_codes": [
+              "country_or_type_unverified"
+            ]
+          },
+          {
+            "reference": {
+              "source": "wikidata",
+              "entity_id": "Q60259462"
+            },
+            "eligibility": "unchecked",
+            "rank": null,
+            "reason_codes": [
+              "country_or_type_unverified"
+            ]
+          },
+          {
+            "reference": {
+              "source": "wikidata",
+              "entity_id": "Q61728657"
+            },
+            "eligibility": "unchecked",
+            "rank": null,
+            "reason_codes": [
+              "country_or_type_unverified"
+            ]
+          },
+          {
+            "reference": {
+              "source": "wikidata",
+              "entity_id": "Q61882061"
+            },
+            "eligibility": "unchecked",
+            "rank": null,
+            "reason_codes": [
+              "search_match_only"
+            ]
+          },
+          {
+            "reference": {
+              "source": "wikidata",
+              "entity_id": "Q84260471"
+            },
+            "eligibility": "unchecked",
+            "rank": null,
+            "reason_codes": [
+              "country_or_type_unverified"
+            ]
+          },
+          {
+            "reference": {
+              "source": "wikidata",
+              "entity_id": "Q97986716"
+            },
+            "eligibility": "unchecked",
+            "rank": null,
+            "reason_codes": [
+              "search_match_only"
+            ]
+          }
+        ]
+      },
+      "record_links": [
+        {
+          "record_id": "Mountains!2",
+          "step_id": "resolve"
+        }
+      ]
+    }
+  ]
+}
