@@ -6,18 +6,24 @@
 ![Python](https://img.shields.io/badge/Python-3.12%2B-blue)
 
 
-> **Status: active development — M2 complete, M3 in design and implementation.**
-> M1 Planner & Validator is complete. M2 passed the controlled offline
-> acceptance gate (#37, #44, merged PRs #69–#76 and green main CI).
-> M2 includes the typed DAG and provider execution engine, bounded multi-row
-> jobs, caching, rate/retry policies, and the opt-in **audited Resolution Engine**.
-> Ranked geographic resolution and Wikidata mountain verification retain
-> candidate alternatives, decisions, source Evidence and per-row audit links.
-> The legacy strict path remains the default when audited services are not configured.
-> **CLI-driven job execution and enriched Excel output are not yet available** (M3).
+> **Status: active development — M1 and M2 complete; M3 in progress.**
+>
+> M1 delivers the LLM Planner, typed enrichment plans, and deterministic
+> validation. M2 provides the DAG execution engine, registered providers,
+> bounded execution, caching, reliability controls, and audited entity resolution.
+>
+> M3 now supports explicit Excel table selection, execution of saved plans
+> through the CLI, workbook-preserving output, and audited resolution reports.
+> Human-in-the-loop Review → Approve → Resume is implemented for audited
+> Wikidata mountain resolution (PR #79).
+>
+> **M3 is not yet complete.** Remaining acceptance work includes the
+> Capitals Excel end-to-end scenario, independent numeric evaluation,
+> unit-aware output validation, and a 1,000-row Excel benchmark.
+>
 > See [M2 acceptance](docs/12-m2-acceptance.md),
-> [Resolution Foundation](docs/08-resolution-foundation.md) and
-> [M3 Excel table-selection proposal](docs/13-m3-excel-table-selection.md).
+> [M3 Epic](https://github.com/ayri77/ai-data-enrichment-studio/issues/4),
+> and the [Mountain Resume demo](demo/README.md).
 
 
 ## Why this project?
@@ -36,7 +42,13 @@ The first input/output adapter targets Excel (`.xlsx`). The longer-term goal is 
 | `capitals.xlsx` — pairs of capitals and countries | “Calculate straight-line distances in kilometers.” | Resolve coordinates and calculate geodesic distances |
 | List of research organizations *(planned)* | “Find official websites, locations, and organization identifiers.” | Resolve identities and retrieve verified attributes |
 
-The first two tasks are the **mandatory acceptance scenarios** for the initial academic MVP. They are **not yet executable end-to-end**.
+The first two tasks are the **mandatory acceptance scenarios** for the
+initial academic MVP.
+
+The Mountain Elevation workflow has been demonstrated end-to-end with a
+one-row live Wikidata example, including user approval and audited resume.
+The Capitals workflow has controlled M2 execution coverage but still
+requires full Excel end-to-end acceptance and independent evaluation.
 
 ## Design approach
 
@@ -65,16 +77,18 @@ flowchart TD
 - **Efficiency:** deduplicate repeated lookups, reuse suitable cached results, and respect provider limits.
 - **Independent evaluation:** measure correctness, coverage, workbook preservation, latency, and costs against separate reference data.
 
-These are **design goals**, not claims about the capabilities of the current bootstrap implementation.
+These principles guide the implemented architecture. Some capabilities,
+including independent output evaluation, agentic recovery, and the web
+application, remain under development.
 
 ## Current functionality
 
 Implemented:
 
 - Installable Python 3.12+ package managed with uv.
-- Read-only Excel workbook inspection and bounded worksheet profiling
-  (currently assume headers in the first worksheet row; arbitrary table regions
-  and named-table selection are not yet supported).
+- Read-only Excel workbook inspection and bounded dataset profiling.
+- Explicit worksheet range selection with shared profiling and record-reading
+  boundaries, including tables that do not start at A1.
 - Typed capability registry with four built-in semantic capabilities.
 - Structured EnrichmentPlan models with DAG dependencies.
 - Deterministic plan validation with structured diagnostics.
@@ -86,16 +100,30 @@ Implemented:
 - Opt-in shared Resolution Engine with deterministic geographic ranking, bounded Wikidata candidate verification, and typed `ResolutionReport` (strict/abstaining by default).
 - Opt-in JobExecutor audit: per-record/step links, safe in-job reuse, separate policy-aware SQLite storage of paired results and decision reports.
 - Automated tests, Ruff, Pyright, and GitHub Actions CI.
+- Excel input adapter with typed records and original worksheet row mapping.
+- Safe Excel output adapter that creates a separate workbook, rejects occupied
+  target cells, and preserves supported source content and formatting.
+- End-to-end CLI execution of saved enrichment plans through the validated
+  DAG and registered providers, with explicit network opt-in.
+- Audited resolution reports containing candidates, decisions, Evidence,
+  and per-record operation references.
+- Human-in-the-loop Review → Approve → Resume for audited Wikidata mountain
+  resolution, including workbook-bound approvals, fresh verification,
+  and previous-job provenance.
+- Reproducible Mountain Elevation demo with live Wikidata results.
 
 Not implemented yet:
 
-- A confirmed Excel table-selection / complete record-reader boundary for
-  arbitrary worksheet regions; the M3 contract is being designed.
-- CLI-driven execution of generated enrichment plans.
-- Execution recovery, durable orchestration and automatic provider fallback selection.
-- Enriched Excel workbook generation and result provenance.
-- Independent evaluation of enriched numeric values.
-- LangGraph orchestration and web application.
+- Automatic discovery and selection of arbitrary Excel tables, including
+  selection by structured Excel Table name.
+- Full end-to-end acceptance for the Capitals workbook.
+- Independent ground-truth evaluation of enriched numeric values.
+- A complete 1,000-row Excel input-to-output benchmark.
+- Explicit destination-unit compatibility validation and conversion.
+- General-purpose approval and resume workflows for other entity types,
+  grouped review questions, and selective dependent-step replay.
+- LangGraph orchestration, durable checkpointing, and bounded replanning.
+- Web application, interactive Review Workspace, and deployment.
 
 ### In-memory execution (M2)
 
@@ -141,8 +169,6 @@ have separate metrics; provider request counters distinguish actual HTTP attempt
 and operations blocked by policy. Optional provider request policies expose physical HTTP
 attempts, rate waits and blocked requests. Typed transient retry exhaustion
 and opt-in fallback attempts/successes are separately observable (#36).
-
-Execution through the CLI and Excel output are not yet implemented.
 
 ### M2 measured offline acceptance benchmark (developer tool)
 
@@ -228,11 +254,14 @@ as a pair with the corresponding successful result, under policy/version/context
 specific keys. Strict legacy handlers still run when opt-in is absent.
 See [Resolution Report Contract](docs/10-resolution-report-contract.md).
 
-**Not yet delivered:** reviewed user overrides, selective reruns, persisted
-Excel output and reporting UI (M3–M5). A developer-only one-record live smoke
-script exercises the *legacy strict* providers; audited source verification is
-currently covered by offline fixtures. Any live provider request must be
-explicitly opt-in.
+**M3 update (PR #79):** Excel execution, workbook output, and validated
+user-approved resume are implemented for audited Wikidata mountain
+resolution. The resume workflow includes fresh source verification
+and links to the original job.
+
+General-purpose review workflows, grouped clarification questions,
+selective dependent-step replay, and the web Review Workspace remain
+future work. Live provider access requires explicit opt-in.
 
 ## Quick start
 
@@ -315,25 +344,74 @@ CLI exit codes:
 - `1`: invalid plan or failed scenario evaluation.
 - `2`: invalid input or technical failure.
 
-Plans are generated and validated only. Execution and workbook
-enrichment will be introduced in subsequent milestones.
+### Execute an Excel enrichment job (M3)
 
+The `enrichment run` command executes a saved, validated plan
+against an explicitly selected Excel table and writes the results
+to a new workbook.
+
+A reproducible Mountain Elevation example is available in
+[demo/README.md](demo/README.md).
+
+The example demonstrates the Review → Approve → Resume workflow
+using a previously reviewed Wikidata candidate.
+
+Run from the repository root in PowerShell:
+
+```powershell
+New-Item -ItemType Directory -Path temp -Force | Out-Null
+
+uv run --locked enrichment run demo/mountains_smoke.xlsx `
+    --plan demo/mountains_plan.json `
+    --sheet Mountains `
+    --range A1:B2 `
+    --columns-file demo/columns.json `
+    --output temp/mountains_reproduced.xlsx `
+    --allow-network `
+    --max-rows 1 `
+    --approvals-file demo/mountains_approvals.json `
+    --source-report demo/mountains_enriched_audited.resolution.json
+```
+
+The command produces an enriched XLSX file and a corresponding
+resolution audit report.
+
+**Important limitations:**
+
+- External API access requires explicit `--allow-network`.
+- The command processes up to 1,000 rows per job.
+- Approval-based resume currently supports audited Wikidata
+  mountain resolution.
+- Approval manifests are bound to the original workbook and job.
+- Output files must not already exist.
+- Live provider responses may change or fail.
+- This example demonstrates functionality, not independently
+  measured factual accuracy.
+
+The `temp/` directory is excluded from Git. Published demonstration
+artifacts remain in `demo/`.
 
 ## Roadmap
 
 | Milestone | Scope | Status |
 | --- | --- | --- |
 | Bootstrap | Package, Excel inspection, tests, CI | **Complete** |
-| **M1 — Planner & Validator** | Capability contracts, typed plans, deterministic plan validation, LLM planner | Complete |
-| **M2 — Execution Engine** | Existing DAG/providers/cache/reliability; proposed Resolution Foundation with ranked decisions and explicit uncertainty (#61–#65) | In progress |
-| **M3 — Excel & Evaluation** | Workbook-preserving output, independent benchmarks, review manifest and selective-match metrics (#66) | Planned |
-| **M4 — Agentic Orchestration** | LangGraph, conditional recovery, bounded replanning, optional LLM clarification/repair proposals (#67) | Planned |
-| **M5 — Portfolio Application** | Organization enrichment, web UI with Review Workspace (#68), background jobs, deployment | Future |
+| **M1 — Planner & Validator** | Capability contracts, typed plans, deterministic validation, LLM planner | **Complete** |
+| **M2 — Execution Engine** | DAG execution, providers, caching, reliability, audited entity resolution | **Complete** |
+| **M3 — Excel & Evaluation** | Excel I/O, CLI execution, reviewed resolution, independent evaluation, 1,000-row Excel benchmark | **In progress** |
+| **M4 — Agentic Orchestration** | LangGraph, conditional recovery, bounded replanning, optional LLM clarification | Planned |
+| **M5 — Portfolio Application** | Organization enrichment, web UI, Review Workspace, background jobs, deployment | Future |
 
-The CLI currently supports planning and validation.
-An in-memory execution engine is available in Python,
-but CLI-driven execution and workbook enrichment
-will be introduced in subsequent milestones.
+The CLI supports workbook inspection, plan generation, validation,
+planning evaluation, and execution of saved plans with Excel output.
+
+M3 has delivered the initial Excel execution pipeline and an audited
+human-in-the-loop resume workflow. Independent output evaluation,
+full acceptance of both mandatory datasets, and the 1,000-row Excel
+benchmark are still required before closing M3.
+
+See [M3 Epic #4](https://github.com/ayri77/ai-data-enrichment-studio/issues/4)
+for acceptance criteria and remaining work.
 
 ## Technical documentation
 
@@ -350,7 +428,7 @@ The repository follows a **design-for-extension, implement-for-current-needs** a
 | [07 — M2 Provider Reliability](docs/07-m2-provider-reliability.md) | Implemented opt-in HTTP retries, per-provider request budgets and registered fallback contracts (#36) |
 | [08 — Resolution Foundation](docs/08-resolution-foundation.md) | Proposed hybrid architecture: source-specific candidate verification, shared policies, audit and review semantics (#61) |
 | [09 — Resolution Rollout](docs/09-resolution-rollout.md) | Work plan, issue sequence, milestone boundaries and acceptance gates (#61–#68) |
-| [10 — Resolution Report Contract](docs/10-resolution-report-contract.md) | Proposed versioned candidate/decision/audit/job report format for review and UI; contract-only (#61) |
+| [10 — Resolution Report Contract](docs/10-resolution-report-contract.md) | Implemented Resolution Report v1, audited JobExecutor integration, and M3 approval-based resume |
 
 Technical documentation and code are in **English**. Academic submission materials for Neoversity will be prepared in **Ukrainian**.
 

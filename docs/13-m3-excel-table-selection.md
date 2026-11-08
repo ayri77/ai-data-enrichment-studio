@@ -1,86 +1,244 @@
 # M3 — Excel Table Discovery and Selection Boundary
 
-**Status:** Design proposal / review requested; **not implemented** (2026-11-04).  
+**Status:** Partially implemented — explicit table selection, profiling,
+record reading, and safe Excel output delivered in M3 (PRs #78–#79).
+Automatic table discovery and advanced workbook support remain future work.
+**Updated:** 2026-11-07.
 **Parent:** [M3 Epic #4](https://github.com/ayri77/ai-data-enrichment-studio/issues/4).  
 **Architecture context:** [Conceptual architecture](02-architecture.md), [domain model](03-domain-model.md), [M2 final acceptance](12-m2-acceptance.md).
 
+## Implementation Status (2026-11-07)
+
+The initial M3 Excel adapter is implemented and merged into `main`.
+
+**Implemented:**
+
+- Explicit rectangular table selection through `TableSelection`.
+- Shared selected-region boundaries for dataset profiling and record reading.
+- Header validation and preservation of physical Excel row coordinates.
+- Typed `InputRecord` generation with bounded row processing.
+- Mapping successful execution results to explicitly configured output columns.
+- Pre-execution validation of output cells.
+- Creation of a separate enriched workbook without overwriting existing
+  non-empty cells.
+- Preservation tests for supported source values, formulas, formatting,
+  unrelated regions, and worksheets.
+- CLI integration with the validated execution DAG and audited resolution.
+
+**Not yet implemented or fully validated:**
+
+- Automatic discovery and ranking of logical tables.
+- Selection by Excel structured Table name.
+- Formula evaluation or use of formula results as execution inputs.
+- General-purpose handling of merged or multi-level headers.
+- Complete preservation guarantees for unsupported Excel features.
+- Full Capitals end-to-end acceptance and independent numeric evaluation.
+- End-to-end Excel benchmarking with 1,000 rows.
+
+The following sections retain the original architectural reasoning.
+Implemented decisions should be read together with this status section;
+remaining proposals are not claims of existing functionality.
+
 ## 1. Why this boundary exists
 
-The current `inspect_workbook()` and `profile_worksheet()` support the academic examples by interpreting a worksheet's **first row as its header**. The inspector is a permissive summary; the profiler rejects missing/duplicate headers, scans the worksheet, and sends only bounded samples to the planner. Neither is a general detector of independent tables embedded at arbitrary locations. The completed M2 `JobExecutor` accepts normalized `InputRecord` values, **not Excel cells**, and never chooses a sheet or range.
+The original workbook inspector and worksheet profiler primarily supported
+conventional tables with headers in the first row. They did not provide
+a reliable boundary for independent tables located at arbitrary positions.
 
-M3 must not let the profiler analyze one region while the execution adapter reads another. We will establish **one explicit, shared table selection** before profiling, plan validation, row execution, review export, and workbook output. For conventional A1 header sheets, preserve compatibility with the existing behavior until a new reader is explicitly enabled.
+M3 introduced an explicit `TableSelection` contract shared by profiling,
+record reading, and workbook output. The user selects a worksheet and
+rectangular range; the application validates the selection and retains
+physical Excel coordinates throughout execution.
+
+`JobExecutor` continues to operate on normalized `InputRecord` values
+without depending on Excel-specific structures.
+
+Automatic table discovery remains a separate future capability.
 
 ## 2. Logical dataset and source coordinates
 
-A **workbook** can contain many worksheets; a **worksheet** can contain zero, one or several logical tables. A logical dataset is a selected table or rectangular cell region, not necessarily the whole sheet.
+A **workbook** can contain multiple worksheets, and a worksheet
+can contain multiple logical tables.
 
-A future `TableSelection` (working name, not yet a Python model) should identify:
+The initial M3 implementation uses an explicit `TableSelection`
+to identify one rectangular region within a worksheet.
 
-- Source workbook reference and the exact worksheet name (plus stable file identity/checksum in the execution manifest).
-- **Selection origin**: user-specified range, Excel structured table name, or a tool-proposed rectangular range confirmed for processing.
-- Concrete cell coordinates for the rectangular header and data area; explicit first/last columns, header row, and bounded first/last data rows, with a documented exclusive/inclusive convention.
-- Ordered, unique header labels and their physical column positions. The **same labels** must feed `DatasetProfile`, `EnrichmentPlan` column binding, `InputRecord` generation and output mapping.
-- Stable per-record mapping to the **actual Excel row index**, even across blank rows. The execution `record_id` alone must not be assumed to encode all workbook mapping or to remain collision-free if sheet names contain punctuation.
-- Input column selection used by a validated plan; selecting fewer columns for execution must **not** silently discard original columns from output preservation or change the profiled schema.
-- A read policy for formula cells and other unsupported or non-scalar cell types; every unsupported case must have an explicit diagnostic or a documented skip rule.
+### Implemented contract
 
-This belongs in the Excel **adapter/selection layer**, not `EnrichmentPlan`, `JobExecutor`, provider protocols, or generic resolution policies.
+`TableSelection` is an immutable Python dataclass containing:
 
-## 3. Discovery vs selection vs execution (separate responsibilities)
+- `sheet_name`: the explicitly selected worksheet.
+- `range_ref`: an Excel range including the header row.
+- `bounds`: physical column and row boundaries.
+- `header_row` and `first_data_row`: derived row coordinates.
 
-1. **Workbook inspection:** enumerate worksheets, structured `Excel Tables` (table name + actual range when available), populated-area summaries and plausible rectangular ranges. A candidate is **a suggestion**, not a confirmed table.
-2. **Table selection:** choose one discovered candidate or accept an explicit worksheet/range; validate its boundaries, header geometry, duplicates and overlapping/merged structure. If there are multiple plausible regions or uncertainty, **request user selection rather than silently choosing the first**.
-3. **Profiling:** derive one `DatasetProfile` from the **selected table only**, with bounded samples/statistics. Do not use this LLM-facing sample as execution data; its values may be truncated.
-4. **Record reading:** read the selected data rows (up to the job limit), convert supported cell types to `RuntimeValue | None`, retain a separate row-coordinate map, and never modify the source workbook.
-5. **Output:** write only to explicitly authorized output cells in a **new workbook**, preserving all other supported source contents, formula text and formatting. Fail safely if preservation is not guaranteed for a workbook feature.
+The selected region is shared between dataset profiling and
+execution input reading.
 
-A named Excel Table is strong structural evidence of a region, but must not automatically override a conflicting explicit selection. Unformatted regions require conservative candidate detection, not an arbitrary `A1` or `max_row/max_column` assumption. An Excel worksheet's used range can contain titles, notes, merged cells, separated data islands and decorative formatting.
+`read_input_batch()` converts supported input cells into typed
+`InputRecord` objects and maintains a separate mapping from each
+record identifier to its physical Excel row.
 
-## 4. First delivery slice vs later support
+This mapping is used when writing execution results back into
+the corresponding rows of a new workbook.
 
-| File shape | M3 first slice | Future enhancement |
+### Additional responsibilities
+
+- Output columns are explicitly mapped to Excel column letters.
+- Output targets are validated before provider execution.
+- Required input columns are derived from the validated plan.
+- Formula cells and unsupported values in required inputs are
+  rejected rather than silently converted.
+- Source workbook preservation is handled by the output adapter.
+
+### Deferred extensions
+
+- Automatic table discovery.
+- Selection using Excel structured Table names.
+- Stable selection identities independent of worksheet naming.
+- Support for multiple input tables and joins.
+- Advanced workbook structures and configurable formula handling.
+
+Workbook checksums and approval provenance are currently handled
+by the resolution approval workflow, not by `TableSelection`.
+
+Excel-specific concerns remain within the ingestion, selection,
+and output layers. `JobExecutor` operates on normalized records.
+
+## 3. Discovery vs selection vs execution
+
+The architecture separates workbook inspection, explicit table
+selection, profiling, record reading, execution, and output.
+
+### Current M3 workflow
+
+1. **Workbook inspection:** inspect available worksheets and their
+   basic structure without modifying the source file.
+
+2. **Explicit table selection:** the caller supplies a worksheet
+   name and rectangular range through `TableSelection`.
+
+3. **Dataset profiling:** `profile_worksheet()` analyzes the
+   selected region and produces a bounded `DatasetProfile`.
+
+4. **Plan validation:** the deterministic validator checks the
+   enrichment plan against the selected dataset profile.
+
+5. **Record reading:** `read_input_batch()` extracts the required
+   input columns into typed records while preserving physical
+   worksheet row references.
+
+6. **Output preflight:** proposed output cells are validated
+   before execution. Existing non-empty cells cannot be
+   overwritten by the current writer.
+
+7. **Execution:** `JobExecutor` processes the validated DAG
+   without depending on Excel-specific representations.
+
+8. **Workbook output:** successful results are projected into
+   explicitly mapped columns in a separate XLSX file.
+
+### Future discovery workflow
+
+Automatic table discovery remains a separate concern.
+
+A future discovery component may enumerate structured Excel
+Tables and propose candidate rectangular regions.
+
+Discovery results must be treated as suggestions. Ambiguous
+regions require explicit selection rather than arbitrary
+automatic acceptance.
+
+The execution engine must continue receiving one validated
+selection, regardless of whether it originated from a user
+or a future discovery component.
+
+## 4. Implemented scope and deferred support
+
+| File shape | Current M3 support | Deferred |
 | --- | --- | --- |
-| Single conventional table with header at A1 | Keep legacy profiler behavior, then use selected range for execution | Discover as a candidate |
-| Single rectangular table starting at B6 (not A1) | **Explicit user-specified range**, shared by profiler and reader | Automatic proposal with user confirmation |
-| Excel structured Table with name and defined ref | Enumerate/select by table name after assessing `openpyxl` non-read-only metadata behavior | Improved automatic ranking |
-| Several tables side by side/on one sheet | Require explicit table name/range; no guessed first table | Candidate extraction and optional contextual hints |
-| Merged/multi-level headers, arbitrary report layouts | Fail with actionable `unsupported_structure` or require explicit normalized region | Deliberate transformation stage / human review |
-| Hidden/filtered rows or formula-driven inputs | Document a consistent inclusion and formula policy before execution | Configurable audited options |
-| Non-rectangular datasets / multiple distinct input tables | Out of first slice | Multi-source joins/relationships, separately designed |
+| Conventional A1 table | Supported through explicit range selection; legacy profiling remains available | Automatic discovery |
+| Offset rectangular table (e.g. B6) | Supported with shared profiling and record-reading boundaries | Automatic range proposal |
+| Named Excel Table | Not supported by name | Table enumeration and selection |
+| Multiple tables on one worksheet | One explicitly selected rectangular region per job | Automatic detection and multi-table workflows |
+| Merged or multi-level headers | Not generally supported | Explicit structure normalization and diagnostics |
+| Formula-driven input columns | Formulas in required input fields are rejected | Defined cached-value policy |
+| Non-rectangular datasets | Not supported | Multi-source data transformations |
 
 **No auto-detection accuracy promise.** The initial two required workbooks may remain the simple worksheet-first-row case, but their format is **not** a universal contract.
 
-## 5. Formula/value and type-policy decision to review
+## 5. Formula and input type policy
 
-The existing profiler opens with `data_only=True` to inspect *cached results* of formula cells and infer value types; it **does not compute formulas**. `inspect_workbook()` uses `data_only=False` and sees formula expressions. The proposed `excel_records.py` local work currently also uses `data_only=False`, so a formula cell would appear as its expression rather than its numeric cached result.
+The initial M3 implementation uses a conservative execution policy.
 
-We must explicitly decide before processing formula-dependent inputs:
+- Profiling reads cached formula values (`data_only=True`) but does not
+  calculate formulas.
+- Execution reads original cell values (`data_only=False`).
+- Formula and Excel error cells in required input columns are rejected.
+- Formula cells outside required input columns do not become execution
+  inputs and are preserved within the supported workbook contract.
+- Supported execution input values are text, finite numbers, and null.
+- Boolean, date/time, and unsupported object values are rejected.
+- Large integers that cannot be represented exactly as floats are rejected.
 
-- Whether formulas are permitted among **required input columns**, and which representation (formula expression vs potentially missing/stale cached value) is used.
-- How to detect absent cached results and avoid presenting stale/unknown computations as verified facts.
-- How to preserve **original formulas** in the separate output workbook without calculating or overwriting them.
-- How conversion handles `int`/finite `float`/text/null and rejects or records unsupported booleans, time/date, Excel error cells and non-finite values based on the current `RuntimeValue` contract; do not silently stringify identifiers or truncate execution values.
+The profiler and execution reader intentionally use different conversion
+rules. Profile samples are bounded and may be truncated for LLM consumption;
+execution inputs must preserve their supported values.
 
-Formula semantics must be consistent between profiling and execution. Do **not** quietly reuse the profiler's `_to_json_value` as an execution conversion: it is intentionally lossy because it truncates samples for the LLM.
+Future work may introduce an explicit cached-formula-value policy with
+staleness and availability checks. Formula evaluation is not implemented.
 
-## 6. Invariants and validation tests for M3
+## 6. Acceptance invariants and validation coverage
 
-- A single confirmed table selection is used consistently by **profile, plan, job records and result writer**.
-- Unsupported or ambiguous table layouts fail closed rather than enriching the wrong table.
-- Source cells, other worksheets, unrelated regions and supported formatting are preserved; output is a **separate** artifact. No implicit writes to nonempty target cells.
-- Record-to-original-row mapping survives empty rows, repeated values, row-level errors, per-job deduplication and decision review.
-- At least these fixture categories: A1 table; B6 offset; two adjacent tables; no/duplicate headers; blank rows; formulas with and without saved cached results; malformed workbook; merged headers; preservation of an unrelated worksheet.
-- Resource control: candidate scan and record reader are bounded and avoid sending the entire workbook to the planner. Large used ranges, styled empties and malicious ZIP/workbook input need explicit admission limits.
-- A discovery confidence score (if added) must not be accepted as factual proof or trigger irreversible writes.
+The following invariants define the intended acceptance contract.
+The initial M3 implementation covers explicit table selection,
+row-coordinate mapping, safe output targets, and preservation of
+supported workbook content through automated tests.
 
-## 7. Implementation planning (not a claim of delivered functionality)
+Not all listed scenarios are fully validated. In particular, advanced
+Excel structures, resource admission limits, and the complete
+1,000-row Excel benchmark remain subject to further acceptance work.
 
-Proposed next small local steps, with owner review at each contract boundary:
+### Acceptance checklist
 
-1. Document and test the existing A1 header-validation behavior (shared `validate_excel_headers` is under **local development**, not on `main` as of this proposal).
-2. Define an immutable, typed `TableSelection` and write tests for explicit A1/B6 selections, bounds and multiple logical tables.
-3. Refactor the existing `profile_worksheet` to accept a selected region **without changing legacy A1 calls**, and reuse the same header-validation helper.
-4. Implement `read_input_records` only for confirmed, valid selections, retaining a reversible row-coordinate map outside the core execution contract.
-5. Add safe workbook output, resolution manifest, CLI and independent evaluation in subsequent M3 slices; only then consider more autonomous discovery.
+- Profiling, plan validation, record reading, and output mapping
+  use the same explicitly selected table region.
+- Unsupported or ambiguous table layouts must fail safely.
+- Original source files remain unchanged.
+- Existing values, formulas, unrelated worksheets, and supported
+  formatting are preserved.
+- Physical row mappings remain correct across blank rows,
+  repeated values, and failed operations.
+- Input and output processing respect configured resource limits.
+- Automated tests cover offset tables, empty rows, existing
+  output values, formulas, and unrelated workbook content.
+- A complete 1,000-row Excel benchmark is required for M3 acceptance.
 
-**Design questions for review:** Does MVP need a named-Excel-Table selection before explicit range selection? Which shapes/merged headers are supported? Are hidden rows included by default? Can a formula be a required input value? Should the first slice select **one table per job** and leave multi-table joins for later? These remain **open** until agreed; this document records a proposed direction, not an implementation decision.
+## 7. Delivery history and remaining work
+
+### Delivered
+
+- PR #78: Explicit TableSelection, shared header validation,
+  selected-region profiling, and typed input records.
+- PR #79: Safe Excel output, end-to-end execution CLI, audited
+  resolution reports, and approval-based resume for Wikidata mountains.
+
+### Remaining M3 work
+
+1. Complete the Capitals Excel end-to-end acceptance scenario.
+2. Add explicit destination-unit validation for Quantity values (#20).
+3. Finalize the supported workbook preservation contract (#21).
+4. Implement independent numeric and entity-resolution evaluation (#66).
+5. Execute and document a 1,000-row Excel benchmark.
+6. Update the M3 acceptance report and close Epic #4 after verification.
+
+### Deferred capabilities
+
+Automatic table discovery, named-table selection, complex worksheet
+normalization, multi-table joins, and configurable formula execution
+are outside the initial M3 delivery scope.
+
+The original architectural proposal informed PRs #78 and #79.
+Further extensions must preserve the separation between Excel adapters,
+the deterministic execution engine, and provider-specific resolution.
+
