@@ -196,8 +196,9 @@ row-coordinate mapping, safe output targets, and preservation of
 supported workbook content through automated tests.
 
 Not all listed scenarios are fully validated. In particular, advanced
-Excel structures, resource admission limits, and the complete
-1,000-row Excel benchmark remain subject to further acceptance work.
+Excel structures, resource admission limits, remain subject to further acceptance work. The controlled 1,000-row Excel
+benchmark was subsequently implemented in PR #82; this is not an
+independent provider-accuracy evaluation.
 
 ### Acceptance checklist
 
@@ -222,6 +223,8 @@ Excel structures, resource admission limits, and the complete
   selected-region profiling, and typed input records.
 - PR #79: Safe Excel output, end-to-end execution CLI, audited
   resolution reports, and approval-based resume for Wikidata mountains.
+- PR #81: Capitals audited resolution and Excel end-to-end integration.
+- PR #82: Scenario-driven offline Excel end-to-end benchmark.
 
 ### Remaining M3 work
 
@@ -229,7 +232,10 @@ Excel structures, resource admission limits, and the complete
 2. Add explicit destination-unit validation for Quantity values (#20).
 3. Finalize the supported workbook preservation contract (#21).
 4. Implement independent numeric and entity-resolution evaluation (#66).
-5. Execute and document a 1,000-row Excel benchmark.
+5. **Delivered (PR #82):** reproducible offline Excel benchmark with up to
+   1,000 rows, workbook preservation, deterministic fixture verification,
+   execution metrics and audited source-row links. Independent factual
+   accuracy evaluation remains open.
 6. Update the M3 acceptance report and close Epic #4 after verification.
 
 ### Deferred capabilities
