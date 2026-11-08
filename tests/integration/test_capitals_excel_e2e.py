@@ -193,6 +193,20 @@ def test_capitals_excel_pipeline_preserves_workbook_and_audit(
         assert isinstance(distance, (int, float))
         assert distance == pytest.approx(1203.9890563606518, abs=0.001)
 
+        # External reference is independent of the mocked Open-Meteo payload:
+        # official Berlin City Hall and catalogued Kyiv coordinates.
+        references = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "benchmarks/references/m3_external_smoke.json"
+            ).read_text(encoding="utf-8")
+        )
+        baseline = references["references"]["berlin_kyiv"]
+        assert distance == pytest.approx(
+            baseline["expected_distance_km"],
+            abs=baseline["tolerance_km"],
+        )
+
         assert sheet["F2"].value == "=1+2"
         assert enriched["Notes"]["A1"].value == "Preserve this worksheet"
     finally:
