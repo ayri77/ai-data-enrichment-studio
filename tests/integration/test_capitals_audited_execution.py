@@ -2,9 +2,11 @@
 
 from tests.support.http import StubJsonTransport
 
+from ai_data_enrichment.domain.capability import Identifier
 from ai_data_enrichment.domain.enrichment_plan import (
     ColumnReference,
     EnrichmentPlan,
+    InputReference,
     PlanStep,
     StepOutputReference,
 )
@@ -177,7 +179,7 @@ def test_mixed_geocode_steps_keep_distinct_resolution_semantics() -> None:
         }
     )
 
-    inputs = {
+    inputs: dict[Identifier, InputReference] = {
         "city": ColumnReference(kind="column", name="city"),
         "country": ColumnReference(kind="column", name="country"),
     }
