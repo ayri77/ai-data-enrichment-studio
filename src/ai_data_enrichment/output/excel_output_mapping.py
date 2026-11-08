@@ -7,9 +7,9 @@ from openpyxl.utils.cell import column_index_from_string
 
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan
 from ai_data_enrichment.execution.job_models import JobExecutionResult
+from ai_data_enrichment.execution.models import Quantity
 from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.output.value_projection import project_operation_field
-from ai_data_enrichment.execution.models import Quantity
 
 
 def build_output_header_writes(
