@@ -133,6 +133,9 @@ class PlanValidator:
                 errors.extend(self._validate_inputs(step, capability, steps_by_id))
                 errors.extend(self._validate_parameters(step, capability))
 
+        # Do not short-circuit after the first bad step: report missing DAG
+        # references separately so users can repair multiple plan errors
+        # in one iteration.
         # Check reference existence separately to collect diagnostics beyond type errors.
         for step in plan.steps:
             for input_name, reference in step.inputs.items():
@@ -163,6 +166,8 @@ class PlanValidator:
                             )
                         )
 
+        # Dependency validation is structural: a plan may reference only
+        # declared steps and still be impossible to execute because of a cycle.
         # A cycle has no valid execution order, even when all referenced steps exist.
         errors.extend(self._validate_cycles(plan))
 
@@ -425,6 +430,9 @@ class PlanValidator:
             target_type = _PRIMITIVE_TYPE_MAP.get(target_column.inferred_type)
 
             if target_type is None:
+                # Profiling is advisory, not permission to overwrite cells.
+                # Unknown/mixed target columns require the runtime writer's
+                # per-cell safety checks before publishing a workbook.
                 # A mixed/unknown column cannot be reliably checked from profiling alone.
                 if target_column.inferred_type not in (
                     PrimitiveType.UNKNOWN,
