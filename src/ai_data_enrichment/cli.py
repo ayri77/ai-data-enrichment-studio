@@ -128,6 +128,8 @@ def run_enrichment(
             range_ref=range_ref,
         )
 
+        # Approval input is bound to the original workbook, plan and audit
+        # report; it is not a free-form override of arbitrary operations.
         resume_selections = {}
         previous_job_id = None
         if approvals_file is not None and source_report is not None:
@@ -145,6 +147,8 @@ def run_enrichment(
 
         registry = _build_registry()
 
+        # Provider access is explicitly enabled above. Resolution auditing
+        # is configured from the saved plan, not decided by the LLM at runtime.
         executor = build_live_executor(
             registry,
             max_rows=max_rows,
@@ -163,6 +167,8 @@ def run_enrichment(
             max_rows=max_rows,
         )
 
+        # The runner handles preflight, deterministic execution and writing
+        # a NEW workbook. Do not mutate the source in the CLI.
         result = enrichment_runner.run(
             source_path=source,
             output_path=output,
@@ -173,6 +179,8 @@ def run_enrichment(
             previous_job_id=previous_job_id,
         )
 
+        # Publish a separate immutable audit artifact for later review and
+        # workbook-bound resume; the destination is checked for conflicts.
         report = result.job_result.resolution_report
         if report is not None:
             with report_path.open("x", encoding="utf-8") as stream:
