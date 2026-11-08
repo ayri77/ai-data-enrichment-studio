@@ -5,6 +5,7 @@ from tests.support.http import StubJsonTransport as StubTransport
 
 from ai_data_enrichment.execution.models import GeoPoint
 from ai_data_enrichment.providers.open_meteo import (
+    GEOCODING_RESULT_LIMIT,
     GEOCODING_URL,
     OpenMeteoGeocodingHandler,
 )
@@ -48,7 +49,7 @@ def test_resolves_berlin_with_country_context() -> None:
             {
                 "name": "Berlin",
                 "countryCode": "DE",
-                "count": "10",
+                "count": str(GEOCODING_RESULT_LIMIT),
                 "language": "en",
                 "format": "json",
             },

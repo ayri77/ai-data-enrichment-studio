@@ -15,7 +15,7 @@ from pydantic import ValidationError
 from ai_data_enrichment.execution.models import GeoPoint, OperationResult, RuntimeValue
 from ai_data_enrichment.providers.http_results import transport_failure_result
 from ai_data_enrichment.providers.http_transport import JsonTransport, JsonTransportError
-from ai_data_enrichment.providers.open_meteo import GEOCODING_URL
+from ai_data_enrichment.providers.open_meteo import GEOCODING_RESULT_LIMIT, GEOCODING_URL
 from ai_data_enrichment.providers.open_meteo_candidates import normalize_open_meteo_candidates
 from ai_data_enrichment.resolution.engine import ResolutionEngine
 from ai_data_enrichment.resolution.geographic import GeographicRankingStrategy
@@ -49,12 +49,23 @@ class OpenMeteoResolutionService:
         *,
         inputs: Mapping[str, RuntimeValue],
         policy: ResolutionPolicy,
+        parameters: Mapping[str, str] | None = None,
     ) -> GeocodingResolutionOutcome:
         """Resolve a geocoding input with a caller-controlled, versioned policy.
 
         This is intentionally *not* a CapabilityHandler yet: silently discarding
         a report while accepting a ranked result would break audit guarantees.
         """
+        params = parameters if parameters is not None else {}
+
+        if set(params) - {"required_role"}:
+            raise ValueError("Unregistered geocoding resolution parameter.")
+
+        required_role = params.get("required_role")
+
+        if required_role is not None and required_role != "country_capital":
+            raise ValueError("Unsupported required geographic role.")
+
         unknown = set(inputs) - {"city", "country", "administrative_area"}
         if unknown:
             raise ValueError("Unregistered geocoding resolution input.")
@@ -74,17 +85,18 @@ class OpenMeteoResolutionService:
         except LookupError as exc:
             raise ValueError("Resolution requires a recognized country.") from exc
 
+        context = [ResolutionAttribute(name="country_code", value=country_code)]
+
+        if area is not None:
+            context.append(ResolutionAttribute(name="administrative_area", value=area))
+
+        if required_role is not None:
+            context.append(ResolutionAttribute(name="required_role", value=required_role))
+
         query = ResolutionQuery(
             name=city.strip(),
             entity_type="city",
-            context=(
-                (ResolutionAttribute(name="country_code", value=country_code),)
-                if area is None
-                else (
-                    ResolutionAttribute(name="country_code", value=country_code),
-                    ResolutionAttribute(name="administrative_area", value=area),
-                )
-            ),
+            context=tuple(context),
         )
 
         try:
@@ -93,7 +105,7 @@ class OpenMeteoResolutionService:
                 params={
                     "name": city.strip(),
                     "countryCode": country_code,
-                    "count": "10",
+                    "count": str(GEOCODING_RESULT_LIMIT),
                     "language": "en",
                     "format": "json",
                 },
@@ -128,7 +140,8 @@ class OpenMeteoResolutionService:
                 city=city.strip(),
                 country_code=country_code,
                 administrative_area=area,
-                result_limit=10,
+                result_limit=GEOCODING_RESULT_LIMIT,
+                required_role=required_role,
             )
         except (ValueError, ValidationError):
             return self._invalid_response(query, policy)

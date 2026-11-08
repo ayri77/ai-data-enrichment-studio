@@ -43,6 +43,11 @@ class GeographicRankingStrategy:
         query = _attributes(candidate_set.query.context)
         expected_country = query.get("country_code")
         expected_area = query.get("administrative_area")
+        expected_role = query.get("required_role")
+
+        if expected_role is not None and expected_role != "country_capital":
+            raise ValueError("Unsupported required geographic role.")
+
         if not isinstance(expected_country, str) or not expected_country.strip():
             raise ValueError("Geographic query must include a country_code.")
         if expected_area is not None and (
@@ -79,6 +84,8 @@ class GeographicRankingStrategy:
                 actual_admin1=str(facts["administrative_area"]),
             ):
                 outcomes[key] = ("excluded", ("administrative_area_mismatch",))
+            elif expected_role is not None and facts.get("administrative_role") != expected_role:
+                outcomes[key] = ("excluded", ("required_role_mismatch",))
             else:
                 eligible.append(candidate)
                 outcomes[key] = ("eligible", ("verified_context_match",))
