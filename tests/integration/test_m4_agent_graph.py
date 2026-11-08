@@ -202,6 +202,41 @@ class FakePlanner:
         )
 
 
+class FakeRepairer:
+    """Return successive repair proposals and record validation feedback."""
+
+    def __init__(self, proposals: list[EnrichmentPlan]) -> None:
+        self.proposals = iter(proposals)
+        self.calls = 0
+        self.diagnostics: list[list[str]] = []
+
+    def repair(
+        self,
+        *,
+        plan: EnrichmentPlan,
+        validation: ValidationResult,
+        dataset_profile: DatasetProfile,
+        instruction: str | None,
+    ) -> EnrichmentPlan:
+        self.calls += 1
+
+        assert not validation.valid
+        assert dataset_profile.dataset_id == "capitals"
+
+        self.diagnostics.append([error.code for error in validation.errors])
+
+        return next(self.proposals)
+
+
+def make_invalid_plan() -> EnrichmentPlan:
+    """Replace one registered capability with an unsupported operation."""
+    plan = make_plan()
+
+    invalid_step = plan.steps[0].model_copy(update={"capability": "unknown_capability"})
+
+    return plan.model_copy(update={"steps": [invalid_step, *plan.steps[1:]]})
+
+
 def test_valid_plan_reaches_executor_once() -> None:
     """The graph validates a supplied plan before execution."""
     executor = FakeExecutor()
@@ -325,4 +360,133 @@ def test_unsupported_request_stops_before_execution() -> None:
     assert result["status"] == "rejected"
     assert "No registered capability" in result["error"]
     assert planner.calls == 1
+    assert executor.calls == 0
+
+
+def test_repair_succeeds_on_first_attempt() -> None:
+    """One successful repair is revalidated before execution."""
+    executor = FakeExecutor()
+    repairer = FakeRepairer([make_plan()])
+
+    graph = build_agent_graph(
+        registry=make_registry(),
+        executor=executor,
+        repairer=repairer,
+        max_repair_attempts=2,
+    )
+
+    result = graph.invoke(
+        {
+            "plan": make_invalid_plan(),
+            "dataset_profile": make_profile(),
+            "records": make_records(),
+        }
+    )
+
+    assert result["status"] == "completed"
+    assert result["repair_attempts"] == 1
+    assert result["validation"].valid
+    assert repairer.calls == 1
+    assert executor.calls == 1
+
+    assert "UNSUPPORTED_CAPABILITY" in repairer.diagnostics[0]
+
+
+def test_repair_succeeds_on_second_attempt() -> None:
+    """A second proposal may succeed within the configured budget."""
+    executor = FakeExecutor()
+    repairer = FakeRepairer(
+        [
+            make_invalid_plan(),
+            make_plan(),
+        ]
+    )
+
+    graph = build_agent_graph(
+        registry=make_registry(),
+        executor=executor,
+        repairer=repairer,
+        max_repair_attempts=2,
+    )
+
+    result = graph.invoke(
+        {
+            "plan": make_invalid_plan(),
+            "dataset_profile": make_profile(),
+            "records": make_records(),
+        }
+    )
+
+    assert result["status"] == "completed"
+    assert result["repair_attempts"] == 2
+    assert result["validation"].valid
+    assert repairer.calls == 2
+    assert executor.calls == 1
+
+
+def test_repair_budget_exhausted() -> None:
+    """Repeatedly invalid proposals must never reach the executor."""
+    executor = FakeExecutor()
+    repairer = FakeRepairer(
+        [
+            make_invalid_plan(),
+            make_invalid_plan(),
+        ]
+    )
+
+    graph = build_agent_graph(
+        registry=make_registry(),
+        executor=executor,
+        repairer=repairer,
+        max_repair_attempts=2,
+    )
+
+    result = graph.invoke(
+        {
+            "plan": make_invalid_plan(),
+            "dataset_profile": make_profile(),
+            "records": make_records(),
+        }
+    )
+
+    assert result["status"] == "rejected"
+    assert result["repair_attempts"] == 2
+    assert not result["validation"].valid
+    assert repairer.calls == 2
+    assert executor.calls == 0
+
+
+def test_malformed_repair_is_rejected() -> None:
+    """A repair service failure must not bypass validation."""
+    executor = FakeExecutor()
+
+    class InvalidRepairer:
+        def repair(
+            self,
+            *,
+            plan: EnrichmentPlan,
+            validation: ValidationResult,
+            dataset_profile: DatasetProfile,
+            instruction: str | None,
+        ) -> EnrichmentPlan:
+            raise ValueError("Invalid repaired plan")
+
+    graph = build_agent_graph(
+        registry=make_registry(),
+        executor=executor,
+        repairer=InvalidRepairer(),
+        max_repair_attempts=2,
+    )
+
+    result = graph.invoke(
+        {
+            "plan": make_invalid_plan(),
+            "dataset_profile": make_profile(),
+            "records": make_records(),
+        }
+    )
+
+    assert result["status"] == "rejected"
+    assert result["repair_attempts"] == 1
+    assert "invalid proposal" in result["error"]
     assert executor.calls == 0
