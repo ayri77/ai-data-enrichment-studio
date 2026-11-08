@@ -110,6 +110,8 @@ class JobExecutor:
                 f"configurations={missing_configs}."
             )
 
+        # Audited capabilities are opt-in and require paired policy/report
+        # bindings. Missing policies must fail before any provider can run.
         audited = set(self._resolution_services)
         if audited != set(self._resolution_policies):
             raise ValueError("Audited resolution services require matching policies.")
@@ -219,6 +221,8 @@ class JobExecutor:
         ordinary_memo_policy = self._policy.model_copy(
             update={"persistent_cache_ttls": ordinary_ttls}
         )
+        # Ordinary memo entries and audited result/report pairs compete for
+        # ONE job-wide capacity; this is a retain-until-full budget, not LRU.
         shared_memo_capacity = MemoCapacity(self._policy.max_memoized_results)
         memo = JobMemoization(
             ordinary_memo_policy,
@@ -230,6 +234,9 @@ class JobExecutor:
         wrapped_handlers: dict[str, CapabilityHandler] = {}
         audited_handlers: dict[str, AuditedResolutionHandler] = {}
         collector = ResolutionAuditCollector() if audited else None
+        # Build one handler per capability before walking rows. Audited
+        # handlers preserve decision reports; ordinary handlers may use
+        # memoization and an explicitly approved fallback provider.
         for cap in capabilities:
             primary_id = self._selected_providers[cap]
             if cap in audited:
@@ -323,13 +330,17 @@ class JobExecutor:
                     else None
                 ),
             )
+        # Row/step-scoped approved handlers take precedence over shared
+        # capability handlers. The DAG itself stays provider-agnostic.
         executor = DAGExecutor(wrapped_handlers)
 
         results: list[RecordExecution] = []
         statuses = {"success": 0, "partial": 0, "failure": 0}
         for start in range(0, len(prepared), self._policy.batch_size):
             for record in prepared[start : start + self._policy.batch_size]:
-
+                # The observer is called after each audited DAG step, including
+                # memo hits: attach the paired decision to THIS source row.
+                # Audit deduplication later combines reports, not row links.
                 def observe(
                     step_id: str,
                     capability: str,
