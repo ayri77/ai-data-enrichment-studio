@@ -74,9 +74,9 @@ flowchart TD
 - **Efficiency:** deduplicate repeated lookups, reuse suitable cached results, and respect provider limits.
 - **Independent evaluation:** measure correctness, coverage, workbook preservation, latency, and costs against separate reference data.
 
-These principles guide the implemented architecture. Some capabilities,
-including independent output evaluation, agentic recovery, and the web
-application, remain under development.
+These principles guide the implemented architecture. Bounded plan repair and
+whole-job execution guards are implemented, while durable mid-DAG recovery,
+independent output evaluation, and the web application remain future work.
 
 ## Current functionality
 
@@ -97,6 +97,7 @@ Implemented:
 - Opt-in shared Resolution Engine with deterministic geographic ranking, bounded Wikidata candidate verification, and typed `ResolutionReport` (strict/abstaining by default).
 - Opt-in JobExecutor audit: per-record/step links, safe in-job reuse, separate policy-aware SQLite storage of paired results and decision reports.
 - Bounded LangGraph orchestration with optional LLM plan repair, explicit execution outcome classification, and an opt-in SQLite whole-job execution journal (see [M4-3 recovery scope](docs/16-m4-controlled-recovery.md)).
+- Reproducible offline LangGraph happy/repair developer demo with JSON node traces, JobExecutor metrics and optional LangSmith tracing (see [M4-4 acceptance](docs/17-m4-agent-acceptance.md)).
 - Automated tests, Ruff, Pyright, and GitHub Actions CI.
 - Excel input adapter with typed records and original worksheet row mapping.
 - Safe Excel output adapter that creates a separate workbook, rejects occupied
@@ -122,6 +123,25 @@ Not implemented yet:
   grouped review questions, and selective dependent-step replay.
 - Durable LangGraph node checkpointing and automatic mid-DAG resume (deferred; see [M4-3 recovery scope](docs/16-m4-controlled-recovery.md)).
 - Web application, interactive Review Workspace, and deployment.
+
+### Agentic workflow developer demo (M4)
+
+Two offline, deterministic scenarios exercise the real LangGraph validator and
+JobExecutor, with fixture geocoding and local distance calculation:
+
+```powershell
+uv run python -m scripts.demo_m4_agent --mode happy
+uv run python -m scripts.demo_m4_agent --mode repair
+```
+
+The second mode includes validation rejection, a bounded repair attempt and
+mandatory revalidation. The JSON report includes node transitions, diagnostics,
+repair count, final status and job metrics. Optional LangSmith cloud tracing
+can be enabled via `.env` with `LANGSMITH_ENDPOINT` set for the correct
+region (EU or US); it is not needed for tests or offline use.
+See [M4-4 acceptance and tracing](docs/17-m4-agent-acceptance.md) and
+[execution recovery limits](docs/16-m4-controlled-recovery.md). This demo
+does not call an LLM or write an Excel workbook.
 
 ### In-memory execution (M2)
 
