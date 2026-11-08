@@ -1,0 +1,15 @@
+
+{
+    "schema_version": "1.0",
+    "id": "capitals_repeated",
+    "description": "Repeated Berlin-Kyiv capital pairs",
+    "rows": 1000,
+    "dataset": "capitals",
+    "unique_locations": 2,
+    "distribution": "alternating",
+    "resolution_strategy": "strict",
+    "required_role": "country_capital",
+    "memo_capacity": 1000,
+    "fixture": "capitals.json"
+  }
+  
