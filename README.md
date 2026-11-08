@@ -6,32 +6,21 @@
 ![Python](https://img.shields.io/badge/Python-3.12%2B-blue)
 
 
-> **Status: active development — M1 and M2 complete; M3 Excel execution and offline benchmark implemented; final M3 acceptance remains open.**
+> **Status: active development — M1, M2, and the bounded M3 Core MVP complete.**
 >
-> M1 delivers the LLM Planner, typed enrichment plans, and deterministic
-> validation. M2 provides the DAG execution engine, registered providers,
-> bounded execution, caching, reliability controls, and audited entity resolution.
+> M3 delivers validated Excel I/O, CLI execution, audited entity resolution,
+> a mountain Review → Approve → Resume example, Capitals E2E, independent
+> **smoke-level** references for both academic scenarios, and the offline
+> 1,000-row Excel benchmark.
 >
-> M3 now supports explicit Excel table selection, execution of saved plans
-> through the CLI, workbook-preserving output, and audited resolution reports.
-> Human-in-the-loop Review → Approve → Resume is implemented for audited
-> Wikidata mountain resolution (PR #79).
+> **Limits:** unit checks are enforced when `OutputMapping.expected_unit`
+> is declared; occupied cells are never overwritten. Large-sample factual
+> accuracy evaluation, generic grouped review/export, strict unit-declaration
+> mode, and automatic unit conversion remain tracked enhancements.
 >
-> **M3 acceptance is not yet complete.** The Capitals offline Excel E2E
-> benchmark (including 1,000-row operation and workbook checks) is implemented.
-> Remaining work includes independent ground-truth evaluation of the enriched
-> values, destination-unit compatibility validation (#20), and review of
-> the outstanding M3 acceptance and review/export requirements (#4, #66).
-> Offline fixture agreement is not a substitute for independent accuracy evidence.
->
-> See [M3 core acceptance](docs/15-m3-core-acceptance.md) for the
-smoke-level independent references, explicit Quantity unit checks,
-safe Excel write boundary and deferred non-core requirements.
-
-See [M2 acceptance](docs/12-m2-acceptance.md),
-> [M3 Epic](https://github.com/ayri77/ai-data-enrichment-studio/issues/4),
-> and the [Mountain Resume demo](demo/README.md).
-
+> See [M3 Core Acceptance](docs/15-m3-core-acceptance.md),
+> [M3 Epic #4](https://github.com/ayri77/ai-data-enrichment-studio/issues/4),
+> and [Mountain Resume demo](demo/README.md).
 
 ## Why this project?
 
@@ -434,20 +423,20 @@ artifacts remain in `demo/`.
 | Bootstrap | Package, Excel inspection, tests, CI | **Complete** |
 | **M1 — Planner & Validator** | Capability contracts, typed plans, deterministic validation, LLM planner | **Complete** |
 | **M2 — Execution Engine** | DAG execution, providers, caching, reliability, audited entity resolution | **Complete** |
-| **M3 — Excel & Evaluation** | Excel I/O and audited resume implemented; offline 1,000-row benchmark implemented; independent evaluation and remaining acceptance open | **In progress** |
+| **M3 — Excel & Evaluation** | Safe Excel I/O, audited resume, Capitals E2E, curated external reference checks, offline 1,000-row benchmark | **Core complete; extensions tracked** |
 | **M4 — Agentic Orchestration** | LangGraph, conditional recovery, bounded replanning, optional LLM clarification | Planned |
 | **M5 — Portfolio Application** | Organization enrichment, web UI, Review Workspace, background jobs, deployment | Future |
 
 The CLI supports workbook inspection, plan generation, validation,
 planning evaluation, and execution of saved plans with Excel output.
 
-M3 has delivered the Excel execution pipeline, audited
-human-in-the-loop resume, and reproducible 1,000-row offline Excel
-benchmark. Independent factual evaluation and outstanding M3 acceptance
-criteria must be assessed before closing Epic #4.
+The M3 **Core MVP** was accepted after PR #89 and CI. The external
+reference checks are two representative examples, **not** population
+accuracy estimates. Advanced review and evaluation extensions remain
+tracked under #20, #21, #22 and #66; they do not block M4.
 
-See [M3 Epic #4](https://github.com/ayri77/ai-data-enrichment-studio/issues/4)
-for acceptance criteria and remaining work.
+See the [M3 acceptance report](docs/15-m3-core-acceptance.md) and
+[M3 Epic #4](https://github.com/ayri77/ai-data-enrichment-studio/issues/4).
 
 ## Technical documentation
 
