@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 from json import dumps
-from typing import Protocol
+from typing import Protocol, cast
 
 from ai_data_enrichment.domain.enrichment_plan import PlanStep
 from ai_data_enrichment.execution.contracts import CapabilityHandler
@@ -35,9 +35,13 @@ from ai_data_enrichment.resolution.sqlite_cache import (
 
 _RESOLVER_VERSION = "audited-resolution-engine:v1"
 _APPROVED_PARAMETERS = {
-    "geocode": {},
     "resolve_entity": {"entity_type": "mountain"},
 }
+
+_GEOCODE_PARAMETERS = (
+    {},
+    {"required_role": "country_capital"},
+)
 
 
 class ResolutionOutcome(Protocol):
@@ -53,6 +57,18 @@ class ResolutionService(Protocol):
 
     def resolve(
         self, *, inputs: Mapping[str, RuntimeValue], policy: ResolutionPolicy
+    ) -> ResolutionOutcome: ...
+
+
+class ParameterizedResolutionService(ResolutionService, Protocol):
+    """Resolution service accepting validated step parameters."""
+
+    def resolve(
+        self,
+        *,
+        inputs: Mapping[str, RuntimeValue],
+        policy: ResolutionPolicy,
+        parameters: Mapping[str, str] | None = None,
     ) -> ResolutionOutcome: ...
 
 
@@ -87,19 +103,44 @@ def effective_configuration_id(configuration_id: str, policy: ResolutionPolicy) 
 
 
 class _ResolutionInvoker:
-    """Call the provider once; return only operation to request-budget adapter."""
+    """Call an approved resolution provider and retain its paired report."""
 
-    def __init__(self, service: ResolutionService, policy: ResolutionPolicy) -> None:
+    def __init__(
+        self,
+        service: ResolutionService,
+        policy: ResolutionPolicy,
+        capability_id: str,
+    ) -> None:
         self.service = service
         self.policy = policy
+        self.capability_id = capability_id
         self.latest: ResolutionCacheHit | None = None
 
     def execute(
-        self, *, inputs: Mapping[str, RuntimeValue], parameters: Mapping[str, str]
+        self,
+        *,
+        inputs: Mapping[str, RuntimeValue],
+        parameters: Mapping[str, str],
     ) -> OperationResult:
         self.latest = None
-        result = self.service.resolve(inputs=inputs, policy=self.policy)
-        self.latest = ResolutionCacheHit(operation=result.operation, report=result.report)
+
+        if self.capability_id == "geocode":
+            service = cast(ParameterizedResolutionService, self.service)
+            result = service.resolve(
+                inputs=inputs,
+                policy=self.policy,
+                parameters=parameters,
+            )
+        else:
+            result = self.service.resolve(
+                inputs=inputs,
+                policy=self.policy,
+            )
+
+        self.latest = ResolutionCacheHit(
+            operation=result.operation,
+            report=result.report,
+        )
         return result.operation
 
 
@@ -134,7 +175,7 @@ class AuditedResolutionHandler:
         persistent_cache: SQLiteResolutionCache | None,
         wrap_provider: "ProviderWrapper | None" = None,
     ) -> None:
-        if capability_id not in _APPROVED_PARAMETERS:
+        if capability_id not in {*_APPROVED_PARAMETERS, "geocode"}:
             raise ValueError("Unsupported audited resolution capability.")
         if not capability_version.strip() or not provider_version.strip():
             raise ValueError("Audited resolution requires explicit capability/provider versions.")
@@ -149,7 +190,11 @@ class AuditedResolutionHandler:
         self._job_policy = job_policy
         self._shared_capacity = shared_capacity
         self._cache = persistent_cache
-        self._invoker = _ResolutionInvoker(service, policy)
+        self._invoker = _ResolutionInvoker(
+            service,
+            policy,
+            capability_id,
+        )
         self._provider_handler: CapabilityHandler = (
             wrap_provider(self._invoker) if wrap_provider is not None else self._invoker
         )
@@ -168,8 +213,14 @@ class AuditedResolutionHandler:
     def execute(
         self, *, inputs: Mapping[str, RuntimeValue], parameters: Mapping[str, str]
     ) -> OperationResult:
-        if dict(parameters) != _APPROVED_PARAMETERS[self.capability_id]:
+        if self.capability_id == "geocode":
+            valid = dict(parameters) in _GEOCODE_PARAMETERS
+        else:
+            valid = dict(parameters) == _APPROVED_PARAMETERS[self.capability_id]
+
+        if not valid:
             raise ValueError("Unexpected parameters for audited resolution.")
+
         digest = persistent_key_digest(
             capability_id=self.capability_id,
             capability_version=self._capability_version,

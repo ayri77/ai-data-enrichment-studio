@@ -8,6 +8,7 @@ from ai_data_enrichment.execution.job_models import JobExecutionPolicy
 from ai_data_enrichment.providers.geodesic import GeodesicDistanceHandler
 from ai_data_enrichment.providers.http_transport import UrllibJsonTransport
 from ai_data_enrichment.providers.open_meteo import OpenMeteoGeocodingHandler
+from ai_data_enrichment.providers.open_meteo_resolution import OpenMeteoResolutionService
 from ai_data_enrichment.providers.registry import ProviderRegistry
 from ai_data_enrichment.providers.wikidata import (
     WikidataElevationHandler,
@@ -27,6 +28,7 @@ def build_live_executor(
     max_rows: int = 20,
     audit_mountains: bool = False,
     resume_selections: Mapping[tuple[str, str], ResumeSelection] | None = None,
+    audit_capitals: bool = False,
 ) -> JobExecutor:
     """Bind built-in capabilities to explicitly approved providers."""
 
@@ -90,24 +92,46 @@ def build_live_executor(
                 (capability_id, provider_id) for capability_id, provider_id in selected.items()
             ),
         ),
-        capability_versions=({"resolve_entity": "1.0"} if audit_mountains else {}),
-        provider_versions=({"resolve_entity": "wikidata-v1"} if audit_mountains else {}),
-        resolution_services=(
-            {"resolve_entity": WikidataMountainResolutionService(transport)}
-            if audit_mountains
-            else {}
-        ),
-        resolution_policies=(
-            {
-                "resolve_entity": ResolutionPolicy(
-                    policy_id="mountain_strict",
-                    version="1.0",
-                    strategy="strict",
-                )
-            }
-            if audit_mountains
-            else {}
-        ),
+        capability_versions={
+            **({"resolve_entity": "1.0"} if audit_mountains else {}),
+            **({"geocode": "1.1"} if audit_capitals else {}),
+        },
+        provider_versions={
+            **({"resolve_entity": "wikidata-v1"} if audit_mountains else {}),
+            **({"geocode": "open-meteo-v1"} if audit_capitals else {}),
+        },
+        resolution_services={
+            **(
+                {"resolve_entity": WikidataMountainResolutionService(transport)}
+                if audit_mountains
+                else {}
+            ),
+            **({"geocode": OpenMeteoResolutionService(transport)} if audit_capitals else {}),
+        },
+        resolution_policies={
+            **(
+                {
+                    "resolve_entity": ResolutionPolicy(
+                        policy_id="mountain_strict",
+                        version="1.0",
+                        strategy="strict",
+                    )
+                }
+                if audit_mountains
+                else {}
+            ),
+            **(
+                {
+                    "geocode": ResolutionPolicy(
+                        policy_id="capital_strict",
+                        version="1.0",
+                        strategy="strict",
+                    )
+                }
+                if audit_capitals
+                else {}
+            ),
+        },
         approved_resolution_services={
             key: ApprovedWikidataMountainResolutionService(
                 transport,

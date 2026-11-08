@@ -149,6 +149,11 @@ def run_enrichment(
             registry,
             max_rows=max_rows,
             audit_mountains=any(step.capability == "resolve_entity" for step in plan.steps),
+            audit_capitals=any(
+                step.capability == "geocode"
+                and step.parameters.get("required_role") == "country_capital"
+                for step in plan.steps
+            ),
             resume_selections=resume_selections,
         )
 
