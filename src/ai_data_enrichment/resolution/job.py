@@ -221,6 +221,9 @@ class AuditedResolutionHandler:
         if not valid:
             raise ValueError("Unexpected parameters for audited resolution.")
 
+        # The key includes capability/provider versions, policy-scoped config,
+        # validated inputs and step parameters: changing the decision policy
+        # must not reuse a previous decision for a different request.
         digest = persistent_key_digest(
             capability_id=self.capability_id,
             capability_version=self._capability_version,
@@ -238,11 +241,15 @@ class AuditedResolutionHandler:
         binding = (self.capability_id, self.provider_id)
         memo_allowed = binding in self._job_policy.memoizable_providers
         ttl = self._job_policy.persistent_cache_ttls.get(binding)
+        # A memo hit reuses the RESULT AND its original decision report;
+        # returning the value alone would silently erase audit evidence.
         if memo_allowed and digest in self._memory:
             self._reused += 1
             self.last = self._memory[digest]
             return self.last.operation
 
+        # Persistent audited reuse is a separate paired-result store, never
+        # the ordinary OperationResult-only SQLite cache.
         if ttl is not None:
             if self._cache is None:
                 raise ValueError("Audited persistent cache is not configured.")
@@ -259,6 +266,9 @@ class AuditedResolutionHandler:
             if lookup.status == "invalid":
                 self._invalid += 1
 
+        # A cache miss reaches the approved provider. The invoker retains
+        # the paired report even though the DAG handler returns only the
+        # ordinary OperationResult contract.
         self._executed += 1
         self._invoker.latest = None
         result = self._provider_handler.execute(inputs=inputs, parameters=parameters)
@@ -300,6 +310,8 @@ class AuditedResolutionHandler:
     def _retain(self, digest: str, pair: ResolutionCacheHit, allowed: bool) -> None:
         if not allowed:
             return
+        # Capacity is shared with ordinary operation memoization. Once full,
+        # successful results are not retained; existing entries stay put.
         if self._shared_capacity.reserve():
             self._memory[digest] = pair
         else:
@@ -376,6 +388,8 @@ class ResolutionAuditCollector:
         # Include the report's content: repeated failures may yield different
         # candidate sets if a provider changes between attempts.
         report_hash = sha256(report.model_dump_json().encode()).hexdigest()
+        # Count distinct key/report combinations, NOT provider invocations.
+        # Every source row/step still gets a link even when the report is shared.
         identity = sha256(f"{operation_key}|{report_hash}".encode()).hexdigest()
         link = ResolutionRecordLink(record_id=record_id, step_id=step_id)
         previous = self._entries.get(identity)
