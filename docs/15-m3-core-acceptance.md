@@ -1,6 +1,6 @@
 # M3 Core MVP — Acceptance and Explicit Deferrals
 
-**Status:** Pending final PR #89 CI gate and sign-off.  
+**Status:** **M3 Core MVP accepted — 2026-11-08** (PR #89 merged, CI green).  
 **Scope:** Academic MVP Excel execution, deterministic validation, reproducible
 evaluation and documented constraints. This report does **not** assert
 production readiness or universal entity-resolution accuracy.
@@ -75,13 +75,15 @@ uv run --locked pytest -q
 uv run --locked python scripts/benchmark_m3_excel.py --rows 1000
 ```
 
-Record the successful PR CI and merge before marking this report
-accepted. M4 may reuse the deterministic `PlanValidator` and
+PR #89 passed GitHub CI and was merged into `main` on 2026-11-08
+(commit `08abfda01d124bc508a2763788d416dd6134bad6`).
+M4 may reuse the deterministic `PlanValidator` and
 `JobExecutor` directly; there is no need to expand benchmark
 simulators, audit schema or Excel writer before the first graph slice.
 
 ## M3 Core MVP exit decision
 
-Close Epic #4 when PR #89 CI is green and merged **with these explicit
-deferrals**. Keep #20, #21, #22 and #66 open for their remaining
-non-core-MVP scope, with no requirement to implement them before M4-1.
+**Core MVP exit accepted:** PR #89 is merged with the explicit
+non-core deferrals above. Close Epic #4, but keep #20, #21, #22 and
+#66 open as clearly non-blocking enhancements. M4-1 can begin after
+its own scope/effort review.
