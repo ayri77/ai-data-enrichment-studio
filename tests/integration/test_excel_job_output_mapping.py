@@ -224,6 +224,7 @@ def test_explicit_quantity_unit_contract(
             executed_handler_calls=1,
         ),
     )
+
     def map_output() -> dict[str, str | float]:
         return build_output_value_writes(
             plan,
