@@ -141,6 +141,7 @@ def test_capitals_excel_pipeline_preserves_workbook_and_audit(
                 step_id="distance",
                 value_field="value",
                 target_column="distance_km",
+                expected_unit="km",
             ),
         ],
         assumptions=[],
@@ -192,6 +193,19 @@ def test_capitals_excel_pipeline_preserves_workbook_and_audit(
         assert isinstance(distance, (int, float))
         assert distance == pytest.approx(1203.9890563606518, abs=0.001)
 
+        # External reference is independent of the mocked Open-Meteo payload:
+        # official Berlin City Hall and catalogued Kyiv coordinates.
+        references = json.loads(
+            (
+                Path(__file__).resolve().parents[2] / "benchmarks/references/m3_external_smoke.json"
+            ).read_text(encoding="utf-8")
+        )
+        baseline = references["references"]["berlin_kyiv"]
+        assert distance == pytest.approx(
+            baseline["expected_distance_km"],
+            abs=baseline["tolerance_km"],
+        )
+
         assert sheet["F2"].value == "=1+2"
         assert enriched["Notes"]["A1"].value == "Preserve this worksheet"
     finally:
@@ -227,6 +241,43 @@ def test_capitals_excel_pipeline_preserves_workbook_and_audit(
     assert all(
         len(operation.report.candidate_set.candidates) == 2 for operation in report.operations
     )
+
+    # Negative E2E: an explicit meter destination must not receive a
+    # kilometer Quantity, even when the numeric calculation succeeds.
+    wrong_unit_plan = plan.model_copy(
+        update={
+            "outputs": [
+                plan.outputs[0].model_copy(update={"expected_unit": "m"}),
+            ]
+        }
+    )
+    plan_file.write_text(wrong_unit_plan.model_dump_json(), encoding="utf-8")
+    incompatible_output = tmp_path / "capitals_wrong_units.xlsx"
+    incompatible_run = CliRunner().invoke(
+        app,
+        [
+            "run",
+            str(source),
+            "--plan",
+            str(plan_file),
+            "--sheet",
+            "Capitals",
+            "--range",
+            "A1:D2",
+            "--columns-file",
+            str(columns_file),
+            "--output",
+            str(incompatible_output),
+            "--allow-network",
+        ],
+    )
+    assert incompatible_run.exit_code == 2
+    assert "Output unit mismatch" in incompatible_run.output
+    assert not incompatible_output.exists()
+    assert source.read_bytes() == source_bytes
+
+    # Restore the original kilometer contract for the next failure case.
+    plan_file.write_text(plan.model_dump_json(), encoding="utf-8")
 
     # Negative E2E: a saturated Kyiv search must fail closed.
     locations["Kyiv"].extend(

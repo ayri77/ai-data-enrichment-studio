@@ -24,7 +24,11 @@
 > the outstanding M3 acceptance and review/export requirements (#4, #66).
 > Offline fixture agreement is not a substitute for independent accuracy evidence.
 >
-> See [M2 acceptance](docs/12-m2-acceptance.md),
+> See [M3 core acceptance](docs/15-m3-core-acceptance.md) for the
+smoke-level independent references, explicit Quantity unit checks,
+safe Excel write boundary and deferred non-core requirements.
+
+See [M2 acceptance](docs/12-m2-acceptance.md),
 > [M3 Epic](https://github.com/ayri77/ai-data-enrichment-studio/issues/4),
 > and the [Mountain Resume demo](demo/README.md).
 
@@ -462,6 +466,7 @@ The repository follows a **design-for-extension, implement-for-current-needs** a
 | [09 — Resolution Rollout](docs/09-resolution-rollout.md) | Work plan, issue sequence, milestone boundaries and acceptance gates (#61–#68) |
 | [10 — Resolution Report Contract](docs/10-resolution-report-contract.md) | Implemented Resolution Report v1, audited JobExecutor integration, and M3 approval-based resume |
 | [14 — Implementation Reading Guide](docs/14-implementation-reading-guide.md) | Suggested module reading order, end-to-end pipeline, and key safety/audit invariants |
+| [15 — M3 Core Acceptance](docs/15-m3-core-acceptance.md) | Core acceptance evidence, independent reference checks, limitations and explicit deferrals |
 
 Technical documentation and code are in **English**. Academic submission materials for Neoversity will be prepared in **Ukrainian**.
 

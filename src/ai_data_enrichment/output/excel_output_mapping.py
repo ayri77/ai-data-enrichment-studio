@@ -7,6 +7,7 @@ from openpyxl.utils.cell import column_index_from_string
 
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan
 from ai_data_enrichment.execution.job_models import JobExecutionResult
+from ai_data_enrichment.execution.models import Quantity
 from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.output.value_projection import project_operation_field
 
@@ -105,6 +106,19 @@ def build_output_value_writes(
             # Failed operations produce no successful cell value.
             if result.status != "success":
                 continue
+
+            # Check the typed measurement before discarding its unit.
+            # A mismatch must never become an apparently valid numeric cell.
+            if output.expected_unit is not None:
+                if output.value_field != "value" or not isinstance(result.value, Quantity):
+                    raise ValueError(
+                        f"Expected unit requires a Quantity.value output: {output.target_column}"
+                    )
+                if result.value.unit != output.expected_unit:
+                    raise ValueError(
+                        f"Output unit mismatch for {output.target_column}: "
+                        f"expected {output.expected_unit}, got {result.value.unit}"
+                    )
 
             value = project_operation_field(
                 result,

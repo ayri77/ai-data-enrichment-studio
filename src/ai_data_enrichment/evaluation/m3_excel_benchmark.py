@@ -103,6 +103,7 @@ def _build_plan(
                 step_id="distance",
                 value_field="value",
                 target_column="distance_km",
+                expected_unit="km",
             ),
         ],
         assumptions=[],

@@ -172,3 +172,116 @@ def test_rejects_invalid_row_mapping(
             row_by_record_id=row_mapping,
             output_columns={},
         )
+
+
+@pytest.mark.parametrize(
+    ("expected_unit", "actual_unit", "expected_message"),
+    [
+        ("m", "m", None),
+        ("km", "m", "Output unit mismatch"),
+    ],
+)
+def test_explicit_quantity_unit_contract(
+    expected_unit: str,
+    actual_unit: str,
+    expected_message: str | None,
+) -> None:
+    """A numeric Excel output must not silently discard a declared unit."""
+    plan = EnrichmentPlan(
+        version="1",
+        steps=[PlanStep(id="lookup", capability="elevation_lookup", inputs={}, parameters={})],
+        outputs=[
+            OutputMapping(
+                step_id="lookup",
+                value_field="value",
+                target_column="elevation",
+                expected_unit=expected_unit,
+            )
+        ],
+        assumptions=[],
+    )
+    job = JobExecutionResult(
+        records=(
+            RecordExecution(
+                record_id="Mountains!2",
+                row_result=RowExecutionResult(
+                    steps=(
+                        StepExecutionResult(
+                            step_id="lookup",
+                            result=OperationResult(
+                                status="success",
+                                value=Quantity(value=8848.86, unit=actual_unit),
+                            ),
+                        ),
+                    )
+                ),
+            ),
+        ),
+        metrics=JobExecutionMetrics(
+            total_rows=1,
+            successful_rows=1,
+            logical_operations=1,
+            executed_handler_calls=1,
+        ),
+    )
+
+    def map_output() -> dict[str, str | float]:
+        return build_output_value_writes(
+            plan,
+            job,
+            TableSelection("Mountains", "A1:A2"),
+            row_by_record_id={"Mountains!2": 2},
+            output_columns={"elevation": "B"},
+        )
+
+    if expected_message is not None:
+        with pytest.raises(ValueError, match=expected_message):
+            map_output()
+    else:
+        assert map_output() == {"B2": 8848.86}
+
+
+def test_expected_unit_rejects_nonquantity_projection() -> None:
+    """The unit contract must not be satisfied by arbitrary numeric values."""
+    plan = EnrichmentPlan(
+        version="1",
+        steps=[PlanStep(id="lookup", capability="numeric", inputs={}, parameters={})],
+        outputs=[
+            OutputMapping(
+                step_id="lookup",
+                value_field="value",
+                target_column="distance",
+                expected_unit="km",
+            )
+        ],
+        assumptions=[],
+    )
+    job = JobExecutionResult(
+        records=(
+            RecordExecution(
+                record_id="Cities!2",
+                row_result=RowExecutionResult(
+                    steps=(
+                        StepExecutionResult(
+                            step_id="lookup",
+                            result=OperationResult(status="success", value=10.0),
+                        ),
+                    )
+                ),
+            ),
+        ),
+        metrics=JobExecutionMetrics(
+            total_rows=1,
+            successful_rows=1,
+            logical_operations=1,
+            executed_handler_calls=1,
+        ),
+    )
+    with pytest.raises(ValueError, match="Expected unit requires a Quantity"):
+        build_output_value_writes(
+            plan,
+            job,
+            TableSelection("Cities", "A1:A2"),
+            row_by_record_id={"Cities!2": 2},
+            output_columns={"distance": "B"},
+        )
