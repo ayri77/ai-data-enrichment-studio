@@ -1,7 +1,11 @@
 # Resolution Report Contract v1 — Issue #61
 
-**Status:** Review candidate (models implemented in `resolution/models.py`; not connected to execution)  
-**Date:** 2026-11-03  
+**Status:** Implemented — Resolution Report v1 is integrated with the
+M2 execution engine (#61–#65). M3 adds persisted Excel audit reports
+and approved Wikidata mountain resolution resume (PR #79).
+
+**Date:** 2026-11-03
+**Updated:** 2026-11-07  
 **Architecture:** [ADR-RES-001](08-resolution-foundation.md)  
 **Follow-up wiring:** #62–#65 (M2), #66 (M3), #67 (M4), #68 (M5)
 
@@ -11,9 +15,22 @@ The existing `OperationResult` models execution as `success | failure`, carries 
 
 Resolution has a different question: *which candidate, if any, identifies the entity; how certain is the completeness of verification; what did policy or the user decide; and what still needs review?* The new report models that question without changing execution semantics.
 
-This is **not a runtime feature** yet. The classes validate/serialize structured payloads; provider adapters and the job executor do not currently produce them. The integration and audit transport are owned by #62–#65.
+The Resolution Report contract is implemented and integrated into
+the execution engine.
 
-## 2. Proposed payload hierarchy
+Provider-specific resolution services return structured candidate
+sets, verification results, decisions, and Evidence. The JobExecutor
+can attach audited resolution reports to execution results while
+preserving the original OperationResult success/failure semantics.
+
+M3 extends this foundation with persisted JSON audit reports,
+validated user approval manifests, and review-based resume for
+Wikidata mountain resolution.
+
+This does not provide general-purpose workflow checkpointing,
+automatic clarification, or unrestricted entity correction.
+
+## 2. Implemented payload hierarchy
 
 | Type | Key fields / intent |
 | --- | --- |
@@ -130,12 +147,42 @@ The example is a **proposed policy outcome**, not current Open-Meteo runtime beh
 
 No arbitrary percentage confidence threshold is part of this contract. `rank` and `reason_codes` are **explanations**, not calibrated probabilities.
 
-## 4. Example — unresolved first pass, clarification second pass
+## 4. Review → Approve → Resume workflow
 
-1. First job scans its input as supplied. It may find Berlin twice and record `needs_review`; or Mount Everest `Q513` and an unchecked alternative, recording `incomplete_verification`. A genuine exact-search no-match remains `unresolved` rather than silently corrected.
-2. The review analyzer groups identical **operation+context+policy** decisions into one question linked to every affected record; it may ask for a state column, direct source ID or a scoped rule. These questions and answers are an **M3 export/import feature**, not implemented in #61.
-3. After user input and plan validation, a second job may refer to `previous_job_id`, produce a new report revision and execute only affected operations/dependencies when supported. The chosen source must be evidence-backed.
-4. If the user ends the workflow before answering, keep a partial result and `cancelled` or `awaiting_review` job status. Unprocessed rows are **not** counted as failed or silently filled.
+The initial M3 implementation supports a validated human-in-the-loop
+resume workflow for audited Wikidata mountain resolution.
+
+1. **Initial execution:** The job searches for an entity and records
+   candidate alternatives, verification results, and source Evidence.
+   If verification is incomplete, the job enters `awaiting_review`.
+
+2. **Human approval:** The user selects a source-verified candidate.
+   An approval manifest binds the decision to the original workbook
+   checksum, source job, record, step, and operation identity.
+
+3. **Resume execution:** The CLI accepts `--approvals-file` and
+   `--source-report`. It validates the approval and re-verifies the
+   selected Wikidata entity against the current source data.
+
+4. **New audited result:** A new job references the original job
+   through `previous_job_id`. A successful approved selection records
+   `decision.basis = user_override` and retains supporting Evidence.
+
+The approved candidate bypasses text-based entity discovery, but not
+source verification. An approval cannot force acceptance of an entity
+that fails the required checks.
+
+This is a new execution using validated prior decisions, not restoration
+of a suspended JobExecutor or LangGraph checkpoint.
+
+### Deferred lifecycle capabilities
+
+Grouped clarification questions, general-purpose corrections, selective
+dependent-step replay, and durable execution checkpoints are not part
+of the initial M3 resume implementation.
+
+The following cancellation envelope is a conceptual contract example,
+not an artifact produced by the current CLI.
 
 Example partial-run envelope:
 
@@ -150,7 +197,13 @@ Example partial-run envelope:
 }
 ```
 
-This shape **represents** cancellation; it does not add pause/abort/resume behavior to the current sequential `JobExecutor`. An exported artifact must also carry the existing `JobExecutionResult` values and metrics when execution runs; the new resolution manifest complements it rather than replacing it. M3 owns file output and manifest assembly.
+The `cancelled` status is defined by the report contract, but
+interactive cancellation and restoration of partially executed jobs
+are not implemented.
+
+The current resume workflow starts a new job and retains provenance
+through `previous_job_id`. Durable checkpoints and conditional recovery
+belong to M4.
 
 ## 5. Important invariants and deferred work
 
@@ -165,13 +218,20 @@ This shape **represents** cancellation; it does not add pause/abort/resume behav
 
 ## 6. First optional context and provider normalization slice (#62)
 
+> **Implementation history:** Sections 6–8 document the incremental
+> delivery of provider normalization, ranking, and mountain verification.
+> These components were subsequently integrated with JobExecutor in
+> M2 (#65, PR #74). M3 PR #79 added CLI-based audited Excel execution
+> and approved Wikidata mountain resume.
+ 
 **Implementation status:** The `geocode` capability contract becomes v1.1 with optional `administrative_area: Text`, recognized and type-checked through the existing `PlanValidator`. A plan can bind a workbook column called `Bundesland` to that input without changing its physical header. The legacy `city` + `country` geocoder remains available and still fails closed on multiple exact-name matches.
 
 **Provider-specific Open-Meteo semantics:** Without an administrative area, the existing strict result selection is unchanged. If supplied, the region acts as a hard filter on matching provider `admin1` fields (case/space-insensitive name or recognized ISO 3166-2 region code for the same country). An unknown `admin1` among exact matches yields `CONTEXT_UNVERIFIED` rather than pretending uniqueness. Unsupported region aliases are **not** silently fuzzy-corrected. An explicitly mapped but blank cell currently yields `MISSING_VALUE` before the handler; the user may omit the optional input mapping if it is not available. Graceful per-row omission of blank optional context would require an explicit executor contract update.
 
-`normalize_open_meteo_candidates` is a **pure adapter helper**, with source-qualified GeoNames IDs, checked coordinates, region, population and known administrative roles; unrecognized feature codes do not imply an invented classification. Saturating the bounded 10-result page records `search_complete=False`. These candidate sets are not yet emitted in `JobExecutionResult` (#65).
+`normalize_open_meteo_candidates` is a **pure adapter helper**, with source-qualified GeoNames IDs, checked coordinates, region, population and known administrative roles; unrecognized feature codes do not imply an invented classification. Saturating the bounded 10-result page records `search_complete=False`. The candidate sets were initially produced by provider adapters. PR #74 subsequently integrated audited resolution results into
+JobExecutionResult through JobExecutor.
 
-**Wikidata semantics:** `normalize_wikidata_search_candidates` turns exact-label/alias search matches into `unchecked` source-qualified candidates. A result such as `Q513` is not yet a verified mountain, and a film matching the search term is not classified as a mountain merely because the user requested one. The source-specific P31/P279/P17 checks and the report wiring remain #64/#65. Search-completion metadata stays separate from identity verification.
+**Wikidata semantics:** `normalize_wikidata_search_candidates` turns exact-label/alias search matches into `unchecked` source-qualified candidates. A result such as `Q513` is not yet a verified mountain, and a film matching the search term is not classified as a mountain merely because the user requested one. Source-specific P31/P279/P17 verification and report integration were subsequently implemented in #64 and #65. Search-completion metadata stays separate from identity verification.
 
 **Cache isolation:** The unchanged operation-key logic already includes the typed `administrative_area` input when supplied, preventing a Berlin/State of Berlin result from colliding with Berlin/Schleswig-Holstein. Provider configuration/capability versions must be updated deliberately for persistent reuse.
 
@@ -192,14 +252,20 @@ The first shared `ResolutionEngine.resolve(candidate_set, policy, strategy)` acc
 
 **Opt-in provider API:** `OpenMeteoResolutionService(transport).resolve(inputs=..., policy=...)` returns an immutable `GeocodingResolutionOutcome` containing **both** a typed `OperationResult` and the corresponding `ResolutionReport` from a single bounded Open-Meteo request. Source-specific API fields are normalized in `open_meteo_candidates.py`; the shared engine does not interpret `PPLC`, `PPLA` or GeoNames payloads. Common geographic region matching now lives in `resolution/geography.py`.
 
-**Deliberate integration boundary:** The existing `OpenMeteoGeocodingHandler.execute` and `JobExecutor` still use the legacy strict path. The new opt-in service is not yet installed as a `CapabilityHandler` because that interface returns only `OperationResult` and would silently discard the audit report. #65 must integrate the paired report into the job/row/operation audit, establish policy/version-aware cache identities, and keep repeated row references. Until then, no job-level ranked geocoding is advertised as implemented.
+**Integration boundary:** The original #63 implementation kept the
+audited resolution service separate from the legacy CapabilityHandler
+interface to avoid losing structured resolution reports.
+
+PR #74 integrated the paired OperationResult and ResolutionReport
+into JobExecutor, preserving per-record audit links and policy-aware
+cache identities. Legacy strict handlers remain available.
 
 This design supports future UI examples directly: *Ask me to choose* (strict); *Suggest, don't fill* (ranked without auto-accept); *Automatically prefer a demonstrable capital and tell me* (opt-in ranked auto-accept), plus *Use this Bundesland column* as a context hard constraint. No new UX is delivered by #63.
 
 
 ## 8. Wikidata mountain verification and candidate audit (#64)
 
-**Opt-in provider service:** `WikidataMountainResolutionService(transport).resolve(inputs, policy)` produces `WikidataResolutionOutcome(operation, report)` with a source-qualified, reviewable `CandidateSet`; the existing `WikidataMountainResolver.execute` remains a strict `OperationResult` handler. As in #63, the new paired-report service is **not connected to JobExecutor, SQLite or the public CLI** until #65.
+**Opt-in provider service:** `WikidataMountainResolutionService(transport).resolve(inputs, policy)` produces `WikidataResolutionOutcome(operation, report)` with a source-qualified, reviewable `CandidateSet`; the existing `WikidataMountainResolver.execute` remains a strict `OperationResult` handler. The service was integrated with JobExecutor and the paired resolution cache in #65. PR #79 subsequently added public CLI execution and approved resume for audited Wikidata mountain resolution.
 
 **Bounded discovery:** `wikidata_search.fetch_wikidata_search` performs up to three pages of up to 50 hits, preserving observed hits and the search-complete flag. It is shared by strict and opt-in flows. If search pages cannot be exhausted, the opt-in service reports `incomplete_verification` with all observed exact name/alias matches kept `unchecked`; the strict legacy handler continues to return `INCOMPLETE_SEARCH`. Neither guesses uniqueness from page 1.
 
@@ -213,12 +279,22 @@ The opt-in service verifies at most **12 exact-label/alias candidates** per oper
 
 **Failures:** Transport, API-schema, malformed-claim and provider errors are distinct from incomplete hierarchy and genuine exhausted no-match. When a later candidate verification fails, a source-error report retains earlier verified/observed candidates but does not produce a final successful selection. No unbounded retries are introduced; existing external HTTP request budgets remain available.
 
-**Remaining M2 work:** #44 audits semantic drift and contract validation; #65 integrates report persistence, per-record dedup links, policy-aware caching and controlled end-to-end job execution. A source-API live smoke, when run, must remain explicitly opt-in and bounded; CI is fully offline.
+**M2 completion:** Provider semantic drift validation (#44) and
+audited job integration (#65) were completed and merged. M2 final
+acceptance (#37) includes deterministic offline benchmarks, regression
+tests, and provenance checks. Live source requests remain opt-in.
 
 
 ## 9. Audited job execution and paired cache (#65)
 
-**Status:** implemented as an **explicitly configured** JobExecutor capability, not yet enabled by the public CLI. The existing strict Open-Meteo and Wikidata handlers remain unchanged unless the caller supplies matching `resolution_services` / `resolution_policies` for known capabilities (`geocode` and `resolve_entity`).
+**Status:** Implemented in M2 as an explicitly configured
+JobExecutor capability. PR #79 extends this foundation with
+CLI-driven audited Excel execution and validated approval-based
+resume for Wikidata mountain resolution.
+
+The legacy strict Open-Meteo and Wikidata handlers remain available.
+Audited provider services must be explicitly configured; general-purpose
+approval workflows are not yet implemented.
 
 - `JobExecutor.execute(..., job_id=..., previous_job_id=...)` returns the ordinary `JobExecutionResult` with an **optional** `resolution_report: ResolutionJobReport`. With no audited services, the field stays `None`; existing callers work unchanged.
 - Each genuinely invoked DAG resolution step is linked to its source `record_id` and `step_id` (not every skipped dependency). Exact repeated operations with identical report content are grouped into one `ResolutionOperationAudit` with multiple `record_links`. Distinct failures for the same query are **not merged if their reports differ**.
@@ -230,4 +306,12 @@ The opt-in service verifies at most **12 exact-label/alias candidates** per oper
 - A fully iterated job may end `completed`, `awaiting_review` or `failed` depending on its audited decisions; each status retains all processed rows. The `cancelled` status exists in the v1 contract, but **actual user-initiated stop/resume behavior and incomplete-row artifacts are not implemented by #65** and remain later workflow work.
 - Offline 1000-row testing confirms operation reuse, distinct regional contexts, stable per-row provenance and expected DAG dependencies. Benchmarks and production live-provider smoke remain separately scoped to #37/#44.
 
-This section supersedes earlier *not yet connected to JobExecutor* statements for #63/#64. Full review export, corrected input import, Excel preservation and human second-pass controls remain M3 (#66); optional LLM suggestions remain M4 (#67); a usable Review Workspace remains M5 (#68).
+The M2 audited execution and paired-cache infrastructure is complete.
+M3 PR #79 adds Excel output, persisted resolution reports, and
+validated human-approved resume for Wikidata mountains.
+
+General-purpose review exports, grouped clarification questions,
+selective dependent-step replay, and independent resolution-quality
+evaluation remain open under M3 #66. Optional LLM-assisted
+clarification belongs to M4 #67; the interactive Review Workspace
+belongs to M5 #68.
