@@ -6,7 +6,7 @@
 ![Python](https://img.shields.io/badge/Python-3.12%2B-blue)
 
 
-> **Status: active development — M1 and M2 complete; M3 in progress.**
+> **Status: active development — M1 and M2 complete; M3 Excel execution and offline benchmark implemented; final M3 acceptance remains open.**
 >
 > M1 delivers the LLM Planner, typed enrichment plans, and deterministic
 > validation. M2 provides the DAG execution engine, registered providers,
@@ -17,9 +17,12 @@
 > Human-in-the-loop Review → Approve → Resume is implemented for audited
 > Wikidata mountain resolution (PR #79).
 >
-> **M3 is not yet complete.** Remaining acceptance work includes the
-> Capitals Excel end-to-end scenario, independent numeric evaluation,
-> unit-aware output validation, and a 1,000-row Excel benchmark.
+> **M3 acceptance is not yet complete.** The Capitals offline Excel E2E
+> benchmark (including 1,000-row operation and workbook checks) is implemented.
+> Remaining work includes independent ground-truth evaluation of the enriched
+> values, destination-unit compatibility validation (#20), and review of
+> the outstanding M3 acceptance and review/export requirements (#4, #66).
+> Offline fixture agreement is not a substitute for independent accuracy evidence.
 >
 > See [M2 acceptance](docs/12-m2-acceptance.md),
 > [M3 Epic](https://github.com/ayri77/ai-data-enrichment-studio/issues/4),
@@ -47,8 +50,9 @@ initial academic MVP.
 
 The Mountain Elevation workflow has been demonstrated end-to-end with a
 one-row live Wikidata example, including user approval and audited resume.
-The Capitals workflow has controlled M2 execution coverage but still
-requires full Excel end-to-end acceptance and independent evaluation.
+The Capitals workflow now has controlled offline Excel end-to-end
+coverage, including a 1,000-row benchmark. Independent ground-truth
+evaluation and the remaining M3 acceptance criteria are still open.
 
 ## Design approach
 
@@ -116,9 +120,9 @@ Not implemented yet:
 
 - Automatic discovery and selection of arbitrary Excel tables, including
   selection by structured Excel Table name.
-- Full end-to-end acceptance for the Capitals workbook.
+- Final M3 acceptance sign-off for both mandatory workbooks, including
+  independently validated reference values.
 - Independent ground-truth evaluation of enriched numeric values.
-- A complete 1,000-row Excel input-to-output benchmark.
 - Explicit destination-unit compatibility validation and conversion.
 - General-purpose approval and resume workflows for other entity types,
   grouped review questions, and selective dependent-step replay.
@@ -187,6 +191,34 @@ attempts, per-record resolution links, Evidence counts, and measured
 `JobExecutor.execute` time. It does not open network connections, read
 production data, or modify workbooks. The benchmark currently measures a
 *small number of repeated distinct queries*, not 1000 unique entities.
+
+### M3 offline Excel end-to-end benchmark (developer tool)
+
+The benchmark creates a temporary Excel workbook, executes the real
+`ExcelEnrichmentRunner` and audited resolution pipeline against validated,
+network-free Open-Meteo fixtures, and checks the output workbook, source
+immutability, execution metrics and audit row links. This measures a
+**controlled pipeline workload**, not real provider latency or independent
+ground-truth correctness.
+
+```powershell
+uv run python -m scripts.benchmark_m3_excel --scenario benchmarks/scenarios/capitals_repeated.json
+uv run python -m scripts.benchmark_m3_excel --scenario benchmarks/scenarios/unique_cities.json
+uv run python -m scripts.benchmark_m3_excel --rows 1000 --profile-memory
+```
+
+The first scenario uses repeated Berlin/Kyiv capitals; the second cycles
+through four city/country pairs. The third command uses the default capitals
+fixture and profiles peak Python allocations with `tracemalloc`.
+`logical_operations` counts per-row DAG operations;
+`executed_handler_calls` counts uncached handler invocations;
+`reused_operations` counts memo hits; `transport_calls` counts fixture
+requests (not HTTP traffic); `audit_operations` counts *deduplicated*
+resolution reports; `audit_record_step_links` counts the row/step audit
+references. A zero memo capacity disables operation-result reuse without
+removing audit links. The current benchmark validates only disabled or
+sufficiently provisioned memo capacities; intermediate capacities are not
+a supported acceptance mode.
 
 ### Reproducible M2 smoke scenarios (developer tool)
 
@@ -398,17 +430,17 @@ artifacts remain in `demo/`.
 | Bootstrap | Package, Excel inspection, tests, CI | **Complete** |
 | **M1 — Planner & Validator** | Capability contracts, typed plans, deterministic validation, LLM planner | **Complete** |
 | **M2 — Execution Engine** | DAG execution, providers, caching, reliability, audited entity resolution | **Complete** |
-| **M3 — Excel & Evaluation** | Excel I/O, CLI execution, reviewed resolution, independent evaluation, 1,000-row Excel benchmark | **In progress** |
+| **M3 — Excel & Evaluation** | Excel I/O and audited resume implemented; offline 1,000-row benchmark implemented; independent evaluation and remaining acceptance open | **In progress** |
 | **M4 — Agentic Orchestration** | LangGraph, conditional recovery, bounded replanning, optional LLM clarification | Planned |
 | **M5 — Portfolio Application** | Organization enrichment, web UI, Review Workspace, background jobs, deployment | Future |
 
 The CLI supports workbook inspection, plan generation, validation,
 planning evaluation, and execution of saved plans with Excel output.
 
-M3 has delivered the initial Excel execution pipeline and an audited
-human-in-the-loop resume workflow. Independent output evaluation,
-full acceptance of both mandatory datasets, and the 1,000-row Excel
-benchmark are still required before closing M3.
+M3 has delivered the Excel execution pipeline, audited
+human-in-the-loop resume, and reproducible 1,000-row offline Excel
+benchmark. Independent factual evaluation and outstanding M3 acceptance
+criteria must be assessed before closing Epic #4.
 
 See [M3 Epic #4](https://github.com/ayri77/ai-data-enrichment-studio/issues/4)
 for acceptance criteria and remaining work.
@@ -429,6 +461,7 @@ The repository follows a **design-for-extension, implement-for-current-needs** a
 | [08 — Resolution Foundation](docs/08-resolution-foundation.md) | Proposed hybrid architecture: source-specific candidate verification, shared policies, audit and review semantics (#61) |
 | [09 — Resolution Rollout](docs/09-resolution-rollout.md) | Work plan, issue sequence, milestone boundaries and acceptance gates (#61–#68) |
 | [10 — Resolution Report Contract](docs/10-resolution-report-contract.md) | Implemented Resolution Report v1, audited JobExecutor integration, and M3 approval-based resume |
+| [14 — Implementation Reading Guide](docs/14-implementation-reading-guide.md) | Suggested module reading order, end-to-end pipeline, and key safety/audit invariants |
 
 Technical documentation and code are in **English**. Academic submission materials for Neoversity will be prepared in **Ukrainian**.
 

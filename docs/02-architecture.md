@@ -761,20 +761,34 @@ provider policy and success-only cache. Provider P/Q IDs and GeoNames feature
 codes stay in adapters. M3 owns Excel workbook output, human review artifacts
 and numeric ground-truth evaluation; M4–M5 own orchestration and UI.
 
-## 16. Proposed M3 Excel logical-table selection boundary (not implemented)
+## 16. M3 Excel logical-table selection boundary (implemented explicit range)
 
-A **logical dataset** must not implicitly mean the entire first worksheet or
-the first row of a sheet. One workbook can have multiple worksheets and one
-sheet can have several separate tables, headers below row 1, notes, merged
-cells or an explicitly named Excel Table.
+A logical dataset is a selected rectangular table region, **not**
+implicitly the entire first worksheet or its first row. The M3
+implementation introduced an explicit `TableSelection`, reused by
+profiling and record ingestion, and validates output destinations
+before provider execution. Physical Excel row numbers are preserved in
+the source-independent record mapping.
 
-The current `inspect_workbook()` and `profile_worksheet()` both use an
-initial first-row assumption, and `JobExecutor` requires already normalized
-`InputRecord` values. M3 is defining a shared selection contract that will
-bind exactly **one selected region** across profiling, plan column validation,
-record ingestion, original-cell tracking and authorized output. An uncertain
-automatically proposed region must require confirmation, not silent execution.
+`ExcelEnrichmentRunner` coordinates the following stages:
 
-See the **proposal**, [M3 Excel Table Selection](13-m3-excel-table-selection.md).
-The full preservation and row mapping contract remains open for implementation.
-Historical conceptual questions in sections 13–14 do not supersede completed M1/M2 contracts.
+1. Reject conflicting source/output paths and profile the selected region.
+2. Validate the typed plan against that exact dataset profile.
+3. Resolve required input columns, read records and reserve output targets.
+4. Execute the validated DAG with approved providers and audit decisions.
+5. Project successful results to original Excel row coordinates and
+   publish a separate workbook without modifying the input file.
+
+PRs #78, #79 and #81 implement table selection, workbook output,
+audited resume and the Capitals Excel end-to-end execution path.
+PR #82 adds an offline, reproducible Excel benchmark up to 1,000 rows.
+The benchmark checks output values against its fixture/reference
+calculations, workbook preservation, cache counters and audit links;
+it does **not** establish independent factual-accuracy statistics.
+
+The supported contract and remaining edge cases are documented in
+[M3 Excel Table Selection](13-m3-excel-table-selection.md). Automatic
+table detection, named Excel Table selection and more advanced workbook
+structures remain outside the initial explicit-range implementation.
+Unit compatibility (#20), final M3 acceptance (#4), and extended
+review export/evaluation (#66) remain separate tracked work.
