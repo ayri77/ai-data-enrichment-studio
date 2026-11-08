@@ -68,7 +68,11 @@ class OutputMapping(PlanContract):
     target_column: str = Field(min_length=1)
     # Optional explicit unit contract for a numeric Quantity projection.
     # Never infer expected physical units from an Excel column header.
-    expected_unit: str | None = Field(default=None, min_length=1)
+    expected_unit: str | None = Field(
+        default=None,
+        min_length=1,
+        exclude_if=lambda unit: unit is None,
+    )
 
     @field_validator("target_column")
     @classmethod
