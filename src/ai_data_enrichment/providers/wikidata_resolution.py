@@ -88,6 +88,8 @@ class WikidataMountainResolutionService:
             entity_type="mountain",
             context=(ResolutionAttribute(name="country_code", value=country_code),),
         )
+        # Search first using the ORIGINAL input. Verification and ranking
+        # are subsequent stages; neither may silently repair the query.
         search = fetch_wikidata_search(self._transport, name=name)
         try:
             normalized = normalize_wikidata_search_candidates(
@@ -123,6 +125,9 @@ class WikidataMountainResolutionService:
 
         replacements: dict[str, ResolutionCandidate] = {}
         failure: OperationResult | None = None
+        # Verify exact-label candidates before weaker search matches, within
+        # the fixed provider budget. Search rank alone is not evidence that
+        # any candidate is a verified mountain in the requested country.
         ordered = sorted(
             normalized.candidates,
             key=lambda c: (
@@ -173,6 +178,8 @@ class WikidataMountainResolutionService:
                 replacements[qid] = candidate.model_copy(
                     update={"reason_codes": ("country_or_type_unverified",)}
                 )
+            # An exhausted ontology/provider verification is UNKNOWN, not
+            # proof that the entity is absent or an eligible match.
             elif checked.error_code in {"INCOMPLETE_HIERARCHY", "INCOMPLETE_VERIFICATION"}:
                 replacements[qid] = candidate.model_copy(
                     update={"reason_codes": ("hierarchy_verification_incomplete",)}
@@ -188,6 +195,8 @@ class WikidataMountainResolutionService:
             replacements.get(candidate.reference.entity_id, candidate)
             for candidate in normalized.candidates
         )
+        # The decision layer must be told when unverified candidates remain;
+        # otherwise it could infer uniqueness from a partially searched set.
         complete = all(candidate.verification != "unchecked" for candidate in candidates)
 
         if failure is not None:
