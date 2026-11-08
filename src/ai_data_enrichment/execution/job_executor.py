@@ -338,7 +338,6 @@ class JobExecutor:
         statuses = {"success": 0, "partial": 0, "failure": 0}
         for start in range(0, len(prepared), self._policy.batch_size):
             for record in prepared[start : start + self._policy.batch_size]:
-
                 # The observer is called after each audited DAG step, including
                 # memo hits: attach the paired decision to THIS source row.
                 # Audit deduplication later combines reports, not row links.
