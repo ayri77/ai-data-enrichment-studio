@@ -45,7 +45,12 @@ automatic clarification, or unrestricted entity correction.
 | `ResolutionOperationAudit` | Stable caller-provided operation identity, revision, report and **all** record/step links sharing it. |
 | `ResolutionJobReport` | Job/run identity, optional prior run, completion/review/cancellation state and row progress plus operation audit entries. |
 
-The `operation_id` is an opaque key supplied by the caller. Its stable cryptographic derivation is **not** part of the v1 schema; #65 must account for typed context, effective policy/config, provider/adapter versions and input privacy before persisting or reusing it. The `revision` tracks an operation's decision update, and `previous_job_id` links a second processing pass; M3/M4 will define durable history/override behavior.
+The `operation_id` is an opaque caller-provided identity; its
+derivation is not prescribed by the v1 report schema.
+
+M2 #65 implemented policy-aware operation identities and audited
+cache integration. The `previous_job_id` field links processing
+passes, including M3 approval-based resume.
 
 ### Resolution statuses
 
@@ -142,7 +147,7 @@ The example is a **proposed policy outcome**, not current Open-Meteo runtime beh
 - **Strict / `strict` (default):** “When two places have the same name and country, ask me to choose.” Result: Berlin remains `needs_review`. Clear for high-accuracy tasks.
 - **Ranked without auto-accept:** “Suggest the most prominent place, but let me approve.” Result: show candidates, rationale, recommendation and `needs_review` status. Candidate ordering is *not* a verified final answer.
 - **Ranked with auto-accept + prominence:** “Select a well-supported prominent place automatically, but show me where a choice was made.” Result: `auto_resolved` with alternatives. An explicit state/region is a hard constraint and overrides popularity.
-- **Additional column:** “Use `Bundesland` as the administrative region.” Binding is through a validated `administrative_area` input (planned #62); this is **input context**, not ranking preference.
+- **Additional column:** “Use `Bundesland` as the administrative region.” Binding is through a validated `administrative_area` input (implemented in #62); this is **input context**, not ranking preference.
 - **Search depth:** separate bounded application/search policy. More depth may increase cost; it does **not** turn incomplete source evidence into proven uniqueness.
 
 No arbitrary percentage confidence threshold is part of this contract. `rank` and `reason_codes` are **explanations**, not calibrated probabilities.

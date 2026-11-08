@@ -121,12 +121,12 @@ selection, profiling, record reading, execution, and output.
 3. **Dataset profiling:** `profile_worksheet()` analyzes the
    selected region and produces a bounded `DatasetProfile`.
 
-4. **Record reading:** `read_input_batch()` extracts the required
+4. **Plan validation:** the deterministic validator checks the
+   enrichment plan against the selected dataset profile.
+
+5. **Record reading:** `read_input_batch()` extracts the required
    input columns into typed records while preserving physical
    worksheet row references.
-
-5. **Plan validation:** the deterministic validator checks the
-   enrichment plan against the selected dataset profile.
 
 6. **Output preflight:** proposed output cells are validated
    before execution. Existing non-empty cells cannot be
@@ -153,7 +153,7 @@ The execution engine must continue receiving one validated
 selection, regardless of whether it originated from a user
 or a future discovery component.
 
-## 4. First delivery slice vs later support
+## 4. Implemented scope and deferred support
 
 | File shape | Current M3 support | Deferred |
 | --- | --- | --- |
@@ -198,6 +198,21 @@ supported workbook content through automated tests.
 Not all listed scenarios are fully validated. In particular, advanced
 Excel structures, resource admission limits, and the complete
 1,000-row Excel benchmark remain subject to further acceptance work.
+
+### Acceptance checklist
+
+- Profiling, plan validation, record reading, and output mapping
+  use the same explicitly selected table region.
+- Unsupported or ambiguous table layouts must fail safely.
+- Original source files remain unchanged.
+- Existing values, formulas, unrelated worksheets, and supported
+  formatting are preserved.
+- Physical row mappings remain correct across blank rows,
+  repeated values, and failed operations.
+- Input and output processing respect configured resource limits.
+- Automated tests cover offset tables, empty rows, existing
+  output values, formulas, and unrelated workbook content.
+- A complete 1,000-row Excel benchmark is required for M3 acceptance.
 
 ## 7. Delivery history and remaining work
 
