@@ -145,7 +145,19 @@ def _ranked_entity_ids(
     *,
     property_id: str,
 ) -> set[str] | OperationResult:
-    """Extract valid entity IDs from best-ranked statements."""
+    """Extract complete best-ranked references without hiding malformed/unknown types."""
+
+    for statement in statements:
+        if not isinstance(statement, dict) or statement.get("rank") not in (
+            "preferred",
+            "normal",
+            "deprecated",
+        ):
+            return OperationResult(
+                status="failure",
+                error_code="INVALID_RESPONSE",
+                message=f"Invalid {property_id} statement rank or structure.",
+            )
 
     entity_ids: set[str] = set()
 
@@ -159,8 +171,21 @@ def _ranked_entity_ids(
                 message=f"Invalid {property_id} statement structure.",
             )
 
-        if mainsnak.get("snaktype") != "value":
-            continue
+        if mainsnak.get("snaktype") in ("somevalue", "novalue"):
+            return OperationResult(
+                status="failure",
+                error_code="INCOMPLETE_VERIFICATION",
+                message=f"Unknown or non-value best-ranked {property_id} reference.",
+            )
+        if (
+            mainsnak.get("snaktype") != "value"
+            or mainsnak.get("property", property_id) != property_id
+        ):
+            return OperationResult(
+                status="failure",
+                error_code="INVALID_RESPONSE",
+                message=f"Invalid {property_id} snak type or property.",
+            )
 
         datavalue = mainsnak.get("datavalue")
 

@@ -18,12 +18,9 @@ WIKIDATA_Q_METRE = "Q11573"
 WIKIDATA_CLASS_MAX_HOPS = 3
 WIKIDATA_CLASS_MAX_NODES = 24
 
-# A narrowly curated, source-specific *direct* incompatible class. Reject only
-# when all best-ranked P31 types are explicitly in this set; any additional
-# unknown P31 type still needs normal, bounded P279 verification.
-WIKIDATA_Q_FILM = "Q11424"
-WIKIDATA_DIRECT_NON_MOUNTAIN_CLASSES = frozenset({WIKIDATA_Q_FILM})
+# wbgetentities permits at most 50 IDs for ordinary API clients.
+WIKIDATA_ENTITY_BATCH_SIZE = 50
 
-# Maximum exact-label/alias candidate entities to verify per operation.
+# Maximum candidate entities to verify per operation.
 # This is an application-owned budget, not an LLM or plan-supplied argument.
 WIKIDATA_MAX_VERIFY_CANDIDATES = 12

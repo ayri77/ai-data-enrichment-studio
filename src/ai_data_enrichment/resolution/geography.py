@@ -10,6 +10,17 @@ import pycountry
 _AREA_PREFIXES = ("state of ", "free and hanseatic city of ")
 
 
+def normalize_country_code(country: str) -> str:
+    """Resolve one exact country name/code, with a single English-name alias."""
+    name = country.strip()
+    try:
+        return pycountry.countries.lookup(name).alpha_2
+    except LookupError:
+        if name.casefold() == "turkey":
+            return "TR"
+        raise
+
+
 def _area_name(value: str) -> str:
     """Normalize display prefixes and whitespace, without guessing a region."""
     name = " ".join(value.casefold().split())

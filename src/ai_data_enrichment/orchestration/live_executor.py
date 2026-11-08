@@ -1,6 +1,7 @@
 """Configure approved live providers for Excel enrichment."""
 
 from collections.abc import Mapping
+from typing import Literal
 
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
 from ai_data_enrichment.execution.job_executor import JobExecutor
@@ -29,11 +30,16 @@ def build_live_executor(
     audit_mountains: bool = False,
     resume_selections: Mapping[tuple[str, str], ResumeSelection] | None = None,
     audit_capitals: bool = False,
+    mountain_resolution_policy: Literal["strict", "verified_only"] = "strict",
 ) -> JobExecutor:
     """Bind built-in capabilities to explicitly approved providers."""
 
     if resume_selections and not audit_mountains:
         raise ValueError("Resume requires audited mountain resolution.")
+    if mountain_resolution_policy not in {"strict", "verified_only"}:
+        raise ValueError("Unsupported mountain resolution policy.")
+    if mountain_resolution_policy != "strict" and not audit_mountains:
+        raise ValueError("Verified-only policy requires audited mountain resolution.")
 
     transport = UrllibJsonTransport(
         headers={
@@ -112,9 +118,9 @@ def build_live_executor(
             **(
                 {
                     "resolve_entity": ResolutionPolicy(
-                        policy_id="mountain_strict",
+                        policy_id=f"mountain_{mountain_resolution_policy}",
                         version="1.0",
-                        strategy="strict",
+                        strategy=mountain_resolution_policy,
                     )
                 }
                 if audit_mountains

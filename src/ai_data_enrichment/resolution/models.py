@@ -33,7 +33,7 @@ ResolutionStatus = Literal[
     "incomplete_verification",
     "provider_failure",
 ]
-SelectionBasis = Literal["unique_verified", "ranking_policy", "user_override"]
+SelectionBasis = Literal["unique_verified", "verified_only", "ranking_policy", "user_override"]
 JobReviewStatus = Literal["completed", "awaiting_review", "cancelled", "failed"]
 
 
@@ -127,6 +127,9 @@ class CandidateSet(_ResolutionModel):
     candidates: tuple[ResolutionCandidate, ...] = ()
     search_complete: bool
     verification_complete: bool
+    # Every discovered candidate was attempted, even if some remain unknown.
+    # False unless the producer confirms every discovered candidate was attempted.
+    candidate_scan_complete: bool = False
     incomplete_reason: str | None = None
     provider_error_code: str | None = None
 
@@ -137,6 +140,10 @@ class CandidateSet(_ResolutionModel):
 
     @model_validator(mode="after")
     def check_completeness(self) -> Self:
+        if self.candidate_scan_complete and (
+            not self.search_complete or self.provider_error_code is not None
+        ):
+            raise ValueError("A completed candidate scan requires a complete, error-free search.")
         ids = [(c.reference.source, c.reference.entity_id) for c in self.candidates]
         if len(ids) != len(set(ids)):
             raise ValueError("Duplicate candidate source/entity identity.")
@@ -173,7 +180,7 @@ class ResolutionPolicy(_ResolutionModel):
 
     policy_id: Identifier
     version: str = Field(min_length=1)
-    strategy: Literal["strict", "ranked"] = "strict"
+    strategy: Literal["strict", "ranked", "verified_only"] = "strict"
     auto_accept_ranked: bool = False
     prefer_prominent: bool = False
 
@@ -184,8 +191,8 @@ class ResolutionPolicy(_ResolutionModel):
 
     @model_validator(mode="after")
     def check_strategy(self) -> Self:
-        if self.strategy == "strict" and (self.auto_accept_ranked or self.prefer_prominent):
-            raise ValueError("Strict policy cannot enable ranked decisions.")
+        if self.strategy != "ranked" and (self.auto_accept_ranked or self.prefer_prominent):
+            raise ValueError("Only ranked policy can enable ranked decisions.")
         return self
 
 
@@ -252,10 +259,21 @@ class ResolutionReport(_ResolutionModel):
                 raise ValueError("Selected entity must be a verified listed candidate.")
             # An explicit user decision may override an *incomplete search*,
             # but never skips verification of the chosen candidate itself.
-            if not is_complete and decision.basis != "user_override":
+            if not is_complete and decision.basis not in {"user_override", "verified_only"}:
                 raise ValueError("Incomplete verification cannot be auto-accepted.")
 
-        if decision.basis == "unique_verified":
+        if decision.basis == "verified_only":
+            if (
+                self.policy.strategy != "verified_only"
+                or not candidate_set.search_complete
+                or candidate_set.provider_error_code is not None
+                or set(assessed_ids) != candidate_ids
+            ):
+                raise ValueError(
+                    "Verified-only selection requires its policy and a complete, error-free search."
+                )
+
+        if decision.basis in {"unique_verified", "verified_only"}:
             assessed = {assessment.reference: assessment for assessment in self.assessments}
             eligible = [
                 candidate
@@ -268,7 +286,7 @@ class ResolutionReport(_ResolutionModel):
                 )
             ]
             if len(eligible) != 1 or eligible[0].reference != decision.selected:
-                raise ValueError("Unique selection must exclude all other verified candidates.")
+                raise ValueError("Selection requires exactly one positively eligible candidate.")
 
         if decision.status == "auto_resolved":
             if self.policy.strategy != "ranked" or not self.policy.auto_accept_ranked:

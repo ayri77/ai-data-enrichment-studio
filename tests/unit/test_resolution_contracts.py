@@ -559,3 +559,66 @@ def test_completed_job_cannot_silently_omit_unprocessed_rows() -> None:
             total_rows=100,
             processed_rows=20,
         )
+
+
+@pytest.mark.parametrize(
+    "violation",
+    [None, "policy", "search", "provider", "basis", "assessments", "unverified", "multiple"],
+)
+@pytest.mark.parametrize("scan_complete", [False, True])
+def test_verified_only_requires_explicit_policy_complete_search_and_positive_selection(
+    violation: str | None,
+    scan_complete: bool,
+) -> None:
+    positive, unknown = _candidate("2950159"), _candidate("2950158", verification="unchecked")
+    candidate_set = _set(
+        candidates=(positive, unknown),
+        verification_complete=False,
+        incomplete_reason="candidate_verification_incomplete"
+        if scan_complete
+        else "candidate_verification_budget_exceeded",
+    ).model_dump()
+    candidate_set["candidate_scan_complete"] = scan_complete
+    payload: dict = {
+        "candidate_set": candidate_set,
+        "policy": ResolutionPolicy(
+            policy_id="verified_only", version="1", strategy="verified_only"
+        ).model_dump(),
+        "decision": _decision(basis="verified_only").model_dump(),
+        "assessments": tuple(
+            CandidateAssessment(
+                reference=candidate.reference,
+                eligibility="eligible" if candidate is positive else "unchecked",
+                reason_codes=("source_verification",),
+            ).model_dump()
+            for candidate in (positive, unknown)
+        ),
+    }
+    if violation == "policy":
+        payload["policy"]["strategy"] = "strict"
+    elif violation == "search":
+        payload["candidate_set"]["search_complete"] = False
+    elif violation == "provider":
+        payload["candidate_set"]["provider_error_code"] = "PROVIDER_ERROR"
+    elif violation == "basis":
+        payload["decision"]["basis"] = "unique_verified"
+    elif violation == "assessments":
+        payload["assessments"] = ()
+    elif violation == "unverified":
+        payload["candidate_set"]["candidates"][0]["verification"] = "unchecked"
+    elif violation == "multiple":
+        payload["candidate_set"]["candidates"][1].update(
+            verification="verified",
+            evidence=positive.model_dump()["evidence"],
+        )
+        payload["assessments"][1]["eligibility"] = "eligible"
+    if violation is not None:
+        with pytest.raises(ValidationError):
+            ResolutionReport.model_validate(payload)
+    else:
+        report = ResolutionReport.model_validate(payload)
+        assert report.decision.selected == positive.reference
+        assert not report.candidate_set.verification_complete
+        assert report.candidate_set.candidate_scan_complete is scan_complete
+        assert report.candidate_set.incomplete_reason == candidate_set["incomplete_reason"]
+        assert ResolutionReport.model_validate_json(report.model_dump_json()) == report

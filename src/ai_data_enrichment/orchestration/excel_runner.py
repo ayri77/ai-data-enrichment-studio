@@ -86,6 +86,13 @@ class ExcelEnrichmentRunner:
             selection=selection,
         )
 
+        min_col = selection.bounds[0]
+
+        existing_headers = {
+            get_column_letter(min_col + index): column.name
+            for index, column in enumerate(profile.columns)
+        }
+
         validation = PlanValidator(
             registry=self._registry,
             dataset_profile=profile,
@@ -101,6 +108,7 @@ class ExcelEnrichmentRunner:
             plan,
             selection,
             output_columns=output_columns,
+            existing_headers=existing_headers,
         )
 
         batch = read_input_batch(
@@ -146,6 +154,7 @@ class ExcelEnrichmentRunner:
             selection,
             row_by_record_id=batch.row_by_record_id,
             output_columns=output_columns,
+            existing_headers=existing_headers,
         )
 
         # Publish only through the existing safe Excel writer.

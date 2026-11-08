@@ -115,7 +115,7 @@ def mountain_class_path(
             if identity_issue is not None:
                 return identity_issue
 
-            claims = entity.get("claims", {})
+            claims = entity.get("claims")
 
             if not isinstance(claims, dict):
                 return OperationResult(

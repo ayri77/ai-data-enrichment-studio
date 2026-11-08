@@ -17,8 +17,9 @@ def build_output_header_writes(
     selection: TableSelection,
     *,
     output_columns: Mapping[str, str],
+    existing_headers: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
-    """Build header writes for explicitly assigned new output columns."""
+    """Build header writes while preserving matching headers of reused columns."""
 
     target_names = [output.target_column for output in plan.outputs]
 
@@ -28,7 +29,7 @@ def build_output_header_writes(
     if set(output_columns) != set(target_names):
         raise ValueError("Output column bindings must match plan output targets")
 
-    max_source_col = selection.bounds[2]
+    min_source_col, _, max_source_col, _ = selection.bounds
     used_columns: set[int] = set()
     writes: dict[str, str] = {}
 
@@ -43,15 +44,26 @@ def build_output_header_writes(
         if not 1 <= column_index <= 16_384:
             raise ValueError(f"Excel column out of range: {letter}")
 
-        if column_index <= max_source_col:
-            raise ValueError(f"Output column overlaps selected table: {letter}")
-
         if column_index in used_columns:
             raise ValueError(f"Duplicate Excel output column: {letter}")
 
         used_columns.add(column_index)
+        column_letter = get_column_letter(column_index)
 
-        coordinate = f"{get_column_letter(column_index)}{selection.header_row}"
+        if column_index <= max_source_col:
+            # Reuse only an existing column inside the selected table
+            # whose header exactly matches the requested target.
+            if (
+                column_index < min_source_col
+                or existing_headers is None
+                or existing_headers.get(column_letter) != target_name
+            ):
+                raise ValueError(f"Output column overlaps selected table: {letter}")
+
+            # The header already exists and must not be rewritten.
+            continue
+
+        coordinate = f"{column_letter}{selection.header_row}"
         writes[coordinate] = target_name
 
     return writes
@@ -64,6 +76,7 @@ def build_output_value_writes(
     *,
     row_by_record_id: Mapping[str, int],
     output_columns: Mapping[str, str],
+    existing_headers: Mapping[str, str] | None = None,
 ) -> dict[str, str | float]:
     """Map successful job outputs to explicit Excel cell coordinates."""
 
@@ -72,6 +85,7 @@ def build_output_value_writes(
         plan,
         selection,
         output_columns=output_columns,
+        existing_headers=existing_headers,
     )
 
     record_ids = {record.record_id for record in job_result.records}

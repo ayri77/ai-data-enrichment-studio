@@ -98,3 +98,39 @@ def test_rejects_missing_output_binding() -> None:
                 "elevation_m": "E",
             },
         )
+
+
+def test_reuses_existing_output_column_with_matching_header() -> None:
+    plan = EnrichmentPlan(
+        version="1",
+        steps=[
+            PlanStep(
+                id="get_elevation",
+                capability="lookup",
+                inputs={},
+                parameters={},
+            ),
+        ],
+        outputs=[
+            OutputMapping(
+                step_id="get_elevation",
+                value_field="value",
+                target_column="height",
+            ),
+        ],
+        assumptions=[],
+    )
+
+    writes = build_output_header_writes(
+        plan,
+        TableSelection("Sheet1", "A1:C11"),
+        output_columns={"height": "C"},
+        existing_headers={
+            "A": "Mountain",
+            "B": "Country",
+            "C": "height",
+        },
+    )
+
+    # The existing C1 header must remain unchanged.
+    assert writes == {}

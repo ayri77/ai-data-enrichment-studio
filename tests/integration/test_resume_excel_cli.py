@@ -42,43 +42,47 @@ class WikidataFixture:
         if params["action"] == "wbsearchentities":
             return {"search": [{"id": qid, "label": self.name} for qid in (self.qid, "Q999999")]}
         assert params["action"] == "wbgetentities"
-        qid = params["ids"]
-        if qid == self.qid:
-            claims = {
-                "P31": [entity_statement(self.type_id)],
-                "P17": [entity_statement("Q837")],
-                "P2044": [
-                    {
-                        "rank": "normal",
-                        "mainsnak": {
-                            "snaktype": "value",
-                            "datavalue": {
-                                "type": "quantity",
-                                "value": {
-                                    "amount": "+8848.86",
-                                    "unit": "http://www.wikidata.org/entity/Q11573",
+        entities: dict[str, object] = {}
+        for qid in params["ids"].split("|"):
+            if qid == "Q11424":
+                claims = {"P279": []}
+            elif qid == self.qid:
+                claims = {
+                    "P31": [entity_statement(self.type_id)],
+                    "P17": [entity_statement("Q837")],
+                    "P2044": [
+                        {
+                            "rank": "normal",
+                            "mainsnak": {
+                                "snaktype": "value",
+                                "datavalue": {
+                                    "type": "quantity",
+                                    "value": {
+                                        "amount": "+8848.86",
+                                        "unit": "http://www.wikidata.org/entity/Q11573",
+                                    },
                                 },
                             },
-                        },
-                    }
-                ],
-            }
-        elif qid == "Q837":
-            claims = {
-                "P297": [
-                    {
-                        "rank": "normal",
-                        "mainsnak": {
-                            "snaktype": "value",
-                            "datavalue": {"type": "string", "value": self.country_code},
-                        },
-                    }
-                ]
-            }
-        else:
-            assert qid == "Q999999"
-            claims = {}  # An unchecked alternative keeps the original job in review.
-        return {"entities": {qid: {"id": qid, "claims": claims}}}
+                        }
+                    ],
+                }
+            elif qid == "Q837":
+                claims = {
+                    "P297": [
+                        {
+                            "rank": "normal",
+                            "mainsnak": {
+                                "snaktype": "value",
+                                "datavalue": {"type": "string", "value": self.country_code},
+                            },
+                        }
+                    ]
+                }
+            else:
+                assert qid == "Q999999"
+                claims = {}  # An unchecked alternative keeps the original job in review.
+            entities[qid] = {"id": qid, "claims": claims}
+        return {"entities": entities}
 
 
 @dataclass
@@ -205,15 +209,16 @@ def prepare_case(
     return case
 
 
+@pytest.mark.parametrize("policy", ["strict", "verified_only"])
 @pytest.mark.parametrize(("name", "qid"), [("Nuptse", "Q12345"), ("Mount Everest", "Q513")])
 def test_resume_verifies_directly_then_writes_property_and_audit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, qid: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, qid: str, policy: str
 ) -> None:
     case = prepare_case(tmp_path, monkeypatch, name=name, qid=qid)
     source_before = case.source.read_bytes()
     report_before = case.report.read_bytes()
     output = tmp_path / "resumed.xlsx"
-    result = CliRunner().invoke(app, case.args(output))
+    result = CliRunner().invoke(app, [*case.args(output), "--mountain-resolution-policy", policy])
     assert result.exit_code == 0, result.output
     assert "Rows: 1, success: 1, partial: 0, failed: 0" in result.output
     assert [request["action"] for request in case.transport.requests] == ["wbgetentities"] * 3
@@ -366,19 +371,34 @@ def test_approval_still_requires_fresh_country_and_type_verification(
     assert candidate_set.verification_complete is (drift == "type")
 
 
-def test_no_approval_arguments_preserves_normal_discovery_and_review(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("policy", [None, "strict", "verified_only"])
+def test_cli_mountain_policy_preserves_uncertainty_and_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy: str | None
 ) -> None:
     case = prepare_case(tmp_path, monkeypatch)
-    result = CliRunner().invoke(app, case.args(tmp_path / "normal.xlsx", resume=False))
+    source_before = case.source.read_bytes()
+    args = case.args(tmp_path / "normal.xlsx", resume=False)
+    if policy is not None:
+        args.extend(["--mountain-resolution-policy", policy])
+    result = CliRunner().invoke(app, args)
     assert result.exit_code == 0, result.output
-    assert "success: 0" in result.output
+    assert f"success: {int(policy == 'verified_only')}" in result.output
     assert case.transport.requests[0]["action"] == "wbsearchentities"
     report = ResolutionJobReport.model_validate_json(
         (tmp_path / "normal.resolution.json").read_text()
     )
     assert report.previous_job_id is None
-    assert report.operations[0].report.decision.status == "incomplete_verification"
+    operation = report.operations[0].report
+    assert operation.policy.strategy == (policy or "strict")
+    assert operation.candidate_set.candidate_scan_complete
+    assert not operation.candidate_set.verification_complete
+    assert operation.candidate_set.candidates[1].verification == "unchecked"
+    if policy == "verified_only":
+        assert operation.decision.basis == "verified_only"
+        assert "Selection basis: verified_only" in result.output
+    else:
+        assert operation.decision.status == "incomplete_verification"
+    assert case.source.read_bytes() == source_before
 
 
 @pytest.mark.parametrize("option", ["--approvals-file", "--source-report"])

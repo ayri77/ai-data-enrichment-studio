@@ -51,7 +51,7 @@ class ResolutionEngine:
         policy: ResolutionPolicy,
         strategy: ResolutionStrategy,
     ) -> ResolutionReport:
-        """Never auto-select an unverified, partial or non-unique candidate."""
+        """Select only verified candidates under the policy's completeness rules."""
         ranked = strategy.assess(candidate_set, policy)
         expected = {_reference_key(c.reference) for c in candidate_set.candidates}
         actual = [_reference_key(a.reference) for a in ranked.candidates]
@@ -77,6 +77,27 @@ class ResolutionEngine:
                 status="provider_failure",
                 reason_codes=("source_failure",),
                 explanation="The data provider failed before a definitive decision.",
+            )
+        elif policy.strategy == "verified_only" and candidate_set.search_complete and eligible:
+            decision = (
+                ResolutionDecision(
+                    status="resolved",
+                    selected=eligible[0].reference,
+                    basis="verified_only",
+                    reason_codes=("single_positively_verified_candidate",)
+                    + (("unchecked_alternatives_remain",) if unchecked else ()),
+                    explanation=(
+                        "Selected the only positively verified eligible candidate under "
+                        "verified_only policy."
+                    )
+                    + (" Unchecked alternatives remain uncertain." if unchecked else ""),
+                )
+                if len(eligible) == 1
+                else ResolutionDecision(
+                    status="needs_review",
+                    reason_codes=("multiple_positively_verified_candidates",),
+                    explanation="Several positively verified candidates satisfy the context.",
+                )
             )
         elif not complete:
             decision = ResolutionDecision(

@@ -9,7 +9,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from json import JSONDecodeError
 
-import pycountry
 from pydantic import ValidationError
 
 from ai_data_enrichment.execution.models import GeoPoint, OperationResult, RuntimeValue
@@ -19,6 +18,7 @@ from ai_data_enrichment.providers.open_meteo import GEOCODING_RESULT_LIMIT, GEOC
 from ai_data_enrichment.providers.open_meteo_candidates import normalize_open_meteo_candidates
 from ai_data_enrichment.resolution.engine import ResolutionEngine
 from ai_data_enrichment.resolution.geographic import GeographicRankingStrategy
+from ai_data_enrichment.resolution.geography import normalize_country_code
 from ai_data_enrichment.resolution.models import (
     CandidateSet,
     ResolutionAttribute,
@@ -81,7 +81,7 @@ class OpenMeteoResolutionService:
             raise ValueError("Explicit administrative area must be nonblank text.")
         area = region.strip() if isinstance(region, str) else None
         try:
-            country_code = pycountry.countries.lookup(country.strip()).alpha_2
+            country_code = normalize_country_code(country)
         except LookupError as exc:
             raise ValueError("Resolution requires a recognized country.") from exc
 

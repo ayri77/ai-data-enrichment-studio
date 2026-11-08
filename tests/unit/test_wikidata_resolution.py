@@ -7,9 +7,12 @@ import pytest
 from tests.support.wikidata import entity_statement
 
 from ai_data_enrichment.execution.models import EntityRef
+from ai_data_enrichment.providers.http_transport import JsonTransportError
 from ai_data_enrichment.providers.wikidata import WikidataMountainResolver
 from ai_data_enrichment.providers.wikidata_resolution import WikidataMountainResolutionService
-from ai_data_enrichment.resolution.models import ResolutionPolicy, ResolutionReport
+from ai_data_enrichment.resolution.engine import ResolutionEngine
+from ai_data_enrichment.resolution.models import CandidateSet, ResolutionPolicy, ResolutionReport
+from ai_data_enrichment.resolution.mountain import MountainRankingStrategy
 
 
 def _iso(code: str) -> dict[str, object]:
@@ -49,7 +52,7 @@ def _search_hit(
 def _transport(
     hits: list[dict[str, object]],
     *,
-    entities: dict[str, object] | None = None,
+    entities: Mapping[str, object] | None = None,
     search_pages: list[dict[str, object]] | None = None,
     fail_on: str | None = None,
 ) -> Mock:
@@ -85,56 +88,233 @@ def _transport(
     return transport
 
 
-def _policy(*, ranked: bool = False) -> ResolutionPolicy:
+def _policy(*, ranked: bool = False, verified_only: bool = False) -> ResolutionPolicy:
     return ResolutionPolicy(
         policy_id="mountain_review",
         version="1.0",
-        strategy="ranked" if ranked else "strict",
+        strategy="verified_only" if verified_only else "ranked" if ranked else "strict",
         prefer_prominent=ranked,
         auto_accept_ranked=ranked,
     )
 
 
-def test_everest_with_irrelevant_film_verifies_unique_mountain_without_film_bfs() -> None:
+@pytest.mark.parametrize("verified_only", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_single_positive_with_unknown_alternatives_obeys_policy(
+    verified_only: bool, reverse: bool
+) -> None:
+    hits = [_search_hit("Q513"), _search_hit("Q9200"), _search_hit("Q9201")]
     transport = _transport(
-        [
-            _search_hit("Q61882061", "The Climbers", alias=True),
-            _search_hit("Q513"),
-        ]
+        hits[::-1] if reverse else hits,
+        entities={
+            "Q9200": {"id": "Q9200", "claims": {}},
+            "Q9201": {"id": "Q9201", "claims": {"P31": [entity_statement("Q9100")]}},
+        },
     )
     outcome = WikidataMountainResolutionService(transport).resolve(
-        inputs={"name": "Mount Everest", "country": "Nepal"},
-        policy=_policy(),
+        inputs={"name": "Mount Everest", "country": "Nepal/China"},
+        policy=_policy(verified_only=verified_only),
     )
-    assert outcome.operation.status == "success"
-    assert outcome.operation.value == EntityRef(source="wikidata", entity_id="Q513")
-    assert outcome.report.decision.status == "resolved"
+    assert outcome.report.candidate_set.candidate_scan_complete
+    assert not outcome.report.candidate_set.verification_complete
     by_id = {c.reference.entity_id: c for c in outcome.report.candidate_set.candidates}
     assert by_id["Q513"].verification == "verified"
-    assert by_id["Q61882061"].verification == "rejected"
-    assert by_id["Q61882061"].reason_codes == ("direct_non_mountain_class",)
-    assert "P31" in by_id["Q61882061"].evidence[0].reference
-    assert outcome.report.candidate_set.search_complete
-    assert outcome.report.candidate_set.verification_complete
-    calls = transport.get_json.call_args_list
-    assert len(calls) == 4  # Search + mountain claims + country + film claims
-    assert all(call.kwargs["params"]["ids"] != "Q11424" for call in calls[1:])
+    assert by_id["Q9200"].verification == by_id["Q9201"].verification == "unchecked"
+    if verified_only:
+        assert outcome.operation.value == EntityRef(source="wikidata", entity_id="Q513")
+        assert outcome.report.decision.basis == "verified_only"
+        assert "uncertain" in outcome.report.decision.explanation
+    else:
+        assert outcome.operation.error_code == "INCOMPLETE_VERIFICATION"
+        assert outcome.report.decision.selected is None
+    assert transport.get_json.call_count == 3  # Search, claims batch, country batch.
     assert ResolutionReport.model_validate_json(outcome.report.model_dump_json()) == outcome.report
 
 
-@pytest.mark.parametrize("reverse", [False, True])
-def test_legacy_strict_resolver_also_skips_direct_film_class_without_hardcoded_q513(
-    reverse: bool,
-) -> None:
-    hits = [_search_hit("Q513"), _search_hit("Q61882061", "The Climbers", alias=True)]
-    transport = _transport(list(reversed(hits)) if reverse else hits)
-    result = WikidataMountainResolver(transport).execute(
-        inputs={"name": "Mount Everest", "country": "Nepal"},
-        parameters={"entity_type": "mountain"},
+def test_complete_type_walk_can_reject_an_unrelated_candidate_without_blacklists() -> None:
+    transport = _transport(
+        [_search_hit("Q513"), _search_hit("Q9200")],
+        entities={
+            "Q9200": _entity("Q9200", types=("Q9100",)),
+            "Q9100": {"id": "Q9100", "claims": {"P279": []}},
+        },
     )
-    assert result.status == "success"
-    assert result.value == EntityRef(source="wikidata", entity_id="Q513")
-    assert len(transport.get_json.call_args_list) == 4
+    outcome = WikidataMountainResolutionService(transport).resolve(
+        inputs={"name": "Mount Everest", "country": "Nepal"}, policy=_policy()
+    )
+    assert outcome.operation.status == "success"
+    assert outcome.report.decision.basis == "unique_verified"
+    alternative = outcome.report.candidate_set.candidates[1]
+    assert alternative.verification == "rejected"
+    assert alternative.reason_codes == ("no_mountain_class_path",)
+
+
+@pytest.mark.parametrize("verified_only", [False, True])
+def test_claim_batches_do_not_hide_an_unfinished_candidate_scan(verified_only: bool) -> None:
+    entities = {f"Q{10000 + i}": _entity(f"Q{10000 + i}") for i in range(51)}
+    hits = [_search_hit(qid) for qid in entities]
+    transport = _transport(
+        [],
+        entities=entities,
+        search_pages=[{"search": hits[:50], "search-continue": 50}, {"search": hits[50:]}],
+    )
+    outcome = WikidataMountainResolutionService(transport, max_verify_candidates=1).resolve(
+        inputs={"name": "Mount Everest", "country": "Nepal"},
+        policy=_policy(verified_only=verified_only),
+    )
+    if verified_only:
+        assert outcome.operation.value == EntityRef(source="wikidata", entity_id="Q10000")
+        assert outcome.report.decision.basis == "verified_only"
+        assert "unchecked_alternatives_remain" in outcome.report.decision.reason_codes
+    else:
+        assert outcome.operation.error_code == "INCOMPLETE_VERIFICATION"
+    assert not outcome.report.candidate_set.candidate_scan_complete
+    assert (
+        outcome.report.candidate_set.incomplete_reason == "candidate_verification_budget_exceeded"
+    )
+    assert len(outcome.report.candidate_set.candidates) == 51
+    batches = [
+        call.kwargs["params"]["ids"].split("|")
+        for call in transport.get_json.call_args_list
+        if call.kwargs["params"]["action"] == "wbgetentities"
+    ]
+    assert [len(batch) for batch in batches] == [50, 1, 1]
+
+
+@pytest.mark.parametrize("verified_only", [False, True])
+@pytest.mark.parametrize("positive_count", [1, 2])
+def test_fifteen_candidates_preserve_budget_audit_under_each_policy(
+    verified_only: bool, positive_count: int
+) -> None:
+    positives = {"Q513": _entity("Q513")}
+    if positive_count == 2:
+        positives["Q9010"] = _entity("Q9010")
+    unknowns = {
+        f"Q{9200 + i}": {"id": f"Q{9200 + i}", "claims": {}} for i in range(15 - positive_count)
+    }
+    transport = _transport(
+        [_search_hit(qid) for qid in (*positives, *unknowns)],
+        entities={**positives, **unknowns},
+    )
+    outcome = WikidataMountainResolutionService(transport).resolve(
+        inputs={"name": "Mount Everest", "country": "Nepal"},
+        policy=_policy(verified_only=verified_only),
+    )
+    candidate_set = outcome.report.candidate_set
+    assert candidate_set.search_complete
+    assert not candidate_set.candidate_scan_complete
+    assert not candidate_set.verification_complete
+    assert candidate_set.provider_error_code is None
+    assert candidate_set.incomplete_reason == "candidate_verification_budget_exceeded"
+    assert len(candidate_set.candidates) == 15
+    assert sum(c.verification == "verified" for c in candidate_set.candidates) == positive_count
+    assert (
+        sum(c.verification == "unchecked" for c in candidate_set.candidates) == 15 - positive_count
+    )
+    # The unchanged 12-candidate budget leaves exactly three candidates unattempted.
+    assert sum(c.reason_codes == ("search_match_only",) for c in candidate_set.candidates) == 3
+    if verified_only and positive_count == 1:
+        assert outcome.operation.value == EntityRef(source="wikidata", entity_id="Q513")
+        assert outcome.report.decision.basis == "verified_only"
+        assert "unchecked_alternatives_remain" in outcome.report.decision.reason_codes
+        assert "Unchecked alternatives remain uncertain" in outcome.report.decision.explanation
+        assert "P31" in outcome.operation.evidence[0].reference
+        assert "P17" in outcome.operation.evidence[0].reference
+    else:
+        assert outcome.report.decision.selected is None
+        assert outcome.operation.error_code == (
+            "AMBIGUOUS" if verified_only else "INCOMPLETE_VERIFICATION"
+        )
+    assert ResolutionReport.model_validate_json(outcome.report.model_dump_json()) == outcome.report
+
+
+@pytest.mark.parametrize("provider_error", [False, True])
+def test_verified_only_never_selects_a_positive_after_search_or_provider_failure(
+    provider_error: bool,
+) -> None:
+    positive = WikidataMountainResolutionService(_transport([_search_hit("Q513")])).resolve(
+        inputs={"name": "Mount Everest", "country": "Nepal"},
+        policy=_policy(verified_only=True),
+    )
+    payload = positive.report.candidate_set.model_dump()
+    payload.update(
+        search_complete=provider_error,
+        candidate_scan_complete=False,
+        verification_complete=False,
+        incomplete_reason="provider_verification_error"
+        if provider_error
+        else "search_pages_incomplete",
+        provider_error_code="PROVIDER_ERROR" if provider_error else None,
+    )
+    report = ResolutionEngine().resolve(
+        candidate_set=CandidateSet.model_validate(payload),
+        policy=_policy(verified_only=True),
+        strategy=MountainRankingStrategy(),
+    )
+    assert report.decision.selected is None
+    assert report.decision.status == (
+        "provider_failure" if provider_error else "incomplete_verification"
+    )
+
+
+@pytest.mark.parametrize("types", [(), ("Q9100",)])
+def test_verified_only_requires_a_positive_candidate(types: tuple[str, ...]) -> None:
+    transport = _transport(
+        [_search_hit("Q9200")],
+        entities={
+            "Q9200": {"id": "Q9200", "claims": {"P31": [entity_statement(q) for q in types]}}
+        },
+    )
+    outcome = WikidataMountainResolutionService(transport).resolve(
+        inputs={"name": "Mount Everest", "country": "Nepal"},
+        policy=_policy(verified_only=True),
+    )
+    assert outcome.operation.error_code == "INCOMPLETE_VERIFICATION"
+    assert outcome.report.decision.selected is None
+
+
+def test_verified_only_reports_ambiguity_even_with_an_unchecked_alternative() -> None:
+    transport = _transport(
+        [_search_hit("Q513"), _search_hit("Q9200"), _search_hit("Q9201")],
+        entities={"Q9200": _entity("Q9200"), "Q9201": {"id": "Q9201", "claims": {}}},
+    )
+    outcome = WikidataMountainResolutionService(transport).resolve(
+        inputs={"name": "Mount Everest", "country": "Nepal"},
+        policy=_policy(verified_only=True),
+    )
+    assert outcome.operation.error_code == "AMBIGUOUS"
+    assert not outcome.report.candidate_set.verification_complete
+    assert outcome.report.candidate_set.candidates[2].verification == "unchecked"
+
+
+@pytest.mark.parametrize(
+    ("class_entity", "error_code"),
+    [
+        ({"id": "Q9100"}, "INVALID_RESPONSE"),
+        ({"id": "Q9100", "claims": {"P279": [{}]}}, "INVALID_RESPONSE"),
+        (
+            {
+                "id": "Q9100",
+                "claims": {"P279": [{"rank": "normal", "mainsnak": {"snaktype": "somevalue"}}]},
+            },
+            "INCOMPLETE_VERIFICATION",
+        ),
+    ],
+)
+def test_incomplete_type_walk_cannot_prove_rejection_or_a_positive_match(
+    class_entity: object, error_code: str
+) -> None:
+    transport = _transport(
+        [_search_hit("Q9200")],
+        entities={"Q9200": _entity("Q9200", types=("Q9100",)), "Q9100": class_entity},
+    )
+    outcome = WikidataMountainResolutionService(transport).resolve(
+        inputs={"name": "Mount Everest", "country": "Nepal"},
+        policy=_policy(verified_only=True),
+    )
+    assert outcome.operation.error_code == error_code
+    assert outcome.report.decision.selected is None
+    assert outcome.report.candidate_set.candidates[0].verification == "unchecked"
 
 
 def test_mountain_country_can_match_either_of_multiple_verified_p17_countries() -> None:
@@ -147,7 +327,8 @@ def test_mountain_country_can_match_either_of_multiple_verified_p17_countries() 
     assert "P297" in outcome.operation.evidence[0].reference
 
 
-def test_two_verified_mountains_are_ambiguous_even_under_ranked_policy() -> None:
+@pytest.mark.parametrize("verified_only", [False, True])
+def test_two_verified_mountains_are_ambiguous_even_under_ranked_policy(verified_only: bool) -> None:
     transport = _transport(
         [
             _search_hit("Q513"),
@@ -157,14 +338,14 @@ def test_two_verified_mountains_are_ambiguous_even_under_ranked_policy() -> None
     )
     outcome = WikidataMountainResolutionService(transport).resolve(
         inputs={"name": "Mount Everest", "country": "Nepal"},
-        policy=_policy(ranked=True),
+        policy=_policy(ranked=not verified_only, verified_only=verified_only),
     )
     assert outcome.operation.error_code == "AMBIGUOUS"
     assert outcome.report.decision.status == "needs_review"
     assert outcome.report.decision.selected is None
     by_id = {a.reference.entity_id: a for a in outcome.report.assessments}
     assert by_id["Q513"].rank == 1
-    assert by_id["Q9010"].rank == 2
+    assert by_id["Q9010"].rank == (1 if verified_only else 2)
     assert len(outcome.report.candidate_set.candidates) == 2
 
 
@@ -212,7 +393,10 @@ def test_candidate_budget_prevents_uncertain_auto_acceptance_and_preserves_obser
     assert len(transport.get_json.call_args_list) <= 5
 
 
-def test_search_page_limit_retains_unverified_hits_and_does_not_fetch_entities() -> None:
+@pytest.mark.parametrize("verified_only", [False, True])
+def test_search_page_limit_retains_unverified_hits_and_does_not_fetch_entities(
+    verified_only: bool,
+) -> None:
     pages = [
         {"search": [_search_hit("Q513")], "search-continue": 50},
         {"search": [_search_hit("Q61882061", "The Climbers", alias=True)], "search-continue": 100},
@@ -221,7 +405,7 @@ def test_search_page_limit_retains_unverified_hits_and_does_not_fetch_entities()
     transport = _transport([], search_pages=pages)
     outcome = WikidataMountainResolutionService(transport).resolve(
         inputs={"name": "Mount Everest", "country": "Nepal"},
-        policy=_policy(),
+        policy=_policy(verified_only=verified_only),
     )
     assert outcome.operation.error_code == "INCOMPLETE_VERIFICATION"
     assert outcome.report.candidate_set.incomplete_reason == "search_pages_incomplete"
@@ -234,21 +418,25 @@ def test_search_page_limit_retains_unverified_hits_and_does_not_fetch_entities()
     assert len(transport.get_json.call_args_list) == 3
 
 
-def test_provider_error_after_verified_candidate_preserves_audited_evidence() -> None:
+@pytest.mark.parametrize("verified_only", [False, True])
+def test_provider_error_after_verified_candidate_preserves_audited_evidence(
+    verified_only: bool,
+) -> None:
     transport = _transport(
-        [_search_hit("Q513"), _search_hit("Q61882061", "The Climbers", alias=True)],
-        fail_on="Q61882061",
+        [_search_hit("Q513"), _search_hit("Q9200", "Another Name", alias=True)],
+        entities={"Q9200": _entity("Q9200", countries=("Q142",))},
+        fail_on="Q142",
     )
     outcome = WikidataMountainResolutionService(transport).resolve(
         inputs={"name": "Mount Everest", "country": "Nepal"},
-        policy=_policy(),
+        policy=_policy(verified_only=verified_only),
     )
     assert outcome.operation.error_code == "PROVIDER_ERROR"
     assert outcome.report.decision.status == "provider_failure"
     assert outcome.report.decision.selected is None
     by_id = {c.reference.entity_id: c for c in outcome.report.candidate_set.candidates}
     assert by_id["Q513"].verification == "verified"
-    assert by_id["Q61882061"].verification == "unchecked"
+    assert by_id["Q9200"].verification == "unchecked"
 
 
 def test_missing_country_claims_are_unknown_not_proven_out_of_country() -> None:
@@ -337,7 +525,7 @@ def test_missing_country_skips_expensive_class_traversal() -> None:
             "Q84260471": {
                 "id": "Q84260471",
                 "claims": {
-                    "P31": [entity_statement("Q11446")],
+                    "P31": [entity_statement("Q9100")],
                 },
             },
         },
@@ -364,4 +552,175 @@ def test_missing_country_skips_expensive_class_traversal() -> None:
         for call in transport.get_json.call_args_list
         if "ids" in call.kwargs["params"]
     ]
-    assert "Q11446" not in requested_ids
+    assert "Q9100" not in requested_ids
+
+
+@pytest.mark.parametrize(
+    ("country", "source_country"),
+    [("Nepal/China", "Q837"), ("China/Nepal", "Q837"), ("Pakistan/China", "Q148")],
+)
+@pytest.mark.parametrize("verified_only", [False, True])
+def test_slash_separated_country_accepts_verified_membership(
+    country: str,
+    source_country: str,
+    verified_only: bool,
+) -> None:
+    transport = _transport(
+        [_search_hit("Q513")],
+        entities={
+            # The source verifies one of the requested countries.
+            # One verified country from the input must suffice.
+            "Q513": _entity(
+                "Q513",
+                countries=(source_country,),
+            ),
+        },
+    )
+
+    outcome = WikidataMountainResolutionService(transport).resolve(
+        inputs={
+            "name": "Mount Everest",
+            "country": country,
+        },
+        policy=_policy(verified_only=verified_only),
+    )
+
+    assert outcome.operation.status == "success"
+    assert outcome.operation.value == EntityRef(
+        source="wikidata",
+        entity_id="Q513",
+    )
+    assert outcome.report.decision.status == "resolved"
+    assert "P297" in outcome.operation.evidence[0].reference
+
+
+def test_legacy_resolver_accepts_slash_separated_countries() -> None:
+    transport = _transport(
+        [_search_hit("Q513")],
+        entities={
+            "Q513": _entity(
+                "Q513",
+                countries=("Q837",),
+            ),
+        },
+    )
+
+    result = WikidataMountainResolver(transport).execute(
+        inputs={
+            "name": "Mount Everest",
+            "country": "Nepal/China",
+        },
+        parameters={"entity_type": "mountain"},
+    )
+
+    assert result.status == "success"
+    assert result.value == EntityRef(
+        source="wikidata",
+        entity_id="Q513",
+    )
+
+
+@pytest.mark.parametrize("types", [None, (), ("Q9100",), ("Q11424", "Q9100")])
+@pytest.mark.parametrize("budget", [1, 2])
+def test_verification_keeps_missing_unknown_and_mixed_types_unchecked(
+    types: tuple[str, ...] | None, budget: int
+) -> None:
+    transport = _transport(
+        [_search_hit("Q513"), _search_hit("Q9200")],
+        entities={
+            "Q9200": {
+                "id": "Q9200",
+                "claims": {} if types is None else {"P31": [entity_statement(q) for q in types]},
+            }
+        },
+    )
+    outcome = WikidataMountainResolutionService(transport, max_verify_candidates=budget).resolve(
+        inputs={"name": "Mount Everest", "country": "Nepal"}, policy=_policy()
+    )
+    assert outcome.operation.error_code == "INCOMPLETE_VERIFICATION"
+    assert outcome.report.decision.selected is None
+    assert outcome.report.candidate_set.candidates[0].verification == "verified"
+    alternative = outcome.report.candidate_set.candidates[1]
+    assert alternative.verification == "unchecked"
+    assert not alternative.evidence
+
+
+@pytest.mark.parametrize(
+    ("response", "error_code"),
+    [
+        (None, "INVALID_RESPONSE"),
+        ({"entities": []}, "INVALID_RESPONSE"),
+        ({"error": {"code": "maxlag"}}, "PROVIDER_ERROR"),
+        (JsonTransportError("timeout"), "PROVIDER_ERROR"),
+        (JsonTransportError("invalid_json"), "INVALID_RESPONSE"),
+        (JsonTransportError("budget_exceeded"), "REQUEST_BUDGET_EXCEEDED"),
+    ],
+)
+@pytest.mark.parametrize("verified_only", [False, True])
+def test_batched_claims_failure_never_selects_a_candidate(
+    response: object, error_code: str, verified_only: bool
+) -> None:
+    transport = Mock()
+    transport.get_json.side_effect = [
+        {"search": [_search_hit("Q513"), _search_hit("Q9200")]},
+        response,
+    ]
+    outcome = WikidataMountainResolutionService(transport).resolve(
+        inputs={"name": "Mount Everest", "country": "Nepal"},
+        policy=_policy(verified_only=verified_only),
+    )
+    assert outcome.operation.error_code == error_code
+    assert outcome.report.decision.status == "provider_failure"
+    assert outcome.report.decision.selected is None
+    assert len(outcome.report.candidate_set.candidates) == 2
+    assert all(c.verification == "unchecked" for c in outcome.report.candidate_set.candidates)
+
+
+@pytest.mark.parametrize(
+    ("entity", "error_code"),
+    [
+        (None, "INVALID_RESPONSE"),
+        ({"id": "Q9200", "claims": []}, "INVALID_RESPONSE"),
+        ({"id": "Q9200", "claims": {"P31": {}}}, "INVALID_RESPONSE"),
+        (_entity("Q9201", types=("Q11424",)), "INCOMPLETE_VERIFICATION"),
+        (
+            {"id": "Q9200", "claims": {"P31": [entity_statement("Q11424"), {}]}},
+            "INVALID_RESPONSE",
+        ),
+        (
+            {
+                "id": "Q9200",
+                "claims": {"P31": [entity_statement("Q11424"), {"rank": "normal", "mainsnak": {}}]},
+            },
+            "INVALID_RESPONSE",
+        ),
+        *[
+            (
+                {
+                    "id": "Q9200",
+                    "claims": {
+                        "P31": [
+                            entity_statement("Q11424"),
+                            {"rank": "normal", "mainsnak": {"snaktype": snaktype}},
+                        ]
+                    },
+                },
+                "INCOMPLETE_VERIFICATION",
+            )
+            for snaktype in ("somevalue", "novalue")
+        ],
+    ],
+)
+def test_verification_does_not_reject_incomplete_or_malformed_types(
+    entity: object, error_code: str
+) -> None:
+    transport = _transport([_search_hit("Q513"), _search_hit("Q9200")], entities={"Q9200": entity})
+    outcome = WikidataMountainResolutionService(transport).resolve(
+        inputs={"name": "Mount Everest", "country": "Nepal"}, policy=_policy()
+    )
+    assert outcome.operation.error_code == error_code
+    assert outcome.report.decision.selected is None
+    assert outcome.report.candidate_set.candidates[0].verification == "verified"
+    alternative = outcome.report.candidate_set.candidates[1]
+    assert alternative.verification == "unchecked"
+    assert not alternative.evidence

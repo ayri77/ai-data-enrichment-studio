@@ -422,6 +422,64 @@ uv run --locked enrichment run demo/mountains_smoke.xlsx `
 The command produces an enriched XLSX file and a corresponding
 resolution audit report.
 
+### Compare mountain resolution policies
+
+Mountain resolution defaults to `strict`: every plausible alternative must be
+verified or conclusively rejected before a unique match can be selected.
+Opt in with `--mountain-resolution-policy verified_only` to select the sole
+positively verified mountain in the requested country even when other candidates
+remain unchecked, including after the 12-candidate verification budget is exhausted.
+Unknown alternatives and the original incomplete-verification reason remain in
+the audit. The selection uses `basis="verified_only"` and, when applicable,
+`unchecked_alternatives_remain`, rather than claiming strict uniqueness. Two
+eligible verified mountains require review. Neither policy accepts an incomplete
+search, a failed provider request, or a candidate without positive verification.
+
+Both modes use the same P31/P279 mountain verification, P17 country verification,
+slash-separated country support, and bounded claim batches. There is no type
+blacklist. `candidate_scan_complete` records whether every discovered candidate
+was attempted; `verification_complete` remains false while candidates are unknown.
+The 12-candidate verification budget and bounded subclass traversal still apply.
+Approvals continue to require fresh source verification and use `user_override`.
+
+To compare both policies on the original 10-row Academic Mountains workbook,
+run this PowerShell block from the repository root. It prepares one plan with
+`expected_unit="m"` and writes to the existing empty `height` column C in two
+new output workbooks. The source workbook and demonstration plan are preserved.
+The two `enrichment run` commands explicitly enable live network access; these
+are manual acceptance commands, not part of the offline test suite.
+
+```powershell
+$acceptanceDir = Join-Path "temp" ("mountains-policy-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+New-Item -ItemType Directory -Path $acceptanceDir -Force | Out-Null
+$plan = Get-Content -LiteralPath "demo/mountains_plan.json" -Raw | ConvertFrom-Json
+$plan.outputs = @(@{
+    step_id = "elevation"
+    value_field = "value"
+    target_column = "height"
+    expected_unit = "m"
+})
+[IO.File]::WriteAllText((Join-Path $acceptanceDir "plan.json"), ($plan | ConvertTo-Json -Depth 20))
+[IO.File]::WriteAllText((Join-Path $acceptanceDir "columns.json"), '{"height":"C"}')
+
+$mountainArgs = @(
+    "samples/mountains.xlsx", "--plan", (Join-Path $acceptanceDir "plan.json"),
+    "--sheet", "Sheet1", "--range", "A1:C11",
+    "--columns-file", (Join-Path $acceptanceDir "columns.json"),
+    "--max-rows", "10", "--allow-network"
+)
+uv run --locked enrichment run @mountainArgs --mountain-resolution-policy strict `
+    --output (Join-Path $acceptanceDir "strict.xlsx")
+uv run --locked enrichment run @mountainArgs --mountain-resolution-policy verified_only `
+    --output (Join-Path $acceptanceDir "verified_only.xlsx")
+```
+
+Compare the resulting row metrics and the corresponding `strict.resolution.json`
+and `verified_only.resolution.json` audits. Live coverage is not guaranteed;
+unknown candidates can still block strict resolution, and search/provider limits
+can prevent either mode from selecting a match. Under `verified_only`, an unchecked
+alternative could be another eligible mountain; selection does not prove uniqueness.
+
 **Important limitations:**
 
 - External API access requires explicit `--allow-network`.

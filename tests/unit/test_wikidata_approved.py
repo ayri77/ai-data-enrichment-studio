@@ -61,6 +61,8 @@ class ApprovedTransport:
                     }
                 }
             }
+        if qids == "Q11424":
+            return {"entities": {qids: {"id": qids, "claims": {"P279": []}}}}
         raise AssertionError(f"Unexpected requested QID: {qids}")
 
 
@@ -135,7 +137,7 @@ def test_source_type_drift_invalidates_user_approval() -> None:
     )
     assert outcome.operation.status == "failure"
     assert outcome.report.decision.selected is None
-    assert transport.requests == ["Q513"]
+    assert transport.requests == ["Q513", "Q11424"]
 
 
 def test_mismatched_input_fails_before_any_source_request() -> None:
@@ -146,4 +148,89 @@ def test_mismatched_input_fails_before_any_source_request() -> None:
             inputs={"name": "Mount Everest", "country": "China"},
             policy=ResolutionPolicy(policy_id="mountain_strict", version="1.0"),
         )
+    assert transport.requests == []
+
+
+def test_approved_resolution_accepts_multi_country_context() -> None:
+    original = _report()
+
+    multi_country_query = ResolutionQuery(
+        name="Mount Everest",
+        entity_type="mountain",
+        context=(
+            ResolutionAttribute(
+                name="country_codes",
+                value="CN/NP",
+            ),
+        ),
+    )
+
+    source_report = original.model_copy(
+        update={
+            "candidate_set": original.candidate_set.model_copy(
+                update={"query": multi_country_query}
+            )
+        }
+    )
+
+    transport = ApprovedTransport()
+
+    service = ApprovedWikidataMountainResolutionService(
+        transport,
+        approval=_approval(),
+        source_report=source_report,
+    )
+
+    outcome = service.resolve(
+        inputs={
+            "name": "Mount Everest",
+            "country": "Nepal/China",
+        },
+        policy=source_report.policy,
+    )
+
+    assert outcome.operation.status == "success"
+    assert outcome.operation.value == EntityRef(
+        source="wikidata",
+        entity_id="Q513",
+    )
+    assert outcome.report.decision.basis == "user_override"
+    assert transport.requests == ["Q513", "Q837"]
+
+
+def test_approved_resolution_rejects_changed_multi_country_context() -> None:
+    original = _report()
+
+    query = ResolutionQuery(
+        name="Mount Everest",
+        entity_type="mountain",
+        context=(
+            ResolutionAttribute(
+                name="country_codes",
+                value="CN/NP",
+            ),
+        ),
+    )
+
+    source_report = original.model_copy(
+        update={"candidate_set": original.candidate_set.model_copy(update={"query": query})}
+    )
+
+    transport = ApprovedTransport()
+
+    service = ApprovedWikidataMountainResolutionService(
+        transport,
+        approval=_approval(),
+        source_report=source_report,
+    )
+
+    with pytest.raises(ValueError, match="country differs"):
+        service.resolve(
+            inputs={
+                "name": "Mount Everest",
+                "country": "Nepal/India",
+            },
+            policy=source_report.policy,
+        )
+
     assert transport.requests == []
