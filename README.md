@@ -41,11 +41,15 @@ The first input/output adapter targets Excel (`.xlsx`). The longer-term goal is 
 The first two tasks are the **mandatory acceptance scenarios** for the
 initial academic MVP.
 
-The Mountain Elevation workflow has been demonstrated end-to-end with a
-one-row live Wikidata example, including user approval and audited resume.
-The Capitals workflow now has controlled offline Excel end-to-end
-coverage, including a 1,000-row benchmark. Independent ground-truth
-evaluation and the remaining M3 acceptance criteria are still open.
+The official 10-row workbooks have also been run against live providers:
+Mountains **9/10 successful** under opt-in `verified_only` (one unresolved
+Annapurna); Capitals **6/10 successful**, with four partial rows caused
+by two distinct ambiguous city queries (Kyiv and Berlin). These are
+sample-level execution results, **not** proof of general entity-resolution
+accuracy. Numerical reference evaluation and final submission artifacts
+remain tracked under [Academic Acceptance #95](https://github.com/ayri77/ai-data-enrichment-studio/issues/95).
+See the [live acceptance report](docs/18-academic-live-acceptance.md)
+for the exact scope, run commands, limitations, and handoff to UI review.
 
 ## Design approach
 
@@ -293,9 +297,13 @@ through explicitly selected `resolution_services` and `resolution_policies`,
 returning a typed `ResolutionJobReport` with each operation's alternatives,
 reason codes, completeness and per-row links.
 
-Uncertain or incomplete candidates never become a successful downstream result.
-Prominence-based auto-selection is explicitly enabled, not inferred from the
-LLM or search position. The same candidate decision plus its evidence is cached
+Under the default `strict` policy, incomplete candidate verification blocks
+automatic mountain selection. The explicit opt-in `verified_only` policy can
+select the sole positively verified eligible mountain even when other
+alternatives remain unchecked; the audit retains its incomplete flags and
+selection basis. This does not establish uniqueness. Prominence-based
+auto-selection is separately opt-in and is never inferred from LLM output
+or search position. The same candidate decision plus its evidence is cached
 as a pair with the corresponding successful result, under policy/version/context-
 specific keys. Strict legacy handlers still run when opt-in is absent.
 See [Resolution Report Contract](docs/10-resolution-report-contract.md).
