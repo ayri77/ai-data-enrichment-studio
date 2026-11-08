@@ -1,6 +1,7 @@
 """Integration tests for the first bounded LangGraph workflow."""
 
 from collections.abc import Iterable
+from pathlib import Path
 
 from ai_data_enrichment.capabilities.definitions import get_builtin_capabilities
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
@@ -28,7 +29,9 @@ from ai_data_enrichment.execution.models import (
     RowExecutionResult,
     StepExecutionResult,
 )
+from ai_data_enrichment.orchestration.agent.execution_journal import ExecutionJournal
 from ai_data_enrichment.orchestration.agent.graph import build_agent_graph
+from ai_data_enrichment.orchestration.agent.state import AgentState
 from ai_data_enrichment.planning.llm_planner import PlanGenerationResult
 from ai_data_enrichment.planning.models import PlanningResponse
 from ai_data_enrichment.validation.models import ValidationResult
@@ -489,4 +492,158 @@ def test_malformed_repair_is_rejected() -> None:
     assert result["status"] == "rejected"
     assert result["repair_attempts"] == 1
     assert "invalid proposal" in result["error"]
+    assert executor.calls == 0
+
+
+def test_journal_first_execution_and_saved_result(tmp_path: Path) -> None:
+    """The first claim executes the job and persists its result."""
+    journal = ExecutionJournal(tmp_path / "journal.sqlite")
+    executor = FakeExecutor()
+    graph = build_agent_graph(
+        registry=make_registry(),
+        executor=executor,
+        journal=journal,
+    )
+
+    result = graph.invoke(
+        {
+            "execution_id": "job-001",
+            "plan": make_plan(),
+            "dataset_profile": make_profile(),
+            "records": make_records(),
+        }
+    )
+
+    assert result["status"] == "completed"
+    assert executor.calls == 1
+    assert journal.load_result(execution_id="job-001") == result["job_result"]
+
+
+def test_journal_restores_without_reexecuting(tmp_path: Path) -> None:
+    """A new graph instance recovers the result from the same SQLite file."""
+    path = tmp_path / "journal.sqlite"
+    executor = FakeExecutor()
+    inputs: AgentState = {
+        "execution_id": "job-001",
+        "plan": make_plan(),
+        "dataset_profile": make_profile(),
+        "records": make_records(),
+    }
+
+    first_graph = build_agent_graph(
+        registry=make_registry(),
+        executor=executor,
+        journal=ExecutionJournal(path),
+    )
+    first = first_graph.invoke(inputs)
+
+    second_graph = build_agent_graph(
+        registry=make_registry(),
+        executor=executor,
+        journal=ExecutionJournal(path),
+    )
+    second = second_graph.invoke(inputs)
+
+    assert first["status"] == "completed"
+    assert second["status"] == "completed"
+    assert second["job_result"] == first["job_result"]
+    assert executor.calls == 1
+
+
+def test_journal_started_execution_blocks_retry(tmp_path: Path) -> None:
+    """An interrupted execution cannot be automatically repeated."""
+    path = tmp_path / "journal.sqlite"
+
+    class FailingExecutor(FakeExecutor):
+        def execute(self, plan, records, *, job_id=None, previous_job_id=None):
+            self.calls += 1
+            raise RuntimeError("Simulated interruption")
+
+    failing_executor = FailingExecutor()
+    inputs: AgentState = {
+        "execution_id": "job-001",
+        "plan": make_plan(),
+        "dataset_profile": make_profile(),
+        "records": make_records(),
+    }
+
+    first_graph = build_agent_graph(
+        registry=make_registry(),
+        executor=failing_executor,
+        journal=ExecutionJournal(path),
+    )
+    first = first_graph.invoke(inputs)
+
+    assert first["status"] == "execution_uncertain"
+    assert failing_executor.calls == 1
+
+    replacement_executor = FakeExecutor()
+    second_graph = build_agent_graph(
+        registry=make_registry(),
+        executor=replacement_executor,
+        journal=ExecutionJournal(path),
+    )
+    second = second_graph.invoke(inputs)
+
+    assert second["status"] == "execution_uncertain"
+    assert "Automatic retry is prohibited" in second["error"]
+    assert replacement_executor.calls == 0
+
+
+def test_journal_rejects_changed_execution_inputs(tmp_path: Path) -> None:
+    """The same execution ID cannot refer to a modified plan."""
+    journal = ExecutionJournal(tmp_path / "journal.sqlite")
+    executor = FakeExecutor()
+    graph = build_agent_graph(
+        registry=make_registry(),
+        executor=executor,
+        journal=journal,
+    )
+
+    original_plan = make_plan()
+    first = graph.invoke(
+        {
+            "execution_id": "job-001",
+            "plan": original_plan,
+            "dataset_profile": make_profile(),
+            "records": make_records(),
+        }
+    )
+
+    changed_plan = original_plan.model_copy(update={"assumptions": ["Use verified source data."]})
+    second = graph.invoke(
+        {
+            "execution_id": "job-001",
+            "plan": changed_plan,
+            "dataset_profile": make_profile(),
+            "records": make_records(),
+        }
+    )
+
+    assert first["status"] == "completed"
+    assert second["status"] == "failed"
+    assert "different request" in second["error"]
+    assert executor.calls == 1
+
+
+def test_journal_requires_execution_identity(tmp_path: Path) -> None:
+    """Missing execution identity must fail before claiming the job."""
+    journal = ExecutionJournal(tmp_path / "journal.sqlite")
+    executor = FakeExecutor()
+    graph = build_agent_graph(
+        registry=make_registry(),
+        executor=executor,
+        journal=journal,
+    )
+
+    result = graph.invoke(
+        {
+            "plan": make_plan(),
+            "dataset_profile": make_profile(),
+            "records": make_records(),
+        }
+    )
+
+    assert result["status"] == "failed"
+    assert "execution ID" in result["error"]
     assert executor.calls == 0
