@@ -35,3 +35,5 @@ class AgentState(TypedDict, total=False):
     # Workflow control and diagnostics.
     status: AgentStatus
     error: str
+    # Number of repair attempts already performed.
+    repair_attempts: int
