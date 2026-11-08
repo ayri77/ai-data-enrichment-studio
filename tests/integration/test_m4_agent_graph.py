@@ -647,3 +647,89 @@ def test_journal_requires_execution_identity(tmp_path: Path) -> None:
     assert result["status"] == "failed"
     assert "execution ID" in result["error"]
     assert executor.calls == 0
+
+
+def test_graph_exposes_node_transition_trace() -> None:
+    """LangGraph exposes ordered node updates without extra infrastructure."""
+
+    executor = FakeExecutor()
+    graph = build_agent_graph(
+        registry=make_registry(),
+        executor=executor,
+    )
+
+    events = list(
+        graph.stream(
+            {
+                "plan": make_plan(),
+                "dataset_profile": make_profile(),
+                "records": make_records(),
+            },
+            stream_mode="updates",
+        )
+    )
+
+    node_names = [node_name for event in events for node_name in event]
+
+    assert node_names == [
+        "obtain_plan",
+        "validate",
+        "execute",
+    ]
+
+    assert events[-1]["execute"]["status"] == "completed"
+    assert executor.calls == 1
+
+
+def test_graph_trace_includes_bounded_repair_cycle() -> None:
+    """Trace validation failure, repair, revalidation and execution."""
+
+    executor = FakeExecutor()
+    repairer = FakeRepairer([make_plan()])
+
+    graph = build_agent_graph(
+        registry=make_registry(),
+        executor=executor,
+        repairer=repairer,
+        max_repair_attempts=2,
+    )
+
+    events = list(
+        graph.stream(
+            {
+                "plan": make_invalid_plan(),
+                "dataset_profile": make_profile(),
+                "records": make_records(),
+                "instruction": "Calculate distances between capitals.",
+            },
+            stream_mode="updates",
+        )
+    )
+
+    node_names = [node_name for event in events for node_name in event]
+
+    assert node_names == [
+        "obtain_plan",
+        "validate",
+        "repair_plan",
+        "validate",
+        "execute",
+    ]
+
+    first_validation = events[1]["validate"]
+    assert first_validation["status"] == "rejected"
+    assert not first_validation["validation"].valid
+    assert any(
+        diagnostic.code == "UNSUPPORTED_CAPABILITY"
+        for diagnostic in first_validation["validation"].errors
+    )
+
+    repair_update = events[2]["repair_plan"]
+    assert repair_update["repair_attempts"] == 1
+
+    second_validation = events[3]["validate"]
+    assert second_validation["validation"].valid
+
+    assert events[-1]["execute"]["status"] == "completed"
+    assert executor.calls == 1
+    assert repairer.calls == 1
