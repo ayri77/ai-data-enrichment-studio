@@ -197,8 +197,7 @@ def test_capitals_excel_pipeline_preserves_workbook_and_audit(
         # official Berlin City Hall and catalogued Kyiv coordinates.
         references = json.loads(
             (
-                Path(__file__).resolve().parents[2]
-                / "benchmarks/references/m3_external_smoke.json"
+                Path(__file__).resolve().parents[2] / "benchmarks/references/m3_external_smoke.json"
             ).read_text(encoding="utf-8")
         )
         baseline = references["references"]["berlin_kyiv"]
