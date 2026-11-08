@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "description": "Small independently sourced reference set for M3 smoke-level factual evaluation; separate from provider fixtures. Representative city centers need kilometer-level tolerance; not a population accuracy estimate.",
+  "references": {
+    "berlin_kyiv": {
+      "expected_distance_km": 1203.9893668281613,
+      "tolerance_km": 5,
+      "method": "Haversine sphere radius 6371.0088 km; Berlin official City Hall 52°31'12 N 13°24'36 E; Kyiv verified UNT catalog 50.454660 N 30.523800 E.",
+      "source_urls": [
+        "https://www.businesslocationcenter.de/en/business-location/berlin-at-a-glance/surface-area-of-berlin",
+        "https://digital.library.unt.edu/explore/locations/p10266/"
+      ]
+    },
+    "everest": {
+      "expected_elevation_m": 8848.86,
+      "tolerance_m": 0.01,
+      "method": "Nepal-China joint announced snow-surface elevation, 8 December 2020",
+      "source_urls": [
+        "https://www.mfa.gov.cn/zyxw/202012/t20201208_348872.shtml"
+      ]
+    }
+  }
+}
