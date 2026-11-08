@@ -216,9 +216,11 @@ def test_mixed_geocode_steps_keep_distinct_resolution_semantics() -> None:
             max_rows=10,
             batch_size=10,
             max_memoized_results=10,
-            memoizable_providers=frozenset({
-                ("geocode", "open-meteo"),
-            }),
+            memoizable_providers=frozenset(
+                {
+                    ("geocode", "open-meteo"),
+                }
+            ),
         ),
         resolution_services={
             "geocode": OpenMeteoResolutionService(transport),
@@ -242,10 +244,7 @@ def test_mixed_geocode_steps_keep_distinct_resolution_semantics() -> None:
         ],
     )
 
-    steps = {
-        step.step_id: step.result
-        for step in result.records[0].row_result.steps
-    }
+    steps = {step.step_id: step.result for step in result.records[0].row_result.steps}
 
     assert steps["ordinary_city"].status == "failure"
     assert steps["ordinary_city"].error_code == "AMBIGUOUS"
