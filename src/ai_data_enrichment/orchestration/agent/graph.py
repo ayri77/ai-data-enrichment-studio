@@ -13,6 +13,9 @@ from ai_data_enrichment.planning.llm_planner import PlanGenerationResult
 from ai_data_enrichment.validation.models import ValidationResult
 from ai_data_enrichment.validation.plan_validator import PlanValidator
 
+from .execution_journal import ExecutionJournal
+from .fingerprint import calculate_execution_fingerprint
+from .outcome import classify_job_outcome
 from .state import AgentState
 
 
@@ -60,6 +63,7 @@ def build_agent_graph(
     planner: PlannerService | None = None,
     repairer: PlanRepairService | None = None,
     max_repair_attempts: int = 2,
+    journal: ExecutionJournal | None = None,
 ):
     """Compile a graph with bounded plan repair and mandatory revalidation."""
 
@@ -211,7 +215,7 @@ def build_agent_graph(
         return "validate" if state.get("status") == "validating" else "__end__"
 
     def execute(state: AgentState) -> AgentState:
-        """Delegate deterministic execution to the existing JobExecutor."""
+        """Execute once, or recover a previously persisted job result."""
 
         plan = state.get("plan")
         records = state.get("records")
@@ -222,14 +226,94 @@ def build_agent_graph(
                 "error": "Execution requires a plan and input records.",
             }
 
-        result = executor.execute(plan, records)
+        # Preserve existing behavior when durable execution is not enabled.
+        if journal is None:
+            result = executor.execute(plan, records)
+            return {
+                "job_result": result,
+                "status": classify_job_outcome(result),
+                "error": "",
+            }
 
-        has_failures = result.metrics.failed_rows > 0
-        has_partial = result.metrics.partial_rows > 0
+        profile = state.get("dataset_profile")
+        execution_id = state.get("execution_id")
+
+        # Fail closed: a journal-protected execution needs stable identity.
+        if profile is None or not execution_id or not execution_id.strip():
+            return {
+                "status": "failed",
+                "error": (
+                    "Journal-protected execution requires a dataset profile and execution ID."
+                ),
+            }
+
+        fingerprint = calculate_execution_fingerprint(
+            plan=plan,
+            dataset_profile=profile,
+            records=records,
+        )
+
+        try:
+            claim = journal.claim(
+                execution_id=execution_id,
+                request_fingerprint=fingerprint,
+            )
+        except ValueError:
+            return {
+                "status": "failed",
+                "error": "Execution ID conflicts with a different request.",
+            }
+
+        if claim == "started":
+            return {
+                "status": "execution_uncertain",
+                "error": (
+                    "Execution was previously started but no final "
+                    "result is available. Automatic retry is prohibited."
+                ),
+            }
+
+        if claim == "finished":
+            try:
+                restored = journal.load_result(execution_id=execution_id)
+            except Exception:
+                return {
+                    "status": "execution_uncertain",
+                    "error": "Persisted execution result could not be restored.",
+                }
+
+            if restored is None:
+                return {
+                    "status": "execution_uncertain",
+                    "error": "Finished execution has no restorable result.",
+                }
+
+            return {
+                "job_result": restored,
+                "status": classify_job_outcome(restored),
+                "error": "",
+            }
+
+        # Only the process that received "claimed" may invoke JobExecutor.
+        try:
+            result = executor.execute(plan, records)
+            journal.finish(
+                execution_id=execution_id,
+                result=result,
+            )
+        except Exception:
+            return {
+                "status": "execution_uncertain",
+                "error": (
+                    "Execution failed or its result could not be persisted. "
+                    "Automatic retry is prohibited."
+                ),
+            }
 
         return {
             "job_result": result,
-            "status": "failed" if has_failures or has_partial else "completed",
+            "status": classify_job_outcome(result),
+            "error": "",
         }
 
     builder = StateGraph(AgentState)

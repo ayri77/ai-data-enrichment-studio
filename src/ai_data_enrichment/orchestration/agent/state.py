@@ -13,8 +13,11 @@ AgentStatus = Literal[
     "validating",
     "executing",
     "completed",
+    "partial",
+    "needs_review",
     "rejected",
     "failed",
+    "execution_uncertain",
 ]
 
 
@@ -37,3 +40,6 @@ class AgentState(TypedDict, total=False):
     error: str
     # Number of repair attempts already performed.
     repair_attempts: int
+
+    # Stable identity for journal-protected execution.
+    execution_id: str

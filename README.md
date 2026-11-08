@@ -96,6 +96,7 @@ Implemented:
 - Optional versioned SQLite reuse of verified successful operations across independent jobs, with TTL and source Evidence.
 - Opt-in shared Resolution Engine with deterministic geographic ranking, bounded Wikidata candidate verification, and typed `ResolutionReport` (strict/abstaining by default).
 - Opt-in JobExecutor audit: per-record/step links, safe in-job reuse, separate policy-aware SQLite storage of paired results and decision reports.
+- Bounded LangGraph orchestration with optional LLM plan repair, explicit execution outcome classification, and an opt-in SQLite whole-job execution journal (see [M4-3 recovery scope](docs/16-m4-controlled-recovery.md)).
 - Automated tests, Ruff, Pyright, and GitHub Actions CI.
 - Excel input adapter with typed records and original worksheet row mapping.
 - Safe Excel output adapter that creates a separate workbook, rejects occupied
@@ -119,7 +120,7 @@ Not implemented yet:
 - Explicit destination-unit compatibility validation and conversion.
 - General-purpose approval and resume workflows for other entity types,
   grouped review questions, and selective dependent-step replay.
-- LangGraph orchestration, durable checkpointing, and bounded replanning.
+- Durable LangGraph node checkpointing and automatic mid-DAG resume (deferred; see [M4-3 recovery scope](docs/16-m4-controlled-recovery.md)).
 - Web application, interactive Review Workspace, and deployment.
 
 ### In-memory execution (M2)
