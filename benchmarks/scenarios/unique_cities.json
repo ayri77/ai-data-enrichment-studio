@@ -1,0 +1,15 @@
+
+{
+    "schema_version": "1.0",
+    "id": "unique_cities",
+    "description": "Offline geocoding benchmark with diverse city pairs",
+    "rows": 8,
+    "dataset": "unique_cities",
+    "unique_locations": 4,
+    "distribution": "round_robin",
+    "resolution_strategy": "strict",
+    "required_role": null,
+    "memo_capacity": 32,
+    "fixture": "cities.json"
+  }
+  

@@ -1,0 +1,61 @@
+
+{
+    "schema_version": "1.0",
+    "provider": "open-meteo",
+    "description": "Deterministic offline capital geocoding responses",
+    "responses": [
+      {
+        "query": {
+          "name": "Berlin",
+          "countryCode": "DE"
+        },
+        "payload": {
+          "results": [
+            {
+              "id": 2950159,
+              "name": "Berlin",
+              "country_code": "DE",
+              "feature_code": "PPLC",
+              "latitude": 52.52437,
+              "longitude": 13.41053
+            },
+            {
+              "id": 2950158,
+              "name": "Berlin",
+              "country_code": "DE",
+              "feature_code": "PPL",
+              "latitude": 54.033,
+              "longitude": 10.45
+            }
+          ]
+        }
+      },
+      {
+        "query": {
+          "name": "Kyiv",
+          "countryCode": "UA"
+        },
+        "payload": {
+          "results": [
+            {
+              "id": 703448,
+              "name": "Kyiv",
+              "country_code": "UA",
+              "feature_code": "PPLC",
+              "latitude": 50.45466,
+              "longitude": 30.5238
+            },
+            {
+              "id": 704213,
+              "name": "Kyiv",
+              "country_code": "UA",
+              "feature_code": "PPL",
+              "latitude": 47.0,
+              "longitude": 32.0
+            }
+          ]
+        }
+      }
+    ]
+  }
+  
