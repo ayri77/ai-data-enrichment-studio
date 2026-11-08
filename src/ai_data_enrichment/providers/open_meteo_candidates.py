@@ -56,6 +56,7 @@ def normalize_open_meteo_candidates(
     country_code: str,
     administrative_area: str | None = None,
     result_limit: int = 10,
+    required_role: str | None = None,
 ) -> CandidateSet:
     """Return verified exact-match candidates, not a resolution decision.
 
@@ -68,6 +69,26 @@ def normalize_open_meteo_candidates(
         raise ValueError("Optional administrative area must be nonblank.")
     if result_limit < 1 or len(results) > result_limit:
         raise ValueError("Open-Meteo candidate list exceeds the configured bound.")
+    if required_role is not None and required_role != "country_capital":
+        raise ValueError("Unsupported required geographic role.")
+
+    query_context = [ResolutionAttribute(name="country_code", value=country_code)]
+
+    if administrative_area is not None:
+        query_context.append(
+            ResolutionAttribute(
+                name="administrative_area",
+                value=administrative_area.strip(),
+            )
+        )
+
+    if required_role is not None:
+        query_context.append(
+            ResolutionAttribute(
+                name="required_role",
+                value=required_role,
+            )
+        )
 
     candidates: list[ResolutionCandidate] = []
     for match in exact_open_meteo_matches(results, city=city, country_code=country_code):
@@ -133,16 +154,7 @@ def normalize_open_meteo_candidates(
         query=ResolutionQuery(
             name=city.strip(),
             entity_type="city",
-            context=(
-                (ResolutionAttribute(name="country_code", value=country_code),)
-                if administrative_area is None
-                else (
-                    ResolutionAttribute(name="country_code", value=country_code),
-                    ResolutionAttribute(
-                        name="administrative_area", value=administrative_area.strip()
-                    ),
-                )
-            ),
+            context=tuple(query_context),
         ),
         candidates=tuple(candidates),
         search_complete=complete,

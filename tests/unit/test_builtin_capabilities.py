@@ -55,7 +55,12 @@ def test_builtin_capabilities_include_geocode() -> None:
             description="Optional state, province or administrative region",
         ),
     }
-    assert geocode_capability.parameters == {}
+    assert set(geocode_capability.parameters) == {"required_role"}
+
+    required_role = geocode_capability.parameters["required_role"]
+
+    assert required_role.type == DataType.TEXT
+    assert required_role.allowed_values == ["country_capital"]
     assert geocode_capability.output == OutputSpec(
         type=DataType.GEO_POINT,
         description="Resolved coordinates",

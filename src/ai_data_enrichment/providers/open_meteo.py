@@ -20,6 +20,7 @@ from ai_data_enrichment.providers.open_meteo_candidates import (
 )
 
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
+GEOCODING_RESULT_LIMIT = 100
 
 
 class OpenMeteoGeocodingHandler:
@@ -81,7 +82,7 @@ class OpenMeteoGeocodingHandler:
                 params={
                     "name": city,
                     "countryCode": expected_country_code,
-                    "count": "10",
+                    "count": str(GEOCODING_RESULT_LIMIT),
                     "language": "en",
                     "format": "json",
                 },

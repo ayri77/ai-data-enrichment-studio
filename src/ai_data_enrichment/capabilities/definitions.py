@@ -31,7 +31,16 @@ def get_geocode_spec() -> CapabilitySpec:
                 description="Optional state, province or administrative region",
             ),
         },
-        parameters={},
+        parameters={
+            "required_role": ParameterSpec(
+                type=DataType.TEXT,
+                allowed_values=["country_capital"],
+                description=(
+                    "Optional hard constraint requiring the resolved location "
+                    "to have a verified country-capital administrative role."
+                ),
+            ),
+        },
         output=OutputSpec(
             type=DataType.GEO_POINT,
             description="Resolved coordinates",

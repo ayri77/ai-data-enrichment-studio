@@ -1,6 +1,7 @@
 """Test the validation of enrichment plans."""
 
 import pytest
+from pydantic import JsonValue
 
 from ai_data_enrichment.capabilities.definitions import (
     get_geocode_spec,
@@ -1308,3 +1309,71 @@ def test_plan_validator_rejects_missing_steps() -> None:
         "EMPTY_PLAN_STEPS",
         "MISSING_STEP_REFERENCE",
     }
+
+
+def test_geocode_declares_country_capital_requirement() -> None:
+    """Geocoding can require a verified country-capital role."""
+    spec = get_geocode_spec()
+
+    assert "required_role" in spec.parameters
+
+    parameter = spec.parameters["required_role"]
+
+    assert parameter.allowed_values == ["country_capital"]
+
+
+@pytest.mark.parametrize(
+    ("parameters", "expected_error"),
+    [
+        ({}, None),
+        ({"required_role": "country_capital"}, None),
+        ({"required_role": "village"}, "INVALID_PARAMETER_VALUE"),
+        ({"required_role": 123}, "PARAMETER_TYPE_MISMATCH"),
+    ],
+    ids=[
+        "optional-parameter-omitted",
+        "valid-country-capital",
+        "unsupported-role",
+        "invalid-parameter-type",
+    ],
+)
+def test_geocode_required_role_validation(
+    parameters: dict[str, JsonValue],
+    expected_error: str | None,
+) -> None:
+    """Validate the optional country-capital requirement."""
+    registry = CapabilityRegistry()
+    registry.register(get_geocode_spec())
+
+    plan = EnrichmentPlan(
+        version="1.0",
+        steps=[
+            PlanStep(
+                id="geocode_city",
+                capability="geocode",
+                inputs={
+                    "city": LiteralValue(kind="literal", value="Kyiv"),
+                    "country": LiteralValue(kind="literal", value="Ukraine"),
+                },
+                parameters=parameters,
+            ),
+        ],
+        outputs=[],
+        assumptions=[],
+    )
+
+    validator = PlanValidator(
+        registry=registry,
+        dataset_profile=DatasetProfile(
+            dataset_id="capitals",
+            name="Capitals",
+        ),
+    )
+
+    result = validator.validate(plan)
+
+    parameter_errors = [
+        error.code for error in result.errors if error.field == "parameters.required_role"
+    ]
+
+    assert parameter_errors == ([] if expected_error is None else [expected_error])

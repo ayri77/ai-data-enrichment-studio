@@ -10,13 +10,18 @@ from tests.support.http import StubJsonTransport
 from ai_data_enrichment.execution.models import GeoPoint
 from ai_data_enrichment.providers.open_meteo_candidates import normalize_open_meteo_candidates
 from ai_data_enrichment.providers.open_meteo_resolution import (
+    GEOCODING_RESULT_LIMIT,
     GeocodingResolutionOutcome,
     OpenMeteoResolutionService,
 )
 from ai_data_enrichment.providers.wikidata_candidates import normalize_wikidata_search_candidates
 from ai_data_enrichment.resolution.engine import ResolutionEngine
 from ai_data_enrichment.resolution.geographic import GeographicRankingStrategy
-from ai_data_enrichment.resolution.models import ResolutionPolicy, ResolutionReport
+from ai_data_enrichment.resolution.models import (
+    ResolutionAttribute,
+    ResolutionPolicy,
+    ResolutionReport,
+)
 
 
 def _berlin() -> list[dict[str, object]]:
@@ -287,7 +292,7 @@ def test_saturated_search_page_prevents_auto_acceptance() -> None:
             "latitude": 50.0,
             "longitude": 10.0,
         }
-        for i in range(8)
+        for i in range(GEOCODING_RESULT_LIMIT - len(_berlin()))
     ]
     _, outcome = _resolve(
         _berlin() + extras,
@@ -379,3 +384,187 @@ def test_report_validation_rejects_nonexistent_selected_candidate() -> None:
     payload["decision"]["selected"]["entity_id"] = "nonexistent"
     with pytest.raises(ValidationError, match="verified listed candidate"):
         ResolutionReport.model_validate_json(dumps(payload))
+
+
+def test_required_country_capital_excludes_other_settlements() -> None:
+    """Country-capital requirement is a hard constraint, not a ranking hint."""
+    candidate_set = normalize_open_meteo_candidates(
+        _berlin(),
+        city="Berlin",
+        country_code="DE",
+    )
+
+    query = candidate_set.query.model_copy(
+        update={
+            "context": (
+                *candidate_set.query.context,
+                ResolutionAttribute(
+                    name="required_role",
+                    value="country_capital",
+                ),
+            )
+        }
+    )
+
+    candidate_set = candidate_set.model_copy(update={"query": query})
+
+    report = ResolutionEngine().resolve(
+        candidate_set=candidate_set,
+        policy=_policy(),  # Strict: no automatic ranking
+        strategy=GeographicRankingStrategy(),
+    )
+
+    assert report.decision.status == "resolved"
+    assert report.decision.selected is not None
+    assert report.decision.selected.entity_id == "2950159"
+
+    assessments = {item.reference.entity_id: item for item in report.assessments}
+
+    assert assessments["2950159"].eligibility == "eligible"
+    assert assessments["2950158"].eligibility == "excluded"
+    assert "required_role_mismatch" in assessments["2950158"].reason_codes
+
+
+def test_geocoding_service_applies_required_country_capital() -> None:
+    """Service forwards the required role to geographic resolution."""
+    transport = StubJsonTransport({"results": _berlin()})
+
+    outcome = OpenMeteoResolutionService(transport).resolve(
+        inputs={
+            "city": "Berlin",
+            "country": "Germany",
+        },
+        parameters={
+            "required_role": "country_capital",
+        },
+        policy=_policy(),
+    )
+
+    assert outcome.operation.status == "success"
+    assert outcome.report.decision.status == "resolved"
+
+    selected = outcome.report.decision.selected
+    assert selected is not None
+    assert selected.entity_id == "2950159"
+
+    assessments = {item.reference.entity_id: item for item in outcome.report.assessments}
+
+    assert assessments["2950158"].eligibility == "excluded"
+    assert "required_role_mismatch" in assessments["2950158"].reason_codes
+
+    assert len(transport.requests) == 1
+
+
+def test_required_capital_does_not_bypass_incomplete_search() -> None:
+    """A required role must not override incomplete search protection."""
+    other_results = [
+        {
+            "id": 9000 + i,
+            "name": f"Other place {i}",
+            "country_code": "DE",
+            "latitude": 50.0,
+            "longitude": 10.0,
+        }
+        for i in range(GEOCODING_RESULT_LIMIT - len(_berlin()))
+    ]
+
+    transport = StubJsonTransport({"results": _berlin() + other_results})
+
+    outcome = OpenMeteoResolutionService(transport).resolve(
+        inputs={
+            "city": "Berlin",
+            "country": "Germany",
+        },
+        parameters={
+            "required_role": "country_capital",
+        },
+        policy=_policy(),
+    )
+
+    assert outcome.report.candidate_set.search_complete is False
+    assert outcome.report.decision.status == "incomplete_verification"
+    assert outcome.report.decision.selected is None
+
+    assert outcome.operation.status == "failure"
+    assert outcome.operation.error_code == "INCOMPLETE_VERIFICATION"
+
+
+def test_kyiv_complete_search_auto_resolves_capital() -> None:
+    """Complete search selects Kyiv capital and preserves the alternative."""
+    results = [
+        {
+            "id": 703448,
+            "name": "Kyiv",
+            "country_code": "UA",
+            "admin1": "Kyiv City",
+            "feature_code": "PPLC",
+            "population": 2952301,
+            "latitude": 50.4501,
+            "longitude": 30.5234,
+        },
+        {
+            "id": 704213,
+            "name": "Kyiv",
+            "country_code": "UA",
+            "admin1": "Mykolaiv Oblast",
+            "feature_code": "PPL",
+            "population": 108,
+            "latitude": 47.0,
+            "longitude": 32.0,
+        },
+    ]
+
+    # Other search hits are not exact matches for Kyiv.
+    results.extend(
+        {
+            "id": 9000 + i,
+            "name": f"Other place {i}",
+            "country_code": "UA",
+            "latitude": 49.0,
+            "longitude": 31.0,
+        }
+        for i in range(12)
+    )
+
+    transport = StubJsonTransport({"results": results})
+
+    outcome = OpenMeteoResolutionService(transport).resolve(
+        inputs={"city": "Kyiv", "country": "Ukraine"},
+        parameters={},
+        policy=_policy(ranked=True, auto=True, prominence=True),
+    )
+
+    assert len(transport.requests) == 1
+    assert len(results) == 14
+
+    report = outcome.report
+
+    # Search and verification are complete.
+    assert report.candidate_set.search_complete is True
+    assert report.candidate_set.verification_complete is True
+
+    # Only exact-name candidates are retained.
+    assert {candidate.reference.entity_id for candidate in report.candidate_set.candidates} == {
+        "703448",
+        "704213",
+    }
+
+    # The capital wins under the explicitly enabled ranked policy.
+    assert report.decision.status == "auto_resolved"
+    assert report.decision.basis == "ranking_policy"
+    assert report.decision.selected is not None
+    assert report.decision.selected.entity_id == "703448"
+
+    # Execution returns coordinates and provenance.
+    assert outcome.operation.status == "success"
+    assert outcome.operation.value == GeoPoint(
+        latitude=50.4501,
+        longitude=30.5234,
+    )
+    assert outcome.operation.evidence[0].reference == "geonames:703448"
+
+    # Both candidates remain available for audit.
+    assessments = {assessment.reference.entity_id: assessment for assessment in report.assessments}
+    assert assessments["703448"].rank == 1
+    assert assessments["704213"].rank == 2
+    assert "country_capital_role" in assessments["703448"].reason_codes
