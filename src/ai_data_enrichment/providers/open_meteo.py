@@ -3,7 +3,6 @@
 from collections.abc import Mapping
 from json import JSONDecodeError
 
-import pycountry
 from pydantic import ValidationError
 
 from ai_data_enrichment.execution.models import (
@@ -18,6 +17,7 @@ from ai_data_enrichment.providers.open_meteo_candidates import (
     administrative_area_matches,
     exact_open_meteo_matches,
 )
+from ai_data_enrichment.resolution.geography import normalize_country_code
 
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 GEOCODING_RESULT_LIMIT = 100
@@ -68,7 +68,7 @@ class OpenMeteoGeocodingHandler:
 
         # Validate the country code.
         try:
-            expected_country_code = pycountry.countries.lookup(country).alpha_2
+            expected_country_code = normalize_country_code(country)
         except LookupError:
             return OperationResult(
                 status="failure",

@@ -17,6 +17,22 @@ from ai_data_enrichment.providers.wikidata_parsing import (
     _wikidata_api_failure,
     _wikidata_identity_drift,
 )
+from ai_data_enrichment.resolution.geography import normalize_country_code
+
+
+def parse_country_codes(country: str) -> tuple[str, ...]:
+    """Normalize one or more slash-separated countries to ISO codes."""
+    parts = [part.strip() for part in country.split("/")]
+
+    if not parts or any(not part for part in parts):
+        raise ValueError("Mountain country contains an empty component.")
+
+    try:
+        codes = {normalize_country_code(part) for part in parts}
+    except LookupError as exc:
+        raise ValueError("Resolution requires recognized countries.") from exc
+
+    return tuple(sorted(codes))
 
 
 def verify_country(
@@ -25,8 +41,13 @@ def verify_country(
     qid: str,
     claims: dict[str, object],
     expected_country_code: str,
+    accepted_country_codes: tuple[str, ...] | None = None,
 ) -> OperationResult:
     """Verify mountain country through P17 and country P297 claims."""
+
+    allowed_codes = (
+        accepted_country_codes if accepted_country_codes is not None else (expected_country_code,)
+    )
 
     def failure(code: str, message: str) -> OperationResult:
         return OperationResult(
@@ -202,7 +223,7 @@ def verify_country(
                     "Malformed Wikidata ISO country code.",
                 )
 
-            if iso_code == expected_country_code:
+            if iso_code in allowed_codes:
                 return OperationResult(
                     status="success",
                     value=EntityRef(

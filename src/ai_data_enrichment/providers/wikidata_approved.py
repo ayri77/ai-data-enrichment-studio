@@ -5,13 +5,13 @@ and source workbook. This adapter performs fresh type/country verification;
 it never treats approval alone as a verified fact.
 """
 
+import re
 from collections.abc import Mapping
-
-import pycountry
 
 from ai_data_enrichment.domain.enrichment_plan import PlanStep
 from ai_data_enrichment.execution.models import EntityRef, RuntimeValue
 from ai_data_enrichment.providers.http_transport import JsonTransport
+from ai_data_enrichment.providers.wikidata_country import parse_country_codes
 from ai_data_enrichment.providers.wikidata_resolution import WikidataResolutionOutcome
 from ai_data_enrichment.providers.wikidata_verification import verify_wikidata_mountain_candidate
 from ai_data_enrichment.resolution.approvals import ResolutionApproval
@@ -71,19 +71,36 @@ class ApprovedWikidataMountainResolutionService:
         if matches[0].entity_type != "mountain":
             raise ValueError("Approved entity does not have the required mountain type.")
 
-        country_codes = [
-            attribute.value for attribute in query.context if attribute.name == "country_code"
+        country_attributes = [
+            attribute
+            for attribute in query.context
+            if attribute.name in {"country_code", "country_codes"}
         ]
-        if len(country_codes) != 1 or not isinstance(country_codes[0], str):
-            raise ValueError("Source report lacks exactly one country_code constraint.")
-        country_code = country_codes[0]
-        if len(country_code) != 2 or not country_code.isupper() or not country_code.isalpha():
-            raise ValueError("Source report has an invalid country_code constraint.")
+
+        if len(country_attributes) != 1:
+            raise ValueError("Source report requires exactly one country constraint.")
+
+        attribute = country_attributes[0]
+
+        if not isinstance(attribute.value, str):
+            raise ValueError("Source report has an invalid country constraint.")
+
+        country_codes = tuple(attribute.value.split("/"))
+
+        if any(re.fullmatch(r"[A-Z]{2}", code) is None for code in country_codes):
+            raise ValueError("Source report has invalid ISO country codes.")
+
+        if attribute.name == "country_code":
+            if len(country_codes) != 1:
+                raise ValueError("Single-country constraint must contain one code.")
+        else:
+            if len(country_codes) < 2 or country_codes != tuple(sorted(set(country_codes))):
+                raise ValueError("Multi-country constraint must be canonical.")
 
         self._transport = transport
         self._approval = approval
         self._query = query
-        self._country_code = country_code
+        self._country_codes = country_codes
         self._source_candidate = matches[0]
 
     def validate_step(
@@ -112,10 +129,11 @@ class ApprovedWikidataMountainResolutionService:
         if _normalized_name(name) != _normalized_name(self._query.name):
             raise ValueError("Current mountain name differs from approved source query.")
         try:
-            country_code = pycountry.countries.lookup(country.strip()).alpha_2
-        except LookupError as exc:
+            country_codes = parse_country_codes(country)
+        except ValueError as exc:
             raise ValueError("Current mountain country is not recognized.") from exc
-        if country_code != self._country_code:
+
+        if country_codes != self._country_codes:
             raise ValueError("Current mountain country differs from approved source query.")
 
     def resolve(
@@ -126,18 +144,19 @@ class ApprovedWikidataMountainResolutionService:
     ) -> WikidataResolutionOutcome:
         """Verify only the approved QID against *current* task constraints."""
         self.validate_inputs(inputs)
-        country_code = self._country_code
+        country_codes = self._country_codes
+        country_code = country_codes[0]
         ref = self._source_candidate.reference
         checked = verify_wikidata_mountain_candidate(
             self._transport,
             qid=ref.entity_id,
             expected_country_code=country_code,
+            accepted_country_codes=country_codes,
         )
         success = checked.status == "success"
         if success and checked.value != ref:
             raise ValueError("Fresh source identity differs from the approved entity.")
         rejected_type = checked.error_code in {
-            "DIRECT_NON_MOUNTAIN_CLASS",
             "NON_MOUNTAIN_CLASS",
         }
 
@@ -148,8 +167,8 @@ class ApprovedWikidataMountainResolutionService:
             verification=("verified" if success else "rejected" if rejected_type else "unchecked"),
             attributes=(
                 ResolutionAttribute(
-                    name="country_code",
-                    value=country_code,
+                    name="country_code" if len(country_codes) == 1 else "country_codes",
+                    value=(country_code if len(country_codes) == 1 else "/".join(country_codes)),
                     evidence=checked.evidence,
                 ),
             )

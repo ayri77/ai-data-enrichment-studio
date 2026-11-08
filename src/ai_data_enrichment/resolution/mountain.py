@@ -53,7 +53,7 @@ class MountainRankingStrategy:
                 # A label is a better suggestion than an alias, not proof of
                 # identity. The strategy never supplies a dominant_reference.
                 is_label = _match_kind(candidate) == "label"
-                rank = 1 if policy.strategy == "strict" or is_label else 2
+                rank = 1 if policy.strategy != "ranked" or is_label else 2
                 assessments.append(
                     CandidateAssessment(
                         reference=candidate.reference,

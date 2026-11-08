@@ -61,7 +61,15 @@ def get_resolve_entity_spec() -> CapabilitySpec:
             ),
             "country": InputSpec(
                 type=DataType.TEXT,
-                description="Country name",
+                description=(
+                    "Country context for mountain entity resolution. "
+                    "Accepts a single country name or slash-separated country names "
+                    "(e.g. 'Nepal/China'). "
+                    "For multiple countries, the resolver verifies that the mountain "
+                    "belongs to at least one listed country using Wikidata country claims. "
+                    "Unknown country names cause an error. "
+                    "The original country value is preserved."
+                ),
             ),
         },
         parameters={
@@ -99,7 +107,15 @@ def get_lookup_property_spec() -> CapabilitySpec:
         },
         output=OutputSpec(
             type=DataType.QUANTITY,
-            description="Resolved property value",
+            description=(
+                "Mountain elevation in metres (m). "
+                "The current Wikidata provider returns a successful "
+                "Quantity with unit='m' only when the source elevation "
+                "is explicitly expressed in metres. "
+                "Unsupported units produce an UNSUPPORTED_UNIT failure; "
+                "missing or ambiguous values also produce explicit failures. "
+                "No unit conversion is performed."
+            ),
             fields={
                 "value": DataType.NUMBER,
                 "unit": DataType.TEXT,

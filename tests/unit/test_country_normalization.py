@@ -1,0 +1,106 @@
+"""Offline country normalization shared by ordinary and audited geocoding."""
+
+import pytest
+from tests.support.http import StubJsonTransport
+
+from ai_data_enrichment.execution.models import GeoPoint
+from ai_data_enrichment.providers.open_meteo import OpenMeteoGeocodingHandler
+from ai_data_enrichment.providers.open_meteo_resolution import OpenMeteoResolutionService
+from ai_data_enrichment.providers.wikidata_country import parse_country_codes
+from ai_data_enrichment.resolution.geography import normalize_country_code
+from ai_data_enrichment.resolution.models import ResolutionPolicy
+
+
+@pytest.mark.parametrize(
+    ("country", "expected_code", "city"),
+    [
+        ("Turkey", "TR", "Ankara"),
+        ("Türkiye", "TR", "Ankara"),
+        ("TR", "TR", "Ankara"),
+        ("  tUrKeY \t", "TR", "Ankara"),
+        (" tr ", "TR", "Ankara"),
+        ("Germany", "DE", "Berlin"),
+        (" DEU ", "DE", "Berlin"),
+        (" Ukraine ", "UA", "Kyiv"),
+    ],
+)
+@pytest.mark.parametrize("audited", [False, True])
+@pytest.mark.parametrize("matching_locations", [1, 2])
+def test_country_normalization_reaches_both_geocoding_paths_without_changing_ambiguity(
+    country: str, expected_code: str, city: str, audited: bool, matching_locations: int
+) -> None:
+    assert normalize_country_code(country) == expected_code
+    # Fictional locations isolate country matching and ambiguity from live data.
+    transport = StubJsonTransport(
+        {
+            "results": [
+                {
+                    "id": 1000 + index,
+                    "name": city,
+                    "country_code": expected_code,
+                    "feature_code": "PPLC",
+                    "latitude": 40.0,
+                    "longitude": 30.0,
+                }
+                for index in range(matching_locations)
+            ]
+        }
+    )
+    inputs = {"city": city, "country": country}
+    if audited:
+        outcome = OpenMeteoResolutionService(transport).resolve(
+            inputs=inputs, policy=ResolutionPolicy(policy_id="strict", version="1")
+        )
+        result = outcome.operation
+        assert {a.name: a.value for a in outcome.report.candidate_set.query.context} == {
+            "country_code": expected_code
+        }
+        assert len(outcome.report.candidate_set.candidates) == matching_locations
+    else:
+        result = OpenMeteoGeocodingHandler(transport).execute(inputs=inputs, parameters={})
+    assert len(transport.requests) == 1
+    assert transport.requests[0][1]["countryCode"] == expected_code
+    if matching_locations == 1:
+        assert result.value == GeoPoint(latitude=40.0, longitude=30.0)
+    else:
+        assert result.error_code == "AMBIGUOUS"
+        assert result.value is None
+
+
+@pytest.mark.parametrize("country", ["Unknown country", "Turke", "Turkey/China", "Nepal/China"])
+def test_unknown_or_multi_country_geocoding_input_remains_invalid(country: str) -> None:
+    with pytest.raises(LookupError):
+        normalize_country_code(country)
+    transport = StubJsonTransport({"results": []})
+    result = OpenMeteoGeocodingHandler(transport).execute(
+        inputs={"city": "Example", "country": country}, parameters={}
+    )
+    assert result.error_code == "INVALID_INPUT"
+    assert result.message == f"Unrecognized country: '{country}'."
+    with pytest.raises(ValueError, match="Resolution requires a recognized country"):
+        OpenMeteoResolutionService(transport).resolve(
+            inputs={"city": "Example", "country": country},
+            policy=ResolutionPolicy(policy_id="strict", version="1"),
+        )
+    assert not transport.requests
+
+
+@pytest.mark.parametrize(
+    ("country", "expected_codes"),
+    [
+        ("Nepal/China", ("CN", "NP")),
+        ("Pakistan/China", ("CN", "PK")),
+        (" China / Nepal / NP ", ("CN", "NP")),
+        ("Turkey", ("TR",)),
+    ],
+)
+def test_mountain_parser_keeps_multi_country_semantics(
+    country: str, expected_codes: tuple[str, ...]
+) -> None:
+    assert parse_country_codes(country) == expected_codes
+
+
+@pytest.mark.parametrize("country", ["", "Nepal/", "/China", "Nepal//China", "Unknown country"])
+def test_mountain_parser_keeps_invalid_country_errors(country: str) -> None:
+    with pytest.raises(ValueError, match="empty component|requires recognized countries"):
+        parse_country_codes(country)

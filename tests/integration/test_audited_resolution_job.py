@@ -446,8 +446,16 @@ def test_wikidata_audited_job_produces_verified_entity_for_elevation_dependency(
             ],
         },
     }
-    film = {"id": "Q61882061", "claims": {"P31": [entity_statement("Q11424")]}}
-    entities: dict[str, object] = {"Q513": mountain, "Q837": country, "Q61882061": film}
+    film = {
+        "id": "Q61882061",
+        "claims": {"P31": [entity_statement("Q11424")], "P17": [entity_statement("Q837")]},
+    }
+    entities: dict[str, object] = {
+        "Q513": mountain,
+        "Q837": country,
+        "Q61882061": film,
+        "Q11424": {"id": "Q11424", "claims": {"P279": []}},
+    }
 
     def respond(*, url: str, params: Mapping[str, str], timeout_seconds: float) -> object:
         assert url == "https://www.wikidata.org/w/api.php"

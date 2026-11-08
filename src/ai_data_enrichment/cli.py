@@ -89,6 +89,13 @@ def run_enrichment(
     source_report: Annotated[
         Path | None, typer.Option("--source-report", help="Original audited resolution report.")
     ] = None,
+    mountain_resolution_policy: Annotated[
+        Literal["strict", "verified_only"],
+        typer.Option(
+            "--mountain-resolution-policy",
+            help="Mountain policy; verified_only retains uncertainty about alternatives.",
+        ),
+    ] = "strict",
 ) -> None:
     """Execute a saved plan and create an enriched XLSX workbook."""
 
@@ -159,6 +166,7 @@ def run_enrichment(
                 for step in plan.steps
             ),
             resume_selections=resume_selections,
+            mountain_resolution_policy=mountain_resolution_policy,
         )
 
         enrichment_runner = ExcelEnrichmentRunner(
@@ -222,6 +230,8 @@ def run_enrichment(
             decision = item.report.decision
 
             typer.echo(f"Resolution status: {decision.status}")
+            if decision.basis is not None:
+                typer.echo(f"Selection basis: {decision.basis}")
 
             for candidate in item.report.candidate_set.candidates:
                 if candidate.verification == "verified":

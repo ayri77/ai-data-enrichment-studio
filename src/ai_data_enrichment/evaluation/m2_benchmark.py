@@ -126,18 +126,25 @@ class BenchmarkFixtureTransport:
                         }
                     )
                 return {"search": hits}
-            if params["action"] == "wbgetentities" and params["ids"] == "Q61882061":
-                return {
-                    "entities": {
-                        "Q61882061": {
-                            "id": "Q61882061",
-                            "claims": {"P31": [_statement("Q11424")]},
+            if params["action"] == "wbgetentities":
+                entities: dict[str, object] = {}
+                for qid in params["ids"].split("|"):
+                    if qid == "Q61882061":
+                        entities[qid] = {
+                            "id": qid,
+                            "claims": {"P31": [_statement("Q11424")], "P17": [_statement("Q837")]},
                         }
-                    }
-                }
-            if params["action"] == "wbgetentities" and params["ids"] == "Q9200":
-                return {"entities": {"Q9200": {"id": "Q9200", "claims": {}}}}
-            return self.wikidata.get_json(url=url, params=params, timeout_seconds=timeout_seconds)
+                    elif qid == "Q11424":
+                        entities[qid] = {"id": qid, "claims": {"P279": []}}
+                    elif qid == "Q9200":
+                        entities[qid] = {"id": qid, "claims": {}}
+                    else:
+                        payload = self.wikidata.get_json(
+                            url=url, params={**params, "ids": qid}, timeout_seconds=timeout_seconds
+                        )
+                        assert isinstance(payload, dict)
+                        entities[qid] = payload["entities"][qid]
+                return {"entities": entities}
         raise ValueError("An unregistered provider URL was requested.")
 
 

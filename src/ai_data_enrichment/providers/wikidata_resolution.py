@@ -8,7 +8,6 @@ audited resolution with job memoization and per-row review references.
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-import pycountry
 from pydantic import ValidationError
 
 from ai_data_enrichment.execution.models import Evidence, OperationResult, RuntimeValue
@@ -17,8 +16,12 @@ from ai_data_enrichment.providers.wikidata_candidates import normalize_wikidata_
 from ai_data_enrichment.providers.wikidata_constants import (
     WIKIDATA_MAX_VERIFY_CANDIDATES,
 )
+from ai_data_enrichment.providers.wikidata_country import parse_country_codes
 from ai_data_enrichment.providers.wikidata_search import fetch_wikidata_search
-from ai_data_enrichment.providers.wikidata_verification import verify_wikidata_mountain_candidate
+from ai_data_enrichment.providers.wikidata_verification import (
+    fetch_wikidata_candidate_entities,
+    verify_wikidata_mountain_candidate,
+)
 from ai_data_enrichment.resolution.engine import ResolutionEngine
 from ai_data_enrichment.resolution.models import (
     CandidateSet,
@@ -31,7 +34,6 @@ from ai_data_enrichment.resolution.models import (
 from ai_data_enrichment.resolution.mountain import MountainRankingStrategy
 
 _EXCLUDED_REASON_CODES = {
-    "DIRECT_NON_MOUNTAIN_CLASS": "direct_non_mountain_class",
     "NON_MOUNTAIN_CLASS": "no_mountain_class_path",
     "SOURCE_ENTITY_MISSING": "missing_source_entity",
 }
@@ -78,15 +80,18 @@ class WikidataMountainResolutionService:
             raise ValueError("Resolution requires a nonblank mountain name.")
         if not isinstance(country, str) or not country.strip():
             raise ValueError("Resolution requires a nonblank country.")
-        try:
-            country_code = pycountry.countries.lookup(country.strip()).alpha_2
-        except LookupError as exc:
-            raise ValueError("Resolution requires a recognized country.") from exc
+        country_codes = parse_country_codes(country)
+        country_code = country_codes[0]
 
         query = ResolutionQuery(
             name=name.strip(),
             entity_type="mountain",
-            context=(ResolutionAttribute(name="country_code", value=country_code),),
+            context=(
+                ResolutionAttribute(
+                    name="country_code" if len(country_codes) == 1 else "country_codes",
+                    value=country_code if len(country_codes) == 1 else "/".join(country_codes),
+                ),
+            ),
         )
         # Search first using the ORIGINAL input. Verification and ranking
         # are subsequent stages; neither may silently repair the query.
@@ -98,6 +103,7 @@ class WikidataMountainResolutionService:
                 country_code=country_code,
                 search_complete=search.complete,
             )
+            normalized = normalized.model_copy(update={"query": query})
         except (ValueError, ValidationError):
             return self._provider_failure(
                 query=query,
@@ -125,6 +131,25 @@ class WikidataMountainResolutionService:
 
         replacements: dict[str, ResolutionCandidate] = {}
         failure: OperationResult | None = None
+        entities = fetch_wikidata_candidate_entities(
+            self._transport,
+            qids=tuple(candidate.reference.entity_id for candidate in normalized.candidates),
+        )
+        if isinstance(entities, OperationResult):
+            return self._emit(
+                candidate_set=CandidateSet(
+                    query=query,
+                    provider_id="wikidata",
+                    candidates=normalized.candidates,
+                    search_complete=True,
+                    verification_complete=False,
+                    provider_error_code=entities.error_code,
+                    incomplete_reason="provider_verification_error",
+                ),
+                policy=policy,
+                failure=entities,
+            )
+
         # Verify exact-label candidates before weaker search matches, within
         # the fixed provider budget. Search rank alone is not evidence that
         # any candidate is a verified mountain in the requested country.
@@ -142,6 +167,8 @@ class WikidataMountainResolutionService:
                 self._transport,
                 qid=qid,
                 expected_country_code=country_code,
+                accepted_country_codes=country_codes,
+                entities=entities,
             )
             if checked.status == "success":
                 replacements[qid] = candidate.model_copy(
@@ -151,8 +178,10 @@ class WikidataMountainResolutionService:
                         "attributes": (
                             *candidate.attributes,
                             ResolutionAttribute(
-                                name="country_code",
-                                value=country_code,
+                                name="country_code" if len(country_codes) == 1 else "country_codes",
+                                value=country_code
+                                if len(country_codes) == 1
+                                else "/".join(country_codes),
                                 evidence=checked.evidence,
                             ),
                         ),
@@ -221,6 +250,7 @@ class WikidataMountainResolutionService:
                 candidates=candidates,
                 search_complete=True,
                 verification_complete=complete,
+                candidate_scan_complete=not exceeded,
                 incomplete_reason=(
                     None
                     if complete

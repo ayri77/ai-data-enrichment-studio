@@ -4,8 +4,6 @@ import re
 from collections.abc import Mapping
 from json import JSONDecodeError
 
-import pycountry
-
 from ai_data_enrichment.execution.models import (
     EntityRef,
     Evidence,
@@ -29,6 +27,7 @@ from ai_data_enrichment.providers.wikidata_constants import (
     WIKIDATA_Q_MOUNTAIN,
     WIKIDATA_SEARCH_PAGE_SIZE,
 )
+from ai_data_enrichment.providers.wikidata_country import parse_country_codes
 from ai_data_enrichment.providers.wikidata_parsing import (
     _best_ranked_statements,
     _candidate_matches_name,
@@ -239,13 +238,15 @@ class WikidataMountainResolver:
             )
 
         try:
-            expected_country_code = pycountry.countries.lookup(country.strip()).alpha_2
-        except LookupError:
+            accepted_country_codes = parse_country_codes(country)
+        except ValueError:
             return OperationResult(
                 status="failure",
                 error_code="INVALID_INPUT",
-                message="Unrecognized country name.",
+                message="Unrecognized mountain country context.",
             )
+
+        expected_country_code = accepted_country_codes[0]
 
         search = fetch_wikidata_search(self._transport, name=name)
         if search.failure is not None:
@@ -313,6 +314,7 @@ class WikidataMountainResolver:
             result = self._verify_candidate(
                 qid=qid,
                 expected_country_code=expected_country_code,
+                accepted_country_codes=accepted_country_codes,
             )
 
             if result.status == "success":
@@ -344,17 +346,18 @@ class WikidataMountainResolver:
         *,
         qid: str,
         expected_country_code: str,
+        accepted_country_codes: tuple[str, ...] | None = None,
     ) -> OperationResult:
         """Preserve the strict handler API while using shared source verification."""
         checked = verify_wikidata_mountain_candidate(
             self._transport,
             qid=qid,
             expected_country_code=expected_country_code,
+            accepted_country_codes=accepted_country_codes,
         )
         # Preserve the public strict resolver's longstanding NOT_FOUND contract.
         # Structured source-specific reasons are used by the audited service.
         if checked.error_code in {
-            "DIRECT_NON_MOUNTAIN_CLASS",
             "NON_MOUNTAIN_CLASS",
             "SOURCE_ENTITY_MISSING",
             "UNVERIFIED_TYPE",

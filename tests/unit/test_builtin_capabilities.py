@@ -74,16 +74,23 @@ def test_builtin_capabilities_include_resolve_entity() -> None:
     resolve_entity_capability = next((c for c in capabilities if c.id == "resolve_entity"), None)
     assert resolve_entity_capability is not None
     assert resolve_entity_capability.version == "1.0"
-    assert resolve_entity_capability.inputs == {
-        "name": InputSpec(
-            type=DataType.TEXT,
-            description="Entity name",
-        ),
-        "country": InputSpec(
-            type=DataType.TEXT,
-            description="Country name",
-        ),
-    }
+
+    assert resolve_entity_capability.inputs["name"] == InputSpec(
+        type=DataType.TEXT,
+        description="Entity name",
+    )
+
+    country_input = resolve_entity_capability.inputs["country"]
+
+    assert country_input.type == DataType.TEXT
+    assert country_input.required
+
+    description = country_input.description.lower()
+
+    assert "slash-separated" in description
+    assert "at least one" in description
+    assert "unknown country names" in description
+
     assert resolve_entity_capability.parameters == {
         "entity_type": ParameterSpec(
             type=DataType.TEXT,
@@ -117,14 +124,19 @@ def test_builtin_capabilities_include_lookup_property() -> None:
             description="Property",
         ),
     }
-    assert lookup_property_capability.output == OutputSpec(
-        type=DataType.QUANTITY,
-        description="Resolved property value",
-        fields={
-            "value": DataType.NUMBER,
-            "unit": DataType.TEXT,
-        },
-    )
+
+    output = lookup_property_capability.output
+
+    assert output.type == DataType.QUANTITY
+    assert output.fields == {
+        "value": DataType.NUMBER,
+        "unit": DataType.TEXT,
+    }
+
+    # The planner must know the provider's unit contract.
+    assert "unit='m'" in output.description
+    assert "UNSUPPORTED_UNIT" in output.description
+    assert "No unit conversion" in output.description
 
 
 def test_builtin_capabilities_include_geodesic_distance() -> None:

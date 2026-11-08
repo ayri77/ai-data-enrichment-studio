@@ -555,6 +555,7 @@ def test_rejects_search_result_that_is_not_a_mountain() -> None:
                     "claims": {
                         "P31": [
                             {
+                                "rank": "normal",
                                 "mainsnak": {
                                     "snaktype": "value",
                                     "datavalue": {
