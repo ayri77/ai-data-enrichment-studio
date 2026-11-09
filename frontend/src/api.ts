@@ -25,20 +25,36 @@ export interface Preview {
         schema_warnings: string[];
     };
 }
+/** Retain the backend's stable code; presentation decides how to localize it. */
+export class WorkspaceApiError extends Error {
+    constructor(
+        public readonly code: string,
+        message: string,
+        public readonly status?: number,
+    ) {
+        super(message);
+        this.name = "WorkspaceApiError";
+    }
+}
 async function response<T>(request: Promise<Response>): Promise<T> {
     let result: Response;
     try {
         result = await request;
     } catch {
-        throw new Error(
+        throw new WorkspaceApiError(
+            "network_error",
             "Cannot reach the local API. Start the backend and try again.",
         );
     }
     if (!result.ok) {
         const body = await result.json().catch(() => null);
-        throw new Error(
+        throw new WorkspaceApiError(
+            typeof body?.error?.code === "string"
+                ? body.error.code
+                : "request_failed",
             body?.error?.message ??
                 "The request could not be completed. Please try again.",
+            result.status,
         );
     }
     return result.json() as Promise<T>;

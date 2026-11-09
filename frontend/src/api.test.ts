@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api } from "./api";
+import { api, WorkspaceApiError } from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 describe("API error contract", () => {
@@ -18,9 +18,15 @@ describe("API error contract", () => {
                 ),
             ),
         );
-        await expect(api.preview("opaque", "Sheet1", "bad")).rejects.toThrow(
-            "Check the range.",
-        );
+        const failure = await api
+            .preview("opaque", "Sheet1", "bad")
+            .catch((error) => error);
+        expect(failure).toBeInstanceOf(WorkspaceApiError);
+        expect(failure).toMatchObject({
+            message: "Check the range.",
+            code: "invalid_selection",
+            status: 422,
+        });
     });
     it("handles an unavailable backend", async () => {
         vi.stubGlobal(
@@ -43,5 +49,27 @@ describe("API error contract", () => {
         await expect(api.preview("opaque", "Sheet1", "A1:B2")).rejects.toThrow(
             "The request could not be completed",
         );
+    });
+    it("keeps unknown server codes without presenting them as translated messages", async () => {
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(
+                async () =>
+                    new Response(
+                        JSON.stringify({
+                            error: {
+                                code: "future_error",
+                                message: "New server message",
+                            },
+                        }),
+                        { status: 409 },
+                    ),
+            ),
+        );
+        const failure = await api
+            .preview("opaque", "Sheet1", "A1:B2")
+            .catch((error) => error);
+        expect(failure).toBeInstanceOf(WorkspaceApiError);
+        expect(failure.code).toBe("future_error");
     });
 });

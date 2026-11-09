@@ -3,6 +3,11 @@
 **Upload XLSX → inspect worksheets → select an explicit table range → preview
 real data.** Built from `origin/main` at `cdc78f9`, including PRs #96 and #97.
 
+The subsequent approved Data IDE integration, current interface screenshots,
+localization and guided-range behavior are documented in
+[M5-1 UI Foundation](21-m5-ui-foundation.md). This document retains the original
+API/resource limits and first-slice acceptance evidence.
+
 ## Local startup
 
 Requirements: Python 3.12+, uv, Node.js 24 and npm. From the repository root:

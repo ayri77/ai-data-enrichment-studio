@@ -149,7 +149,11 @@ npm run dev
 Open [the local workspace](http://127.0.0.1:5173). Try `samples/capitals.xlsx`,
 `Sheet1`, `A1:E11`, then `samples/mountains.xlsx`, `Sheet1`, `A1:C11`.
 See [M5-1 setup, architecture, bounds, and screenshots](docs/19-m5-dataset-workspace.md).
-Later UI workflow steps remain disabled pending review of this slice.
+The approved Data IDE foundation adds persisted Light/Dark appearance,
+English/Ukrainian/German localization, guided table boundaries with advanced A1
+input, and a schema-independent column inspector. See
+[UI Foundation integration and verification](docs/21-m5-ui-foundation.md).
+Plan, Execution, Review, and Export remain explicitly unavailable pending review.
 
 ### Agentic workflow developer demo (M4)
 

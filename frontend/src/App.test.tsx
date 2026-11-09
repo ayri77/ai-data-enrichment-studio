@@ -1,10 +1,18 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+    fireEvent,
+    render,
+    screen,
+    waitFor,
+    within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import { api } from "./api";
+import { api, WorkspaceApiError } from "./api";
+import i18n, { messages } from "./i18n";
 
-vi.mock("./api", () => ({
+vi.mock("./api", async (original) => ({
+    ...(await original<typeof import("./api")>()),
     api: { upload: vi.fn(), preview: vi.fn(), remove: vi.fn() },
 }));
 const metadata = {
@@ -25,7 +33,7 @@ const preview = {
         columns: [
             {
                 name: "place",
-                inferred_type: "text",
+                inferred_type: "Text",
                 null_count: 1,
                 warnings: [],
             },
@@ -34,74 +42,249 @@ const preview = {
         schema_warnings: [],
     },
 };
-beforeEach(() => {
+
+beforeEach(async () => {
     vi.resetAllMocks();
+    localStorage.clear();
+    await i18n.changeLanguage("en");
     vi.mocked(api.upload).mockResolvedValue(metadata);
     vi.mocked(api.preview).mockResolvedValue(preview);
 });
 async function upload() {
     await userEvent.upload(
-        screen.getByLabelText("Upload Excel workbook"),
+        screen.getByLabelText(i18n.t("uploadWorkbook")),
         new File(["test"], "book.xlsx"),
     );
     await screen.findByText("book.xlsx");
 }
+async function previewLoaded() {
+    await upload();
+    await userEvent.click(
+        screen.getByRole("button", { name: i18n.t("previewAction") }),
+    );
+    await screen.findByText("Berlin");
+}
+async function advanced(value: string) {
+    await userEvent.click(
+        screen.getByRole("button", { name: i18n.t("advanced") }),
+    );
+    const input = screen.getByLabelText(i18n.t("tableRange"));
+    await userEvent.clear(input);
+    if (value) await userEvent.type(input, value);
+    return input;
+}
 
-describe("Dataset workspace", () => {
-    it("starts empty and prevents selection until upload", () => {
+describe("Dataset UI Foundation", () => {
+    it("starts empty, exposes real preferences and marks future workspaces unavailable", () => {
         render(<App />);
-        expect(screen.getByLabelText(/Worksheet/)).toBeDisabled();
+        expect(screen.getByLabelText("Worksheet")).toBeDisabled();
         expect(
-            screen.getByRole("button", { name: /Preview selection/ }),
+            screen.getByRole("button", { name: "Preview selection" }),
         ).toBeDisabled();
-        expect(screen.getByRole("status")).toHaveTextContent(
-            "Upload an Excel workbook",
-        );
+        expect(screen.getByText("No table selected")).toBeInTheDocument();
+        expect(
+            screen.getAllByRole("button", { name: /Not available/ }),
+        ).toHaveLength(4);
+        screen
+            .getAllByRole("button", { name: /Not available/ })
+            .forEach((button) => expect(button).toBeDisabled());
+        expect(
+            screen.queryByText(/verified distance/i),
+        ).not.toBeInTheDocument();
     });
-    it("uploads, selects a worksheet and an explicit range, then renders returned rows", async () => {
+    it("guides offset boundaries and uses the real request contract", async () => {
         render(<App />);
         await upload();
         await userEvent.selectOptions(
-            screen.getByLabelText(/Worksheet/),
+            screen.getByLabelText("Worksheet"),
             "Second",
         );
-        const range = screen.getByLabelText(/Table range/);
-        await userEvent.clear(range);
-        await userEvent.type(range, "B2:B4");
+        await userEvent.selectOptions(
+            screen.getByLabelText("First column"),
+            "B",
+        );
+        expect(
+            screen.getByRole("button", { name: "Preview selection" }),
+        ).toBeDisabled();
+        await userEvent.selectOptions(
+            screen.getByLabelText("Last column"),
+            "B",
+        );
+        for (const [label, value] of [
+            ["Header row", "2"],
+            ["Last row", "4"],
+        ]) {
+            const field = screen.getByLabelText(label);
+            await userEvent.clear(field);
+            await userEvent.type(field, value);
+        }
         await userEvent.click(
-            screen.getByRole("button", { name: /Preview selection/ }),
+            screen.getByRole("button", { name: "Preview selection" }),
         );
         expect(api.preview).toHaveBeenCalledWith("opaque", "Second", "B2:B4");
         expect(await screen.findByText("Berlin")).toBeInTheDocument();
         expect(
-            screen.getByRole("columnheader", { name: /place/ }),
+            screen.getByRole("columnheader", { name: "Sample index" }),
         ).toBeInTheDocument();
-        expect(screen.getByText("null")).toBeInTheDocument();
+        expect(
+            screen.getByText(/Sample indices are not Excel row numbers/),
+        ).toBeInTheDocument();
+        expect(screen.getByLabelText("Empty source value")).toBeInTheDocument();
+        const inspector = screen.getByRole("complementary", {
+            name: "Column inspector",
+        });
+        expect(within(inspector).getByText("B2:B4")).toBeInTheDocument();
+    });
+    it("preserves advanced A1 entry, normalizes references and clears stale previews", async () => {
+        render(<App />);
+        await upload();
+        await userEvent.selectOptions(
+            screen.getByLabelText("Worksheet"),
+            "Second",
+        );
+        const range = await advanced(" $b$2:$b$4 ");
+        await userEvent.click(
+            screen.getByRole("button", { name: "Preview selection" }),
+        );
+        expect(api.preview).toHaveBeenCalledWith("opaque", "Second", "B2:B4");
+        await screen.findByText("Berlin");
         await userEvent.type(range, "5");
         expect(screen.queryByText("Berlin")).not.toBeInTheDocument();
     });
-    it("supports file drop and reports validation failures", async () => {
+    it("blocks malformed and reversed syntax before calling the API", async () => {
         render(<App />);
-        fireEvent.drop(screen.getByText("Drop your Excel workbook here"), {
+        await upload();
+        await advanced("B4:A2");
+        expect(screen.getByRole("alert")).toHaveTextContent("must not precede");
+        expect(
+            screen.getByRole("button", { name: "Preview selection" }),
+        ).toBeDisabled();
+        expect(api.preview).not.toHaveBeenCalled();
+        const field = screen.getByLabelText("Table range");
+        await userEvent.clear(field);
+        await userEvent.type(field, "Sheet1!A1:B4");
+        expect(screen.getByRole("alert")).toHaveTextContent("Enter an A1");
+        expect(api.preview).not.toHaveBeenCalled();
+    });
+    it("lets guided controls recover the last boundaries from invalid advanced input", async () => {
+        render(<App />);
+        await upload();
+        await advanced("bad");
+        await userEvent.click(
+            screen.getByRole("button", { name: "Guided selection" }),
+        );
+        expect(screen.getByLabelText("First column")).toHaveValue("A");
+        expect(screen.getByLabelText("Last column")).toHaveValue("B");
+        expect(
+            screen.getByRole("button", { name: "Preview selection" }),
+        ).toBeEnabled();
+        expect(api.preview).not.toHaveBeenCalled();
+    });
+    it("keeps syntactic validity separate from authoritative backend table validation", async () => {
+        render(<App />);
+        await upload();
+        await advanced("A2:B4");
+        vi.mocked(api.preview).mockRejectedValueOnce(
+            new WorkspaceApiError("invalid_selection", "backend text", 422),
+        );
+        await userEvent.click(
+            screen.getByRole("button", { name: "Preview selection" }),
+        );
+        expect(await screen.findByRole("alert")).toHaveTextContent(
+            "unique, non-empty text headers",
+        );
+        expect(screen.getByRole("alert")).toHaveAttribute(
+            "data-error-code",
+            "invalid_selection",
+        );
+        expect(api.preview).toHaveBeenCalledWith("opaque", "First", "A2:B4");
+    });
+    it("supports file drop and validates extensions and upload size locally", async () => {
+        render(<App />);
+        const target = screen.getByRole("region", { name: "Source workbook" });
+        fireEvent.drop(target, {
             dataTransfer: { files: [new File(["x"], "bad.csv")] },
         });
         expect(screen.getByRole("alert")).toHaveTextContent("Only .xlsx");
+        const oversized = new File(["x"], "big.xlsx");
+        Object.defineProperty(oversized, "size", {
+            value: 10 * 1024 * 1024 + 1,
+        });
+        fireEvent.drop(target, { dataTransfer: { files: [oversized] } });
+        expect(screen.getByRole("alert")).toHaveTextContent("10 MiB");
         expect(api.upload).not.toHaveBeenCalled();
-        fireEvent.drop(screen.getByText("Drop your Excel workbook here"), {
+        fireEvent.drop(target, {
             dataTransfer: { files: [new File(["x"], "book.xlsx")] },
         });
         await screen.findByText("book.xlsx");
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+    it("does not discard the dataset, range, preview or inspector selection on language/theme changes", async () => {
+        render(<App />);
+        await previewLoaded();
+        const initialRange = screen
+            .getByLabelText("Last row")
+            .getAttribute("value");
+        for (const locale of ["uk", "de", "en"] as const) {
+            await userEvent.selectOptions(
+                screen.getByLabelText(i18n.t("language")),
+                locale,
+            );
+            expect(screen.getByText("Berlin")).toBeInTheDocument();
+            expect(screen.getByText("book.xlsx")).toBeInTheDocument();
+            expect(screen.getByLabelText(messages[locale].lastRow)).toHaveValue(
+                Number(initialRange),
+            );
+            expect(document.documentElement.lang).toBe(locale);
+            expect(localStorage.getItem("enrichment.language")).toBe(locale);
+        }
+        await userEvent.selectOptions(screen.getByLabelText("Theme"), "light");
+        expect(document.querySelector(".studio")).toHaveAttribute(
+            "data-theme",
+            "light",
+        );
+        expect(localStorage.getItem("enrichment.theme")).toBe("light");
+        expect(screen.getByText("Berlin")).toBeInTheDocument();
+        expect(api.upload).toHaveBeenCalledTimes(1);
+        expect(api.preview).toHaveBeenCalledTimes(1);
+    });
+    it("restores a saved theme after remount", async () => {
+        const first = render(<App />);
+        await userEvent.selectOptions(screen.getByLabelText("Theme"), "light");
+        first.unmount();
+        render(<App />);
+        expect(screen.getByLabelText("Theme")).toHaveValue("light");
+    });
+    it("localizes existing API errors in all languages without refetching", async () => {
+        render(<App />);
+        await upload();
         vi.mocked(api.preview).mockRejectedValueOnce(
-            new Error("Check the range."),
+            new WorkspaceApiError(
+                "invalid_selection",
+                "path-free API message",
+                422,
+            ),
         );
         await userEvent.click(
-            screen.getByRole("button", { name: /Preview selection/ }),
+            screen.getByRole("button", { name: "Preview selection" }),
         );
-        expect(await screen.findByRole("alert")).toHaveTextContent(
-            "Check the range.",
-        );
+        await screen.findByRole("alert");
+        for (const locale of ["uk", "de", "en"] as const) {
+            await userEvent.selectOptions(
+                screen.getByLabelText(i18n.t("language")),
+                locale,
+            );
+            expect(screen.getByRole("alert")).toHaveTextContent(
+                messages[locale]["error.invalid_selection"],
+            );
+            expect(screen.getByRole("alert")).toHaveAttribute(
+                "data-error-code",
+                "invalid_selection",
+            );
+        }
+        expect(api.preview).toHaveBeenCalledTimes(1);
     });
-    it("shows a loading state and allows retry after upload failure", async () => {
+    it("supports switching language/theme during upload and recovering from failure", async () => {
         let reject!: (error: Error) => void;
         vi.mocked(api.upload).mockReturnValueOnce(
             new Promise((_, fail) => {
@@ -113,23 +296,103 @@ describe("Dataset workspace", () => {
             screen.getByLabelText("Upload Excel workbook"),
             new File(["x"], "book.xlsx"),
         );
-        expect(screen.getByText("Inspecting workbook…")).toBeInTheDocument();
         expect(screen.getByLabelText("Upload Excel workbook")).toBeDisabled();
-        reject(new Error("Cannot read workbook."));
+        await userEvent.selectOptions(screen.getByLabelText("Language"), "de");
+        await userEvent.selectOptions(
+            screen.getByLabelText("Darstellung"),
+            "light",
+        );
+        reject(new WorkspaceApiError("network_error", "network message"));
         expect(await screen.findByRole("alert")).toHaveTextContent(
-            "Cannot read workbook.",
+            messages.de["error.network_error"],
         );
         await upload();
         expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
-    it("removes the current dataset when replacing or clearing a workbook", async () => {
+    it("replaces workbook/schema and clears the previous preview", async () => {
+        render(<App />);
+        await previewLoaded();
+        vi.mocked(api.upload).mockResolvedValueOnce({
+            dataset_id: "mountains",
+            filename: "mountains.xlsx",
+            worksheets: [
+                {
+                    name: "Mountains",
+                    columns: ["Mountain", "Country", "height"],
+                    row_count: 10,
+                },
+            ],
+        });
+        await userEvent.upload(
+            screen.getByLabelText("Upload Excel workbook"),
+            new File(["x"], "mountains.xlsx"),
+        );
+        await screen.findByText("mountains.xlsx");
+        expect(api.remove).toHaveBeenCalledWith("opaque");
+        expect(screen.queryByText("Berlin")).not.toBeInTheDocument();
+        expect(screen.getByLabelText("Worksheet")).toHaveValue("Mountains");
+        expect(screen.getByLabelText("Last column")).toHaveValue("C");
+    });
+    it("uses complete profile counts and leaves zero/boolean source values unchanged", async () => {
+        vi.mocked(api.preview).mockResolvedValueOnce({
+            ...preview,
+            profile: {
+                row_count: 10,
+                columns: [
+                    {
+                        name: "amount",
+                        inferred_type: "Integer",
+                        null_count: 7,
+                        warnings: [],
+                    },
+                    {
+                        name: "flag",
+                        inferred_type: "Boolean",
+                        null_count: 0,
+                        warnings: [],
+                    },
+                ],
+                sample_records: [{ amount: 0, flag: false }],
+                schema_warnings: [],
+            },
+        });
         render(<App />);
         await upload();
+        await userEvent.click(
+            screen.getByRole("button", { name: "Preview selection" }),
+        );
+        await screen.findByText("false");
+        const inspector = screen.getByRole("complementary", {
+            name: "Column inspector",
+        });
+        expect(within(inspector).getByText("7")).toBeInTheDocument();
+        await userEvent.click(screen.getByRole("button", { name: /flag/ }));
+        expect(
+            within(inspector).getByRole("heading", { name: "flag" }),
+        ).toBeInTheDocument();
+        await userEvent.selectOptions(screen.getByLabelText("Language"), "uk");
+        expect(screen.getByText("false")).toBeInTheDocument();
+        expect(
+            within(inspector).getByRole("heading", { name: "flag" }),
+        ).toBeInTheDocument();
+    });
+    it("shows headers-only selections and supports explicit removal", async () => {
+        vi.mocked(api.preview).mockResolvedValueOnce({
+            ...preview,
+            profile: { ...preview.profile, row_count: 0, sample_records: [] },
+        });
+        render(<App />);
         await upload();
-        await waitFor(() => expect(api.remove).toHaveBeenCalledWith("opaque"));
+        await userEvent.click(
+            screen.getByRole("button", { name: "Preview selection" }),
+        );
+        expect(await screen.findByText(/Headers found/)).toBeInTheDocument();
         await userEvent.click(
             screen.getByRole("button", { name: "Remove workbook" }),
         );
-        expect(screen.getByLabelText(/Worksheet/)).toBeDisabled();
+        await waitFor(() =>
+            expect(screen.getByLabelText("Worksheet")).toBeDisabled(),
+        );
+        expect(api.remove).toHaveBeenCalledWith("opaque");
     });
 });
