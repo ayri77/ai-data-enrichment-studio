@@ -32,3 +32,7 @@ outputs/
 
 # Local experiments and temporary artifacts
 /temp/
+
+# Frontend dependencies and generated reports
+node_modules/
+*.tsbuildinfo

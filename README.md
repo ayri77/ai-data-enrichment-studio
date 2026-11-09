@@ -79,8 +79,9 @@ flowchart TD
 - **Independent evaluation:** measure correctness, coverage, workbook preservation, latency, and costs against separate reference data.
 
 These principles guide the implemented architecture. Bounded plan repair and
-whole-job execution guards are implemented, while durable mid-DAG recovery,
-independent output evaluation, and the web application remain future work.
+whole-job execution guards are implemented. A local dataset web UI is available;
+durable mid-DAG recovery, independent output evaluation, and broader web
+workflows remain future work.
 
 ## Current functionality
 
@@ -126,7 +127,29 @@ Not implemented yet:
 - General-purpose approval and resume workflows for other entity types,
   grouped review questions, and selective dependent-step replay.
 - Durable LangGraph node checkpointing and automatic mid-DAG resume (deferred; see [M4-3 recovery scope](docs/16-m4-controlled-recovery.md)).
-- Web application, interactive Review Workspace, and deployment.
+- Web planning/execution, interactive Review Workspace, and deployment.
+
+### Local Dataset Workspace (M5-1)
+
+The first local web UI supports uploading XLSX, inspecting worksheets, selecting
+an explicit range, and previewing real data using the existing ingestion layer.
+It is a single-user session with no provider calls or workbook writes.
+
+```powershell
+# Terminal 1, repository root
+uv sync --locked --group dev
+uv run --locked uvicorn ai_data_enrichment.api:app --host 127.0.0.1 --port 8010
+
+# Terminal 2, repository root (Node.js 24 required)
+cd frontend
+npm ci
+npm run dev
+```
+
+Open [the local workspace](http://127.0.0.1:5173). Try `samples/capitals.xlsx`,
+`Sheet1`, `A1:E11`, then `samples/mountains.xlsx`, `Sheet1`, `A1:C11`.
+See [M5-1 setup, architecture, bounds, and screenshots](docs/19-m5-dataset-workspace.md).
+Later UI workflow steps remain disabled pending review of this slice.
 
 ### Agentic workflow developer demo (M4)
 
