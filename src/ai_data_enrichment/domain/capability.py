@@ -46,12 +46,12 @@ class OutputSpec(BaseModel):
 
 
 class ParameterSpec(BaseModel):
-    """Describe a configurable parameter accepted by a capability."""
+    """Describe an optional parameter; omission uses capability defaults."""
 
     type: Literal[DataType.TEXT] = Field(description="Semantic type of the parameter")
     allowed_values: list[str] = Field(
         min_length=1,
-        description="Permitted values for the parameter",
+        description="Permitted values if provided; the parameter may be omitted entirely",
     )
     description: str = Field(
         min_length=1, description="Human-readable description of the parameter"

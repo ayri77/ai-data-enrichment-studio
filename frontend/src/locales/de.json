@@ -127,7 +127,7 @@
     "workflow.binding": "Quellauswahl",
     "workflow.inputs": "Typisierte Eingabereferenzen",
     "workflow.parameters": "Parameter",
-    "workflow.assumptions": "Annahmen",
+    "workflow.assumptions": "Modellannahmen (ungeprüft)",
     "workflow.valid": "Validierung bestanden",
     "workflow.invalid": "Validierung fehlgeschlagen — Freigabe gesperrt",
     "workflow.fullPlan": "Vollständiger Serverplan mit Bindung",
@@ -303,5 +303,7 @@
     "provider.refresh": "Bereitschaft aktualisieren",
     "error.configuration_forbidden": "Browserkonfiguration erfordert den vertrauenswürdigen lokalen Server und Zugriff vom selben Ursprung.",
     "error.unsupported_model": "Ein unterstütztes OpenAI-Modell auswählen.",
-    "error.invalid_api_key": "Einen API-Schlüssel ohne Leerzeichen eingeben."
+    "error.invalid_api_key": "Einen API-Schlüssel ohne Leerzeichen eingeben.",
+    "workflow.intentConflict": "Die Fähigkeitsverträge sind erfüllt. Ein Widerspruch zu Ihrer Anweisung blockiert die Freigabe.",
+    "workflow.parameterHint": "Optionale Einschränkungen können entfallen. Die Suche nach wörtlichen Städtenamen benötigt keinen Hauptstadtstatus. Mehrdeutigkeiten werden bei der Ausführung anhand von Anbieterbelegen geprüft."
 }

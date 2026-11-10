@@ -196,7 +196,7 @@ class PlanRunService:
             PlanValidator(
                 builtin_registry(), profile, PlanValidationPolicy(max_steps=MAX_PLAN_STEPS)
             )
-            .validate(plan)
+            .validate(plan, instruction=draft["instruction"])
             .model_dump(mode="json")
         )
         try:
@@ -220,6 +220,7 @@ class PlanRunService:
                 }
             )
             validation["valid"] = False
+            validation["contract_valid"] = False
         return validation
 
     def create_plan(self, body: PlanRequest) -> dict:

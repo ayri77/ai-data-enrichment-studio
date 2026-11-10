@@ -18,6 +18,10 @@ from ai_data_enrichment.domain.enrichment_plan import (
     PlanStep,
     StepOutputReference,
 )
+from ai_data_enrichment.validation.intent_policy import (
+    constraints_from_instruction,
+    validate_intent,
+)
 from ai_data_enrichment.validation.models import (
     ValidationDiagnostic,
     ValidationResult,
@@ -67,7 +71,7 @@ class PlanValidator:
         self._columns_by_name = {column.name: column for column in dataset_profile.columns}
         self._policy = policy if policy is not None else PlanValidationPolicy()
 
-    def validate(self, plan: EnrichmentPlan) -> ValidationResult:
+    def validate(self, plan: EnrichmentPlan, *, instruction: str | None = None) -> ValidationResult:
         """Validate a plan and collect diagnostics."""
         errors: list[ValidationDiagnostic] = []
 
@@ -173,6 +177,9 @@ class PlanValidator:
 
         # Validate output references.
         errors.extend(self._validate_outputs(plan))
+
+        if instruction is not None:
+            errors.extend(validate_intent(plan, constraints_from_instruction(instruction)))
 
         return ValidationResult(errors=errors)
 

@@ -101,6 +101,7 @@ def test_plan_validate_accepts_valid_saved_plan(tmp_path: Path) -> None:
 
     assert response == {
         "valid": True,
+        "contract_valid": True,
         "errors": [],
     }
 
@@ -126,6 +127,7 @@ def test_plan_validate_accepts_valid_saved_plan(tmp_path: Path) -> None:
     assert report["validation"] == {
         "errors": [],
         "valid": True,
+        "contract_valid": True,
     }
 
     assert report["scenario"]["correct"] is False

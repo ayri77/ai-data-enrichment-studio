@@ -15,7 +15,13 @@ PLAN_CONTRACT_GUIDANCE = (
     '{"kind":"step_output","step_id":"producer_step"}, or '
     '{"kind":"literal","value":"explicit task constant"}. '
     "Parameters are direct JSON values matching each capability's parameter contract, "
-    "never input-reference objects. Text parameters require strings from allowed_values. "
+    "never input-reference objects. Capability parameters are optional and may be omitted "
+    "entirely from parameters; an empty parameters object is valid. allowed_values governs "
+    "values only if provided, not mandatory presence. Never use null or unsupported values "
+    "to disable optional parameters. Text parameters require strings from allowed_values. "
+    "For literal-city geocoding, parameters={} is valid; omit required_role unless the user "
+    "explicitly requests country-capital status. "
+    "Do not add restrictions that contradict explicit user requirements. "
     'For example, geodesic_distance uses parameters={"unit":"km"}, '
     'not {"unit":{"kind":"literal","value":"km"}} or {"unit":{"value":"km"}}. '
     "Output mappings project declared output fields into requested destination columns; "
@@ -28,5 +34,6 @@ PLAN_CONTRACT_GUIDANCE = (
     "Preserve literal entity names and their country context; a column label alone "
     "does not impose an administrative role such as country_capital. "
     "Unresolved or ambiguous row values remain execution-time failures for review, "
-    "never guessed constants in a plan."
+    "never guessed constants in a plan. Model assumptions are unverified claims; do not "
+    "assert that row geocoding is unambiguous before provider evidence is available."
 )

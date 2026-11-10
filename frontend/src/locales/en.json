@@ -127,7 +127,7 @@
     "workflow.binding": "Source selection",
     "workflow.inputs": "Typed input references",
     "workflow.parameters": "Parameters",
-    "workflow.assumptions": "Assumptions",
+    "workflow.assumptions": "Model assumptions (unverified)",
     "workflow.valid": "Validation passed",
     "workflow.invalid": "Validation failed — approval is blocked",
     "workflow.fullPlan": "Full server plan and binding",
@@ -303,5 +303,7 @@
     "provider.refresh": "Refresh readiness",
     "error.configuration_forbidden": "Browser configuration requires the trusted local launcher and same-origin access.",
     "error.unsupported_model": "Choose a supported OpenAI model.",
-    "error.invalid_api_key": "Enter an API key without whitespace."
+    "error.invalid_api_key": "Enter an API key without whitespace.",
+    "workflow.intentConflict": "Capability contracts passed. A conflict with your instruction blocks approval.",
+    "workflow.parameterHint": "Optional restrictions may be omitted. Literal city lookup needs no capital-status restriction. Row ambiguity is checked using provider evidence during execution."
 }

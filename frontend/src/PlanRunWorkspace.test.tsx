@@ -799,3 +799,29 @@ it("does not let an older readiness response overwrite newly applied settings", 
     );
     expect(result.current.planningReadiness).toBe("ready");
 });
+
+it("distinguishes passing contracts from intent conflicts and blocks approval", async () => {
+    vi.mocked(api.createPlan).mockResolvedValue({
+        ...draft,
+        validation: {
+            valid: false,
+            contract_valid: true,
+            errors: [
+                {
+                    code: "INTENT_PARAMETER_CONFLICT",
+                    message:
+                        "Explicit user intent prohibits the capital-role restriction.",
+                },
+            ],
+        },
+    });
+    render(<App />);
+    await generate();
+    expect(screen.getByText(i18n.t("workflow.intentConflict"))).toBeVisible();
+    expect(screen.getByText(i18n.t("workflow.assumptions"))).toBeVisible();
+    expect(screen.getByText(i18n.t("workflow.parameterHint"))).toBeVisible();
+    expect(button("ws.approveContinue")).toBeDisabled();
+    expect(api.approvePlan).not.toHaveBeenCalled();
+    await navigate("execution");
+    expect(button("workflow.run")).toBeDisabled();
+});
