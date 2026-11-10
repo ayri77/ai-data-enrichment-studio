@@ -545,3 +545,36 @@ it("blocks starting an approved plan while a source replacement is pending acros
     expect(button("workflow.run")).toBeDisabled();
     expect(api.startRun).not.toHaveBeenCalled();
 });
+
+it("preserves the exact header when selecting an existing output column", async () => {
+    const source = {
+        ...preview,
+        profile: {
+            ...preview.profile,
+            columns: preview.profile.columns.map((column) =>
+                column.name === "distance"
+                    ? { ...column, name: " distance " }
+                    : column,
+            ),
+        },
+    };
+    const { result } = renderHook(() =>
+        useWorkflow(
+            source,
+            "source",
+            "book.xlsx",
+            source.profile.columns.map((column) => column.name),
+        ),
+    );
+    act(() => {
+        result.current.setInstruction("Write to the existing output header.");
+        result.current.setNetwork(true);
+        result.current.setMapping([
+            { mode: "existing", name: " distance ", column: "E" },
+        ]);
+    });
+    await act(() => result.current.action(result.current.create));
+    expect(api.createPlan).toHaveBeenCalledWith(
+        expect.objectContaining({ output_columns: { " distance ": "E" } }),
+    );
+});

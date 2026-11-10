@@ -52,7 +52,7 @@ Additional acceptance covers navigation while a real job's status response is de
 
 For each of the five workspaces and both files, the browser suite checks document width/height and action visibility at **1366×768, 1440×900 and 3440×1440** and captures screenshots. Other tests cover terminal errors, cancellation, status retry, same-plan retry, late responses and source-bound approval. These are integration and UI acceptance evidence, not a substitute for independent numeric/source evaluation or a recorded live submission demo.
 
-Local verification on this branch: **1,262 Python tests passed, 2 live tests skipped; 100 frontend tests passed; all 4 browser acceptance cases passed.** Ruff lint/format, Pyright, the 1,000-row controlled benchmark, frontend formatting and the production build also passed.
+Local verification on this branch: **1,262 Python tests passed, 2 live tests skipped; 101 frontend tests passed; all 4 browser acceptance cases passed.** Ruff lint/format, Pyright, the 1,000-row controlled benchmark, frontend formatting and the production build also passed.
 
 ## Desktop screenshots (offline integration evidence)
 

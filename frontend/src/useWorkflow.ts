@@ -143,7 +143,10 @@ export function useWorkflow(
             range_ref: preview.range_ref,
             instruction,
             output_columns: Object.fromEntries(
-                mapping.map((x) => [x.name.trim(), x.column]),
+                mapping.map((x) => [
+                    x.mode === "existing" ? x.name : x.name.trim(),
+                    x.column,
+                ]),
             ),
             allow_network: network,
             mountain_resolution_policy: policy,
