@@ -173,7 +173,7 @@
 .dataset-split {
     flex: 1;
     min-height: 0;
-    grid-template-columns: minmax(0, 1fr) min(var(--inspector-width), 225px);
+    grid-template-columns: minmax(0, 1fr) var(--inspector-width, 300px);
 }
 .source-grid {
     display: flex;
@@ -218,8 +218,8 @@
 .column-inspector dd {
     padding: 8px 0;
 }
-.inspector-width {
-    display: none;
+.column-inspector .inspector-width {
+    display: flex;
 }
 .preview-workspace > .diagnostics {
     padding: 8px 12px;
@@ -670,9 +670,6 @@
     .dataset-layout .range-fields .advanced-control {
         grid-column: span 2;
     }
-    .dataset-split {
-        grid-template-columns: minmax(0, 1fr) 190px;
-    }
     .graph-inspector {
         grid-template-columns: minmax(0, 1fr) 210px;
     }
@@ -683,6 +680,9 @@
 @media (max-width: 1000px) {
     .dataset-split {
         grid-template-columns: minmax(0, 1fr) 180px;
+    }
+    .column-inspector .inspector-width {
+        display: none;
     }
     .graph-inspector {
         grid-template-columns: minmax(0, 1fr) 190px;
@@ -729,6 +729,9 @@
     .column-inspector {
         display: block;
         max-height: 300px;
+    }
+    .column-inspector .inspector-width {
+        display: none;
     }
     .table-scroll {
         max-height: 50dvh;

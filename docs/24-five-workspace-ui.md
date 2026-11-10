@@ -23,6 +23,8 @@ The shell, navigation and workspace actions stay inside the desktop viewport. So
 
 Technical settings, the selected-node inspector and Diagnostics are marked with `data-advanced` and use the same controller as the primary actions. A future Simple/Advanced switch can alter their visibility without implementing another planning/execution path.
 
+The Column Inspector width slider resizes the desktop pane from 260–420px; the source table scrolls within its remaining space. Compact split layouts (up to 1000px wide) use a fixed 180px inspector, and stacked layouts hide the resize control because it does not apply. Browser regression coverage checks rendered pane widths and document overflow across desktop, intermediate, compact, mobile and short viewports.
+
 ## Provider setup and deferred work
 
 **Provider / Model settings** explains backend-owned environment configuration and the separate network-consent state. Readiness is honestly **not reported by the current API**. No key input, browser key storage or new secret-handling endpoint was added. Read-only readiness and secure backend configuration are tracked in [#113](https://github.com/ayri77/ai-data-enrichment-studio/issues/113).
@@ -52,7 +54,7 @@ Additional acceptance covers navigation while a real job's status response is de
 
 For each of the five workspaces and both files, the browser suite checks document width/height and action visibility at **1366×768, 1440×900 and 3440×1440** and captures screenshots. Other tests cover terminal errors, cancellation, status retry, same-plan retry, late responses and source-bound approval. These are integration and UI acceptance evidence, not a substitute for independent numeric/source evaluation or a recorded live submission demo.
 
-Local verification on this branch: **1,262 Python tests passed, 2 live tests skipped; 101 frontend tests passed; all 4 browser acceptance cases passed.** Ruff lint/format, Pyright, the 1,000-row controlled benchmark, frontend formatting and the production build also passed.
+Local verification on this branch: **1,262 Python tests passed, 2 live tests skipped; 101 frontend tests passed; all 5 browser acceptance cases passed.** Ruff lint/format, Pyright, the 1,000-row controlled benchmark, frontend formatting and the production build also passed.
 
 ## Desktop screenshots (offline integration evidence)
 
