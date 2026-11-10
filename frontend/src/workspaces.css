@@ -1,0 +1,779 @@
+/* Shared workspace geometry. Business state lives in useWorkflow, not these views. */
+.studio {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+}
+.studio-header,
+.studio-documents,
+.studio-connection,
+.studio-footer {
+    flex-shrink: 0;
+}
+.studio main {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.studio-documents button {
+    flex: 1;
+    justify-content: center;
+    min-width: 0;
+}
+.studio-documents button small {
+    color: var(--studio-source);
+    margin-left: 8px;
+}
+.studio-footer {
+    padding-block: 8px;
+}
+.workspace-heading {
+    padding: 16px 22px;
+    flex-shrink: 0;
+}
+.workspace-heading h1 {
+    font-size: 25px;
+    outline: none;
+}
+.eyebrow {
+    font-size: 10px;
+    letter-spacing: 1.6px;
+    color: var(--studio-accent);
+}
+.workspace-tools,
+.panel-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.workspace-tools {
+    justify-content: flex-end;
+}
+.active-job {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    background: var(--studio-selection);
+    border: 1px solid var(--studio-control-border);
+    border-radius: 5px;
+}
+.workspace-body {
+    min-height: 0;
+    flex: 1;
+    padding: 0 18px 18px;
+    display: flex;
+    flex-direction: column;
+}
+.workspace-body > * {
+    min-height: 0;
+    flex: 1;
+}
+.workspace-panel {
+    min-width: 0;
+    min-height: 0;
+    border: 1px solid var(--studio-border);
+    border-radius: 8px;
+    background: var(--studio-surface1);
+    overflow: hidden;
+}
+.panel-scroll {
+    overflow: auto;
+    min-height: 0;
+    min-width: 0;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+}
+.muted {
+    color: var(--studio-muted);
+    font-size: 12px;
+}
+.notice {
+    background: var(--studio-selection);
+    border: 1px solid var(--studio-control-border);
+    border-radius: 5px;
+    padding: 10px 12px;
+    font-size: 12px;
+}
+.fixture-notice {
+    color: var(--studio-warning);
+}
+.validation-note {
+    color: var(--studio-danger);
+    font-size: 12px;
+}
+.success-text {
+    color: var(--studio-source);
+}
+.success-text svg {
+    display: inline;
+    vertical-align: middle;
+}
+.request-status {
+    padding: 6px 22px;
+    color: var(--studio-accent);
+    flex-shrink: 0;
+}
+.dataset-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 14px;
+}
+.dataset-source {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    border: 1px solid var(--studio-border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+.source-controls {
+    flex-shrink: 0;
+    max-height: 52%;
+}
+.source-upload {
+    margin: 10px 12px;
+    padding: 10px;
+}
+.selection-toolbar {
+    padding: 10px 12px;
+}
+.toolbar-title {
+    margin-bottom: 8px;
+}
+.dataset-layout .range-fields {
+    grid-template-columns:
+        minmax(100px, 1.2fr) repeat(2, minmax(85px, 1fr))
+        repeat(2, minmax(55px, 0.6fr)) minmax(110px, 0.9fr);
+    gap: 8px;
+}
+.dataset-layout .range-fields .sheet-control,
+.dataset-layout .range-fields .preview-action {
+    grid-column: auto;
+}
+.dataset-layout .range-fields .advanced-control {
+    grid-column: 2/6;
+}
+.range-guidance {
+    margin-top: 7px;
+    gap: 10px;
+}
+.range-guidance p {
+    font-size: 10px;
+}
+.preview-workspace {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+.dataset-split {
+    flex: 1;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr) var(--inspector-width, 300px);
+}
+.source-grid {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+.section-head {
+    padding: 9px 12px;
+    gap: 5px;
+    flex-shrink: 0;
+}
+.source-reference {
+    display: none;
+}
+.table-scroll {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+}
+.table-scroll th button {
+    min-height: 55px;
+}
+.table-scroll td {
+    height: 34px;
+}
+.table-footer {
+    padding: 8px 12px;
+    font-size: 10px;
+    flex-shrink: 0;
+}
+.column-inspector {
+    overflow: auto;
+    padding: 14px;
+}
+.column-inspector h2 {
+    margin: 10px 0;
+}
+.column-inspector dl {
+    margin: 10px 0;
+}
+.column-inspector dt,
+.column-inspector dd {
+    padding: 8px 0;
+}
+.column-inspector .inspector-width {
+    display: flex;
+}
+.preview-workspace > .diagnostics {
+    padding: 8px 12px;
+    max-height: 65px;
+    overflow: auto;
+    flex-shrink: 0;
+}
+.preview-workspace > .diagnostics h2 {
+    display: none;
+}
+.configuration,
+.stage-sidebar {
+    display: flex;
+    flex-direction: column;
+}
+.configuration-fields,
+.summary-content {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 20px;
+}
+.configuration-fields {
+    flex: 1;
+    gap: 10px;
+    padding: 16px;
+}
+.configuration fieldset {
+    gap: 10px;
+}
+.configuration textarea {
+    min-height: 76px;
+}
+.configuration .muted {
+    font-size: 11px;
+    line-height: 1.5;
+}
+.configuration fieldset {
+    margin: 0;
+    border: 0;
+    padding: 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.workspace-body label,
+.diagnostics-dialog label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    font-size: 12px;
+}
+.workspace-body input:not([type="file"]),
+.workspace-body select {
+    width: 100%;
+}
+.workspace-body textarea {
+    font: inherit;
+    color: inherit;
+    background: var(--studio-surface0);
+    border: 1px solid var(--studio-control-border);
+    border-radius: 5px;
+    padding: 10px;
+    width: 100%;
+    min-height: 96px;
+    resize: vertical;
+}
+.workspace-body textarea:focus-visible {
+    outline: var(--studio-focus-width) solid var(--studio-focus);
+}
+.output-target {
+    border: 1px solid var(--studio-border);
+    border-radius: 5px;
+    padding: 10px;
+    display: grid;
+    gap: 8px;
+}
+.mapping-row {
+    display: flex;
+    gap: 8px;
+    align-items: end;
+}
+.mapping-row label {
+    flex: 1;
+}
+.workspace-body .network-opt-in {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 8px;
+}
+.workspace-body .network-opt-in input {
+    width: 16px;
+    min-height: 16px;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+.workspace-body details {
+    border-top: 1px solid var(--studio-border);
+    padding-top: 10px;
+}
+.workspace-body summary {
+    cursor: pointer;
+    color: var(--studio-muted);
+    font-size: 12px;
+    padding: 2px 0;
+}
+.workspace-body summary:focus-visible {
+    outline: var(--studio-focus-width) solid var(--studio-focus);
+}
+.advanced-controls[open] {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.advanced-controls label {
+    margin-top: 10px;
+}
+.workspace-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 14px 18px;
+    border-top: 1px solid var(--studio-border);
+    background: var(--studio-surface1);
+    flex-shrink: 0;
+    margin-top: auto;
+}
+.workspace-actions > .ui-button-primary {
+    flex: 1;
+}
+.stage-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 14px;
+}
+.stage-sidebar > .summary-content {
+    flex: 1;
+}
+.plan-stage,
+.execution-stage {
+    display: flex;
+    flex-direction: column;
+}
+.plan-stage > .panel-title {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--studio-border);
+}
+.graph-inspector {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 255px;
+    min-height: 0;
+    flex: 1;
+}
+.graph-scroll {
+    background-color: var(--studio-surface0);
+    background-image: radial-gradient(
+        var(--studio-control-border) 0.7px,
+        transparent 0.7px
+    );
+    background-size: 18px 18px;
+}
+.graph-canvas {
+    position: relative;
+}
+.studio .graph-edges {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    inset: 0;
+    color: var(--studio-muted);
+    stroke-width: 1.5;
+}
+.graph-edges > path {
+    stroke: currentColor;
+    fill: none;
+}
+.graph-node {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    width: 224px;
+    min-height: 100px;
+    text-align: left;
+    padding: 14px;
+    background: var(--studio-surface1);
+    border: 1px solid var(--studio-control-border);
+    border-radius: 7px;
+    box-shadow: 0 4px 12px #00000015;
+}
+.graph-node[aria-pressed="true"] {
+    border-color: var(--studio-accent);
+    box-shadow: 0 0 0 1px var(--studio-accent);
+}
+.graph-node small {
+    color: var(--studio-accent);
+    font-size: 11px;
+}
+.graph-node strong {
+    font-size: 13px;
+    overflow-wrap: anywhere;
+}
+.graph-node span {
+    font-size: 10px;
+    color: var(--studio-muted);
+    overflow-wrap: anywhere;
+}
+.node-inspector {
+    padding: 16px;
+    border-left: 1px solid var(--studio-border);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow-wrap: anywhere;
+    font-size: 12px;
+}
+.node-inspector h3 {
+    color: var(--studio-muted);
+    font-size: 11px;
+}
+.node-bindings {
+    margin: 0;
+}
+.node-bindings > div {
+    margin-bottom: 12px;
+}
+.node-bindings dd {
+    margin: 4px 0 0;
+    color: var(--studio-muted);
+}
+.node-inspector pre {
+    white-space: pre-wrap;
+}
+.plan-counts {
+    padding: 14px;
+    border: 1px solid var(--studio-border);
+    border-radius: 5px;
+}
+.workspace-body ul {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 12px;
+}
+.quality-summary {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin: 0;
+}
+.quality-summary > div {
+    border: 1px solid var(--studio-border);
+    border-radius: 6px;
+    padding: 14px;
+    background: var(--studio-surface0);
+}
+.quality-summary dt {
+    font-size: 11px;
+    color: var(--studio-muted);
+}
+.quality-summary dd {
+    margin: 7px 0 0;
+    font-size: 28px;
+    font-family: var(--studio-font-mono);
+}
+.quality-1 dd,
+.outcome-success {
+    color: var(--studio-source);
+}
+.quality-2 dd,
+.outcome-partial {
+    color: var(--studio-warning);
+}
+.quality-3 dd,
+.outcome-failure {
+    color: var(--studio-danger);
+}
+.job-status {
+    font-size: 20px;
+    font-weight: 500;
+}
+.status-needs_review {
+    color: var(--studio-warning);
+}
+.status-failed,
+.status-timed_out {
+    color: var(--studio-danger);
+}
+.status-completed {
+    color: var(--studio-source);
+}
+.execution-stage > .summary-content {
+    max-height: 65%;
+    overflow: auto;
+    flex-shrink: 0;
+}
+.run-times {
+    font-size: 12px;
+}
+.run-times div {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    gap: 10px;
+}
+.run-times dt {
+    color: var(--studio-muted);
+}
+.run-times dd {
+    margin: 0;
+}
+.workspace-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 36px;
+    gap: 16px;
+    color: var(--studio-muted);
+    min-height: 160px;
+    flex: 1;
+}
+.workspace-empty p {
+    max-width: 420px;
+}
+.issue-group {
+    padding: 18px;
+    border: 1px solid var(--studio-border);
+    border-radius: 7px;
+    background: var(--studio-surface0);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.issue-group h3 {
+    overflow-wrap: anywhere;
+}
+.issue-group .mono {
+    overflow-wrap: anywhere;
+}
+.status-label {
+    font-size: 11px;
+    color: var(--studio-warning);
+    margin-left: auto;
+}
+.outcome-table {
+    border: 1px solid var(--studio-border);
+    border-radius: 5px;
+    flex: 1;
+}
+.outcome-table table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 12px;
+}
+.outcome-table td,
+.outcome-table th {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--studio-border);
+}
+.outcome-table th {
+    position: sticky;
+    top: 0;
+    background: var(--studio-surface1);
+}
+.diagnostics-dialog {
+    width: min(960px, calc(100% - 32px));
+    height: min(800px, 88dvh);
+    max-width: 100%;
+    max-height: 92dvh;
+    margin: auto;
+    padding: 0;
+    border: 1px solid var(--studio-control-border);
+    border-radius: 10px;
+    background: var(--studio-surface1);
+    color: var(--studio-text);
+    box-shadow: 0 24px 100px #0007;
+    font: inherit;
+}
+.diagnostics-dialog[open] {
+    display: flex;
+    flex-direction: column;
+}
+.diagnostics-dialog::backdrop {
+    background: #0008;
+}
+.dialog-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--studio-border);
+}
+.dialog-tabs {
+    display: flex;
+    gap: 10px;
+    padding: 12px 20px;
+    flex-shrink: 0;
+}
+.dialog-tabs [aria-pressed="true"] {
+    border-color: var(--studio-accent);
+}
+.diagnostics-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 16px 20px 24px;
+}
+.diagnostics-content pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    overflow: auto;
+    max-height: 320px;
+    flex-shrink: 0;
+    background: var(--studio-surface0);
+    padding: 14px;
+    font-size: 11px;
+}
+.diagnostics-content code {
+    overflow-wrap: anywhere;
+}
+.diagnostics-content p {
+    font-size: 13px;
+}
+.diagnostics-content dl {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    font-size: 12px;
+    gap: 10px;
+}
+@media (max-width: 1250px) {
+    .dataset-layout {
+        grid-template-columns: minmax(0, 1fr) 320px;
+    }
+    .dataset-layout .range-fields {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+    .dataset-layout .range-fields .sheet-control,
+    .dataset-layout .range-fields .preview-action {
+        grid-column: span 2;
+    }
+    .dataset-layout .range-fields .advanced-control {
+        grid-column: span 2;
+    }
+    .graph-inspector {
+        grid-template-columns: minmax(0, 1fr) 210px;
+    }
+    .stage-layout {
+        grid-template-columns: minmax(0, 1fr) 300px;
+    }
+}
+@media (max-width: 1000px) {
+    .dataset-split {
+        grid-template-columns: minmax(0, 1fr) 180px;
+    }
+    .column-inspector .inspector-width {
+        display: none;
+    }
+    .graph-inspector {
+        grid-template-columns: minmax(0, 1fr) 190px;
+    }
+    .quality-summary {
+        gap: 6px;
+    }
+    .quality-summary > div {
+        padding: 10px;
+    }
+}
+@media (max-width: 767px), (max-height: 580px) {
+    .studio {
+        height: auto;
+        min-height: 100dvh;
+        overflow: visible;
+    }
+    .studio main {
+        overflow: visible;
+    }
+    .workspace-heading {
+        flex-wrap: wrap;
+        padding: 16px;
+    }
+    .workspace-tools {
+        justify-content: flex-start;
+    }
+    .workspace-body {
+        padding: 0 12px 12px;
+    }
+    .dataset-layout,
+    .stage-layout {
+        display: flex;
+        flex-direction: column;
+    }
+    .source-controls {
+        max-height: none;
+    }
+    .dataset-split,
+    .graph-inspector {
+        display: flex;
+        flex-direction: column;
+    }
+    .column-inspector {
+        display: block;
+        max-height: 300px;
+    }
+    .column-inspector .inspector-width {
+        display: none;
+    }
+    .table-scroll {
+        max-height: 50dvh;
+        flex: auto;
+    }
+    .configuration-fields,
+    .summary-content {
+        overflow: visible;
+    }
+    .graph-scroll {
+        height: 330px;
+        flex: auto;
+    }
+    .node-inspector {
+        max-height: 270px;
+        border-top: 1px solid var(--studio-border);
+    }
+    .quality-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .execution-stage > .summary-content {
+        max-height: none;
+    }
+    .outcome-table {
+        max-height: 350px;
+        flex: auto;
+    }
+    .studio-documents button {
+        flex: 1 0 auto;
+        font-size: 11px;
+        padding: 9px;
+        gap: 5px;
+    }
+    .studio-documents button small {
+        margin-left: 0;
+    }
+    .dataset-layout .range-fields {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .dataset-layout .range-fields .sheet-control,
+    .dataset-layout .range-fields .advanced-control,
+    .dataset-layout .range-fields .preview-action {
+        grid-column: 1/-1;
+    }
+}

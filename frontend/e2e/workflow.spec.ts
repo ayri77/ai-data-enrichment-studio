@@ -1,9 +1,45 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page, type TestInfo } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
+async function navigate(page: Page, name: string) {
+    await page
+        .getByRole("navigation")
+        .getByRole("button", { name, exact: true })
+        .click();
+}
+async function screenshotWorkspace(
+    page: Page,
+    info: TestInfo,
+    name: string,
+    workspace: string,
+) {
+    for (const [width, height] of [
+        [1366, 768],
+        [1440, 900],
+        [3440, 1440],
+    ]) {
+        await page.setViewportSize({ width, height });
+        const bounds = await page.evaluate(() => ({
+            width: document.documentElement.scrollWidth,
+            height: document.documentElement.scrollHeight,
+            viewportWidth: innerWidth,
+            viewportHeight: innerHeight,
+        }));
+        expect(bounds.width).toBeLessThanOrEqual(bounds.viewportWidth);
+        expect(bounds.height).toBeLessThanOrEqual(bounds.viewportHeight + 1);
+        for (const action of await page.locator(".workspace-actions").all())
+            await expect(action).toBeInViewport();
+        await page.screenshot({
+            path: info.outputPath(
+                `${name}-${workspace}-${width}x${height}.png`,
+            ),
+        });
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+}
 for (const name of ["capitals", "mountains"]) {
     test(`${name}: browser → actual API → verified XLSX and audit (offline injected responses)`, async ({
         page,
@@ -36,11 +72,9 @@ for (const name of ["capitals", "mountains"]) {
                     : "Fill height with mountain elevations in metres; leave unresolved values empty.",
             );
         await page
-            .getByLabel("Output name 1", { exact: true })
-            .fill(name === "capitals" ? "distance" : "height");
-        await page
-            .getByLabel("Excel column 1", { exact: true })
-            .fill(name === "capitals" ? "E" : "C");
+            .getByLabel("Output column 1", { exact: true })
+            .selectOption(name === "capitals" ? "E" : "C");
+        await screenshotWorkspace(page, testInfo, name, "dataset");
         await page
             .getByLabel(
                 "Allow external network requests for planning and execution",
@@ -53,7 +87,7 @@ for (const name of ["capitals", "mountains"]) {
         );
         await page
             .getByRole("button", {
-                name: "Generate and validate plan",
+                name: "Build Plan",
                 exact: true,
             })
             .click();
@@ -64,9 +98,16 @@ for (const name of ["capitals", "mountains"]) {
         expect(draft.output_columns).toEqual(
             name === "capitals" ? { distance: "E" } : { height: "C" },
         );
+        await screenshotWorkspace(page, testInfo, name, "plan");
+        await page
+            .getByRole("button", { name: "Diagnostics", exact: true })
+            .click();
         await expect(page.getByTestId("fingerprint")).toHaveText(
             draft.fingerprint,
         );
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        await navigate(page, "Execution");
         await expect(
             page.getByRole("button", { name: "Start bounded run" }),
         ).toBeDisabled();
@@ -81,15 +122,18 @@ for (const name of ["capitals", "mountains"]) {
             { data: { approved: true, fingerprint: "0".repeat(64) } },
         );
         expect((await mismatch.json()).error.code).toBe("approval_mismatch");
+        await navigate(page, "Plan");
         await page.getByRole("button", { name: "Validate again" }).click();
         await expect(page.getByTestId("validation")).toHaveText(
             "Validation passed",
         );
         await expect(
-            page.getByRole("button", { name: "Approve this fingerprint" }),
+            page.getByRole("button", {
+                name: "Approve / Continue to Execution",
+            }),
         ).toBeEnabled();
         await page
-            .getByRole("button", { name: "Approve this fingerprint" })
+            .getByRole("button", { name: "Approve / Continue to Execution" })
             .click();
         await expect(
             page.getByRole("button", { name: "Start bounded run" }),
@@ -100,15 +144,52 @@ for (const name of ["capitals", "mountains"]) {
         const runPromise = page.waitForResponse(
             (r) => r.url().endsWith("/runs") && r.request().method() === "POST",
         );
+        let releaseStatus!: () => void;
+        const statusGate = new Promise<void>((done) => {
+            releaseStatus = done;
+        });
+        await page.route(/\/api\/jobs\/[^/]+$/, async (route) => {
+            const response = await route.fetch();
+            await statusGate;
+            await route.fulfill({ response });
+        });
         await page.getByRole("button", { name: "Start bounded run" }).click();
         const queued = await (await runPromise).json();
         expect(queued.status).toBe("queued");
+        await navigate(page, "Dataset");
         await expect(page.getByLabel("Upload Excel workbook")).toBeDisabled();
+        await expect(page.getByLabel("Enrichment instruction")).toBeDisabled();
+        await navigate(page, "Review");
+        releaseStatus();
+        await navigate(page, "Execution");
         await expect(page.getByTestId("job-status")).toHaveText(
             "Needs review — unresolved records remain",
             { timeout: 30_000 },
         );
+        await expect(page.getByTestId("metric-total_rows")).toHaveText("10");
+        await expect(page.getByTestId("metric-successful_rows")).toHaveText(
+            "1",
+        );
+        await expect(
+            page.getByText("Actual provider request counters"),
+        ).toHaveCount(0);
+        await screenshotWorkspace(page, testInfo, name, "execution");
+        await page.getByRole("button", { name: "Review issues" }).click();
+        await expect(
+            page.getByRole("button", {
+                name: "Resume unresolved (not available)",
+            }),
+        ).toBeDisabled();
+        await expect(
+            page.getByText("Derived dependency issue").first(),
+        ).toBeVisible();
+        await screenshotWorkspace(page, testInfo, name, "review");
+        await page.getByRole("button", { name: "Continue to Export" }).click();
         await expect(page.getByTestId("row-outcome")).toHaveCount(10);
+        await screenshotWorkspace(page, testInfo, name, "export");
+        await page
+            .getByLabel("Workbook filename")
+            .fill(`${name}-submission.xlsx`);
         await expect(
             page.getByText("Offline fixture execution", { exact: false }),
         ).toBeVisible();
@@ -117,7 +198,9 @@ for (const name of ["capitals", "mountains"]) {
             .getByRole("button", { name: "Download enriched XLSX" })
             .click();
         const workbook = testInfo.outputPath(`${name}-result.xlsx`);
-        await (await xlsxDownload).saveAs(workbook);
+        const downloaded = await xlsxDownload;
+        expect(downloaded.suggestedFilename()).toBe(`${name}-submission.xlsx`);
+        await downloaded.saveAs(workbook);
         const reportDownload = page.waitForEvent("download");
         await page.getByRole("button", { name: "Download JSON audit" }).click();
         const reportPath = testInfo.outputPath(`${name}-report.json`);
@@ -151,6 +234,7 @@ for (const name of ["capitals", "mountains"]) {
             { cwd: "..", encoding: "utf8" },
         );
         expect(check.status, check.stdout + check.stderr).toBe(0);
+        await navigate(page, "Execution");
         for (const [locale, status] of [
             ["uk", "Потребує перегляду"],
             ["de", "Prüfung erforderlich"],
@@ -175,9 +259,14 @@ for (const name of ["capitals", "mountains"]) {
             JSON.stringify(requests, null, 2),
         );
         // Editing the binding invalidates downstream artifacts and approval.
-        await page.getByLabel("Excel column 1", { exact: true }).fill("F");
+        await navigate(page, "Dataset");
+        await page.getByLabel("Enrichment instruction").fill("Changed binding");
+        await navigate(page, "Plan");
         await expect(page.getByTestId("fingerprint")).toHaveCount(0);
-        await expect(page.getByTestId("job-status")).toHaveCount(0);
+        await navigate(page, "Export");
+        await expect(
+            page.getByRole("button", { name: "Download enriched XLSX" }),
+        ).toBeDisabled();
     });
 }
 
@@ -193,15 +282,19 @@ test("invalid saved plan cannot be approved; source selection clears its draft",
     await page
         .getByLabel("Enrichment instruction")
         .fill("Calculate literal city distances.");
-    await page.getByLabel("Output name 1", { exact: true }).fill("distance");
-    await page.getByLabel("Excel column 1", { exact: true }).fill("A");
+    await page.getByLabel("Output column 1", { exact: true }).selectOption("E");
     await page
         .getByText("Use an existing plan (optional)", { exact: true })
         .click();
     await page
         .getByLabel("EnrichmentPlan JSON")
         .fill(
-            await readFile(resolve("../demo/capitals_api_plan.json"), "utf8"),
+            (
+                await readFile(
+                    resolve("../demo/capitals_api_plan.json"),
+                    "utf8",
+                )
+            ).replace('"geodesic_distance"', '"unknown_capability"'),
         );
     await page
         .getByRole("button", { name: "Submit and validate plan" })
@@ -210,13 +303,166 @@ test("invalid saved plan cannot be approved; source selection clears its draft",
         "Validation failed",
     );
     await expect(
-        page.getByRole("button", { name: "Approve this fingerprint" }),
+        page.getByRole("button", { name: "Approve / Continue to Execution" }),
     ).toBeDisabled();
+    await navigate(page, "Execution");
     await expect(
         page.getByRole("button", { name: "Start bounded run" }),
     ).toBeDisabled();
+    await navigate(page, "Dataset");
     await page.getByLabel("Last row", { exact: true }).fill("10");
     await expect(page.getByTestId("fingerprint")).toHaveCount(0);
     await page.getByRole("button", { name: "Preview selection" }).click();
     await expect(page.getByLabel("Enrichment instruction")).toHaveValue("");
+});
+
+test("new column outside selection: collision protection, offline validation, real output and keyboard/mobile access", async ({
+    page,
+}, testInfo) => {
+    await page.goto("/");
+    await page
+        .getByLabel("Upload Excel workbook")
+        .setInputFiles(resolve("../samples/capitals.xlsx"));
+    await expect(page.getByLabel("Worksheet")).toHaveValue("Sheet1");
+    await page.getByLabel("Last column", { exact: true }).selectOption("D");
+    await page.getByRole("button", { name: "Preview selection" }).click();
+    await page
+        .getByLabel("Enrichment instruction")
+        .fill("Write verified literal city distances in km to distance_km.");
+    await page
+        .getByLabel("Destination type 1", { exact: true })
+        .selectOption("new");
+    await page.getByLabel("Letter or index 1", { exact: true }).fill("5");
+    await page
+        .getByLabel("New column header 1", { exact: true })
+        .fill("distance_km");
+    const supplied = JSON.parse(
+        await readFile(resolve("../demo/capitals_api_plan.json"), "utf8"),
+    );
+    supplied.outputs[0].target_column = "distance_km";
+    await page
+        .getByText("Use an existing plan (optional)", { exact: true })
+        .click();
+    await page.getByLabel("EnrichmentPlan JSON").fill(JSON.stringify(supplied));
+    const submit = page.getByRole("button", {
+        name: "Submit and validate plan",
+    });
+    await expect(submit).toBeDisabled(); // E exists outside the selected A:D table.
+    await page.getByLabel("Letter or index 1", { exact: true }).fill("6");
+    await expect(
+        page.getByLabel("Letter or index 1", { exact: true }),
+    ).toHaveValue("F");
+    await page
+        .getByLabel("New column header 1", { exact: true })
+        .fill("distance");
+    await expect(submit).toBeDisabled(); // Header collision outside the selected range.
+    await page
+        .getByLabel("New column header 1", { exact: true })
+        .fill("distance_km");
+    await expect(submit).toBeEnabled(); // Supplied plan validation requires no network.
+    await submit.click();
+    await expect(page.getByTestId("validation")).toHaveText(
+        "Validation passed",
+    );
+    await page
+        .getByRole("button", { name: "Approve / Continue to Execution" })
+        .click();
+    await expect(
+        page.getByRole("button", { name: "Start bounded run" }),
+    ).toBeDisabled();
+    await navigate(page, "Dataset");
+    await page
+        .getByLabel(
+            "Allow external network requests for planning and execution",
+        )
+        .check();
+    await page
+        .getByRole("button", { name: "Submit and validate plan" })
+        .click();
+    await expect(page.getByTestId("validation")).toHaveText(
+        "Validation passed",
+    );
+    await page
+        .getByRole("button", { name: "Approve / Continue to Execution" })
+        .click();
+    await page.getByRole("button", { name: "Start bounded run" }).click();
+    await expect(page.getByTestId("job-status")).toContainText("Needs review", {
+        timeout: 30_000,
+    });
+    await navigate(page, "Export");
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download enriched XLSX" }).click();
+    const workbook = testInfo.outputPath("new-column.xlsx");
+    await (await downloadPromise).saveAs(workbook);
+    const check = spawnSync(
+        "uv",
+        [
+            "run",
+            "--locked",
+            "python",
+            "-c",
+            `
+import sys
+from openpyxl import load_workbook
+source = load_workbook('samples/capitals.xlsx').active
+result = load_workbook(sys.argv[1]).active
+for row in source:
+    for cell in row:
+        assert result[cell.coordinate].value == cell.value, cell.coordinate
+        assert result[cell.coordinate].number_format == cell.number_format
+assert result['F1'].value == 'distance_km'
+assert 1400 < result['F3'].value < 1500
+assert result['F2'].value is None
+`,
+            workbook,
+        ],
+        { cwd: "..", encoding: "utf8" },
+    );
+    expect(check.status, check.stdout + check.stderr).toBe(0);
+    await expect(
+        page.getByRole("columnheader", { name: "distance_km (km)" }),
+    ).toBeVisible();
+
+    const trigger = page.getByRole("button", {
+        name: "Diagnostics",
+        exact: true,
+    });
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("dialog")).toBeVisible();
+    for (let i = 0; i < 12; i++) {
+        await page.keyboard.press("Tab");
+        expect(
+            await page.evaluate(() =>
+                document
+                    .querySelector("dialog")
+                    ?.contains(document.activeElement),
+            ),
+        ).toBe(true);
+    }
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const workspace of [
+        "Dataset",
+        "Plan",
+        "Execution",
+        "Review",
+        "Export",
+    ]) {
+        await navigate(page, workspace);
+        await expect(
+            page.getByRole("heading", { name: workspace, exact: true }),
+        ).toBeVisible();
+        const documentWidth = await page.evaluate(
+            () => document.documentElement.scrollWidth,
+        );
+        expect(documentWidth).toBeLessThanOrEqual(390);
+    }
+    await page
+        .getByRole("button", { name: "Download enriched XLSX" })
+        .scrollIntoViewIfNeeded();
+    await expect(
+        page.getByRole("button", { name: "Download enriched XLSX" }),
+    ).toBeInViewport();
 });

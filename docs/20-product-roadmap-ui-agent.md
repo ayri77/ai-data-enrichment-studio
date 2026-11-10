@@ -76,6 +76,7 @@ Work on Agent R1 can begin **in parallel with UI design** on its own reviewed Py
 | M5-1 | [#99](https://github.com/ayri77/ai-data-enrichment-studio/issues/99), [PR #98](https://github.com/ayri77/ai-data-enrichment-studio/pull/98) | Select visual system; finalize working Dataset UI, guided range, EN/UK/DE; merge only after review/CI |
 | M5-2 | [#100](https://github.com/ayri77/ai-data-enrichment-studio/issues/100) | Real backend plan/run/artifact API; no mock output |
 | **E2E-0** | [#104](https://github.com/ayri77/ai-data-enrichment-studio/issues/104) | **Both official workbooks run via minimal real UI** and produce separate enriched XLSX + truthful status |
+| Five-workspace UI foundation | [#112](https://github.com/ayri77/ai-data-enrichment-studio/issues/112) | Dataset → Plan → Execution → Review → Export; shared source-bound state, viewport layout, typed DAG, compact outcomes, on-demand Diagnostics, honest Review limits and real downloads; [walkthrough/evidence](24-five-workspace-ui.md) |
 | M5-3 | [#101](https://github.com/ayri77/ai-data-enrichment-studio/issues/101) | Real validated DAG visualization and approval |
 | M5-4 | [#102](https://github.com/ayri77/ai-data-enrichment-studio/issues/102) | Real bounded event-trace viewer, initially replay |
 | M5-5 | [#103](https://github.com/ayri77/ai-data-enrichment-studio/issues/103) + [#68](https://github.com/ayri77/ai-data-enrichment-studio/issues/68) | Verified Kyiv/Berlin city Review and Resume; unresolved Annapurna handled honestly |
@@ -83,7 +84,7 @@ Work on Agent R1 can begin **in parallel with UI design** on its own reviewed Py
 | Later | [#105](https://github.com/ayri77/ai-data-enrichment-studio/issues/105) | Controlled review-policy and synthetic scale testing |
 | Python R&D parallel | [#106](https://github.com/ayri77/ai-data-enrichment-studio/issues/106) → [#107](https://github.com/ayri77/ai-data-enrichment-studio/issues/107) | Dynamic agent + fair workflow comparison |
 
-**Current snapshot:** M4 core finished; M5-1 functional implementation lives in **unmerged PR #98**; three product designs are being explored separately. [Academic Acceptance #95](https://github.com/ayri77/ai-data-enrichment-studio/issues/95) was observed **closed** on 2026-11-09 even though its checklist retains unchecked independent numeric and submission items. These factual evaluation tasks are explicitly included in [#104](https://github.com/ayri77/ai-data-enrichment-studio/issues/104), without silently asserting their completion.
+**Current snapshot (2026-11-10):** M4 core, M5-1 (#98), Plan/Run API (#110) and real offline browser E2E-0 (#111) are merged. The #112 implementation builds five real workspaces on that baseline. Advanced graph tooling, recorded execution events and audited Review/Resume remain in #101/#102/#103/#68; safe provider readiness/configuration is tracked in #113. [Academic Acceptance #95](https://github.com/ayri77/ai-data-enrichment-studio/issues/95) was observed **closed** on 2026-11-09 even though its checklist retains unchecked independent numeric and submission items. These factual evaluation tasks remain explicitly included in [#104](https://github.com/ayri77/ai-data-enrichment-studio/issues/104), without asserting their completion.
 
 ## 6. Working agreements / scope guards
 

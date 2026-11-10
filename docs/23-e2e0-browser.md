@@ -1,5 +1,9 @@
 # E2E-0: Dataset Workspace → Plan/Run API
 
+**Historical baseline:** the stacked UI described below is superseded by the
+[five-workspace architecture and current walkthrough](24-five-workspace-ui.md).
+The startup commands and offline fixture explanation remain applicable.
+
 Partially addresses #104 (E2E-0). The existing Dataset Workspace now includes a
 minimal Plan/Run panel below the source preview. DAG visualization, event replay,
 Review/Resume and Agent R1 remain out of scope. Issue #104 stays open.
