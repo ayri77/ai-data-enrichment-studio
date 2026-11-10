@@ -130,3 +130,37 @@ describe("API error contract", () => {
         expect(failure.code).toBe("future_error");
     });
 });
+
+it("hands credentials only to a same-origin noncached configuration request and redacts server errors", async () => {
+    const secret = ["synthetic", String(Math.random())].join("-");
+    const fetcher = vi.fn().mockResolvedValue(
+        new Response(
+            JSON.stringify({
+                error: { code: "invalid_api_key", message: secret },
+            }),
+            { status: 422 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    const error = await api
+        .configureProvider({ model: "gpt-4.1-mini", api_key: secret })
+        .catch((err) => err);
+    expect(error.message).not.toContain(secret);
+    expect(error.code).toBe("invalid_api_key");
+    expect(fetcher).toHaveBeenCalledWith(
+        "/api/provider-settings",
+        expect.objectContaining({
+            method: "PUT",
+            cache: "no-store",
+            credentials: "same-origin",
+            redirect: "error",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Enrichment-Config": "1",
+            },
+        }),
+    );
+    expect(
+        JSON.stringify(localStorage) + JSON.stringify(sessionStorage),
+    ).not.toContain(secret);
+});

@@ -25,6 +25,7 @@ from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.plan_run import PlanBodyLimit, PlanRunService, PlanRunSettings
 from ai_data_enrichment.plan_run_worker import ExecutorFactory
 from ai_data_enrichment.planning.llm_planner import PlanCompletionClient
+from ai_data_enrichment.provider_settings import ProviderConfiguration, configuration_router
 from ai_data_enrichment.workspace_errors import WorkspaceError
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -143,18 +144,22 @@ def _preview(path: Path, dataset_id: str, body: PreviewRequest) -> dict:
 def create_app(
     *,
     settings: PlanRunSettings | None = None,
+    local_browser_configuration: bool = False,
     offline_plan_client: PlanCompletionClient | None = None,
     offline_executor_factory: ExecutorFactory | None = None,
 ) -> FastAPI:
     """Create an isolated workspace whose uploads are removed on shutdown."""
     datasets: dict[str, Path] = {}
     lock = asyncio.Lock()
+    settings = settings or PlanRunSettings.from_environment()
+    provider = ProviderConfiguration.from_environment(settings.llm_model)
     plan_run = PlanRunService(
         datasets,
         lock,
-        settings or PlanRunSettings.from_environment(),
+        settings,
         offline_plan_client,
         offline_executor_factory,
+        provider,
     )
 
     @asynccontextmanager
@@ -166,10 +171,32 @@ def create_app(
             finally:
                 await plan_run.close()
                 datasets.clear()
+                provider.remove_key()
 
     app = FastAPI(title="Data Enrichment Workspace", lifespan=lifespan)
     app.add_middleware(PlanBodyLimit)
     app.include_router(plan_run.router)
+    app.include_router(
+        configuration_router(
+            provider,
+            lock,
+            settings=settings,
+            offline=offline_plan_client is not None,
+            enabled=local_browser_configuration,
+        )
+    )
+
+    @app.middleware("http")
+    async def private_configuration_response(request: Request, call_next):
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            # Consume unexpected errors here: Starlette's outer server-error handler
+            # otherwise re-raises them to Uvicorn, which could log credential text.
+            response = await internal_error(request, exc)
+        if request.url.path.startswith("/api/provider-settings"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.exception_handler(WorkspaceError)
     async def workspace_error(_request: Request, exc: WorkspaceError):
@@ -191,7 +218,7 @@ def create_app(
 
     @app.exception_handler(Exception)
     async def internal_error(_request: Request, exc: Exception):
-        logger.error("Workspace request failed", exc_info=exc)
+        logger.error("Workspace request failed (%s)", type(exc).__name__)
         return JSONResponse(
             {
                 "error": {

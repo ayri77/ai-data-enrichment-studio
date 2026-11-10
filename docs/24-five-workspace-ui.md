@@ -27,7 +27,7 @@ The Column Inspector width slider resizes the desktop pane from 260–420px; the
 
 ## Provider setup and deferred work
 
-**Provider / Model settings** explains backend-owned environment configuration and the separate network-consent state. Readiness is honestly **not reported by the current API**. No key input, browser key storage or new secret-handling endpoint was added. Read-only readiness and secure backend configuration are tracked in [#113](https://github.com/ayri77/ai-data-enrichment-studio/issues/113).
+**Provider / Model settings** now exposes non-secret readiness, a supported OpenAI model picker, and masked key apply/replace/remove actions. Keys stay in backend process memory. See [the trusted local launcher, access boundary, and acceptance steps](25-provider-settings.md). The separate network-consent state and server gate remain authoritative.
 
 Advanced DAG editing/strategy tooling remains in #101; actual node events and playback in #102; candidate Review/Resume in #103/#68. Autonomous agent visualization, advanced analytics and a complete Simple/Advanced product mode are outside this slice. Live Mountains acceptance remains deferred as agreed; these tests do not assert independent live academic accuracy.
 
@@ -73,3 +73,5 @@ Mountains at 1440×900: [Dataset](screenshots/issue-112/mountains-dataset-1440x9
 ![Execution](screenshots/issue-112/capitals-execution-1440x900.png)
 ![Review](screenshots/issue-112/capitals-review-1440x900.png)
 ![Export](screenshots/issue-112/capitals-export-1440x900.png)
+
+Provider / Model settings now support [backend-owned ephemeral local setup](25-provider-settings.md) (#113), replacing the original not-reported placeholder.

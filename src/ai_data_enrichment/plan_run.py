@@ -41,6 +41,7 @@ from ai_data_enrichment.plan_run_worker import (
 )
 from ai_data_enrichment.planning.llm_planner import LLMPlanner, PlanCompletionClient
 from ai_data_enrichment.planning.openai_client import OpenAIPlanClient
+from ai_data_enrichment.provider_settings import ProviderConfiguration
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy, PlanValidator
 from ai_data_enrichment.workspace_errors import WorkspaceError
 
@@ -136,8 +137,10 @@ class PlanRunService:
         settings: PlanRunSettings,
         offline_plan_client: PlanCompletionClient | None,
         offline_executor_factory: ExecutorFactory | None,
+        provider: ProviderConfiguration,
     ) -> None:
         self.datasets, self.lock, self.settings = datasets, lock, settings
+        self.provider = provider
         self.offline_plan_client = offline_plan_client
         self.offline_executor_factory = offline_executor_factory
         self.plans: dict[str, dict] = {}
@@ -236,23 +239,29 @@ class PlanRunService:
         plan = body.plan
         decision, reason = "ready", None
         if plan is None:
+            api = None
             client = self.offline_plan_client
             if client is None:
                 self.network_gate(body.allow_network)
-                if not self.settings.llm_model:
+                if not self.provider.model:
                     raise WorkspaceError(
-                        "llm_not_configured", "Set OPENAI_MODEL to enable planning."
+                        "llm_not_configured", "Choose a model in Provider Settings."
                     )
-                if not os.getenv("OPENAI_API_KEY"):
-                    raise WorkspaceError(
-                        "missing_api_key", "Set OPENAI_API_KEY to enable planning."
-                    )
-                client = OpenAIPlanClient(
-                    api=OpenAI(timeout=30.0, max_retries=0),
-                    model=self.settings.llm_model,
-                    max_output_tokens=4096,
-                )
+                if not self.provider.key_present:
+                    raise WorkspaceError("missing_api_key", "Add an API key in Provider Settings.")
             try:
+                if client is None:
+                    api = OpenAI(
+                        api_key=self.provider.api_key(),
+                        base_url="https://api.openai.com/v1",
+                        timeout=30.0,
+                        max_retries=0,
+                    )
+                    client = OpenAIPlanClient(
+                        api=api,
+                        model=self.provider.model or "",
+                        max_output_tokens=4096,
+                    )
                 generated = LLMPlanner(client=client, registry=builtin_registry()).generate(
                     instruction=body.instruction, dataset_profile=profile
                 )
@@ -262,6 +271,10 @@ class PlanRunService:
                 raise WorkspaceError(
                     "planning_failed", "The model could not return a usable planning response.", 502
                 ) from exc
+            finally:
+                if api is not None:
+                    with suppress(Exception):
+                        api.close()
         draft = {
             **body.model_dump(mode="json", exclude={"allow_network", "plan"}),
             "plan": plan.model_dump(mode="json") if plan else None,

@@ -13,7 +13,12 @@ import i18n, { messages } from "./i18n";
 
 vi.mock("./api", async (original) => ({
     ...(await original<typeof import("./api")>()),
-    api: { upload: vi.fn(), preview: vi.fn(), remove: vi.fn() },
+    api: {
+        providerSettings: vi.fn(),
+        upload: vi.fn(),
+        preview: vi.fn(),
+        remove: vi.fn(),
+    },
 }));
 const metadata = {
     dataset_id: "opaque",
@@ -45,6 +50,17 @@ const preview = {
 
 beforeEach(async () => {
     vi.resetAllMocks();
+    vi.mocked(api.providerSettings).mockResolvedValue({
+        provider: "openai",
+        supported_models: [{ id: "gpt-4.1-mini", label: "gpt-4.1-mini" }],
+        model: "gpt-4.1-mini",
+        key_present: true,
+        server_network_allowed: true,
+        live_ready: true,
+        planning_mode: "live",
+        configuration_enabled: true,
+        storage: "process_memory",
+    });
     localStorage.clear();
     await i18n.changeLanguage("en");
     vi.mocked(api.upload).mockResolvedValue(metadata);

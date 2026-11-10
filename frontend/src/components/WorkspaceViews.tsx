@@ -20,6 +20,7 @@ import {
     type OutputTarget,
 } from "../workflowModel";
 import { Button } from "./ui/button";
+import { ProviderSettings } from "./ProviderSettings";
 import { PlanGraph } from "./PlanGraph";
 
 export function DatasetConfiguration({
@@ -227,6 +228,14 @@ export function DatasetConfiguration({
                 </fieldset>
                 {preview && !w.withinBounds && (
                     <p role="alert">{t("workflow.selectionLimit")}</p>
+                )}
+                {!w.savedPlan.trim() && (
+                    <>
+                        <p role="status">
+                            {t(`provider.${w.planningReadiness}`)}
+                        </p>
+                        {!w.network && <p>{t("provider.consentMissing")}</p>}
+                    </>
                 )}
                 <p className="muted">
                     {w.savedPlan.trim()
@@ -872,7 +881,7 @@ export function Diagnostics({
                 if (event.key !== "Tab") return;
                 const controls = [
                     ...event.currentTarget.querySelectorAll<HTMLElement>(
-                        'button, summary, [tabindex="0"]',
+                        'button:not(:disabled), input:not(:disabled), select:not(:disabled), summary, [tabindex="0"]',
                     ),
                 ].filter((element) => element.getClientRects().length > 0);
                 if (!controls.length) return;
@@ -918,24 +927,7 @@ export function Diagnostics({
             </div>
             <div className="panel-scroll diagnostics-content" tabIndex={0}>
                 {tab === "settings" ? (
-                    <>
-                        <h3>{t("ws.backendOwned")}</h3>
-                        <p>{t("ws.providerUnknown")}</p>
-                        <p>{t("workflow.networkHint")}</p>
-                        <p>{t("ws.noBrowserKeys")}</p>
-                        <dl>
-                            <dt>OPENAI_MODEL</dt>
-                            <dd>{t("ws.notReported")}</dd>
-                            <dt>OPENAI_API_KEY</dt>
-                            <dd>{t("ws.notReported")}</dd>
-                            <dt>ENRICHMENT_ALLOW_NETWORK</dt>
-                            <dd>{t("ws.notReported")}</dd>
-                        </dl>
-                        <p>
-                            {t("ws.consentState")}:{" "}
-                            {t(w.network ? "ws.yes" : "ws.no")}
-                        </p>
-                    </>
+                    <ProviderSettings w={w} />
                 ) : (
                     <>
                         <h3>{t("workflow.fullPlan")}</h3>
