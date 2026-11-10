@@ -12,6 +12,7 @@ import "./i18n";
 import { StudioShell } from "./components/StudioShell";
 import { RangeSelection } from "./components/RangeSelection";
 import { DatasetPreview } from "./components/DatasetPreview";
+import { PlanRunWorkspace } from "./components/PlanRunWorkspace";
 import { Button } from "./components/ui/button";
 import { initialTheme, savePreference } from "./preferences";
 import { useDataset } from "./useDataset";
@@ -20,6 +21,7 @@ export default function App() {
     const { t, i18n } = useTranslation();
     const [theme, setTheme] = useState(initialTheme);
     const [dragging, setDragging] = useState(false);
+    const [workflowLocked, setWorkflowLocked] = useState(false);
     const fileInput = useRef<HTMLInputElement>(null);
     const d = useDataset();
     useEffect(() => {
@@ -56,13 +58,13 @@ export default function App() {
                 aria-label={t("sourceWorkbook")}
                 onDragOver={(e) => {
                     e.preventDefault();
-                    if (!d.busy) setDragging(true);
+                    if (!d.busy && !workflowLocked) setDragging(true);
                 }}
                 onDragLeave={() => setDragging(false)}
                 onDrop={(e) => {
                     e.preventDefault();
                     setDragging(false);
-                    void d.upload(e.dataTransfer.files[0]);
+                    if (!workflowLocked) void d.upload(e.dataTransfer.files[0]);
                 }}
             >
                 <input
@@ -71,7 +73,7 @@ export default function App() {
                     accept=".xlsx"
                     className="sr-only"
                     aria-label={t("uploadWorkbook")}
-                    disabled={!!d.busy}
+                    disabled={!!d.busy || workflowLocked}
                     onChange={(e) => {
                         void d.upload(e.target.files?.[0]);
                         e.target.value = "";
@@ -106,7 +108,7 @@ export default function App() {
                     <Button
                         variant="outline"
                         size="sm"
-                        disabled={!!d.busy}
+                        disabled={!!d.busy || workflowLocked}
                         onClick={() => fileInput.current?.click()}
                     >
                         {d.dataset ? t("replace") : t("browse")}
@@ -115,7 +117,7 @@ export default function App() {
                         <button
                             className="icon-button"
                             type="button"
-                            disabled={!!d.busy}
+                            disabled={!!d.busy || workflowLocked}
                             aria-label={t("remove")}
                             onClick={d.remove}
                         >
@@ -155,7 +157,7 @@ export default function App() {
                 sheets={d.dataset?.worksheets ?? []}
                 sheet={d.sheet}
                 range={d.range}
-                disabled={!d.dataset || !!d.busy}
+                disabled={!d.dataset || !!d.busy || workflowLocked}
                 pending={d.busy === "preview"}
                 onSheet={(name) => d.selectSheet(name)}
                 onRange={d.editRange}
@@ -167,6 +169,13 @@ export default function App() {
                 busy={d.busy === "preview"}
                 hasWorkbook={!!d.dataset}
             />
+            {d.preview && !d.busy && (
+                <PlanRunWorkspace
+                    key={`${d.dataset?.dataset_id}:${d.sheet}:${d.range}`}
+                    preview={d.preview}
+                    onLock={setWorkflowLocked}
+                />
+            )}
         </StudioShell>
     );
 }
