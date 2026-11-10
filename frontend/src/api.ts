@@ -36,7 +36,7 @@ export class WorkspaceApiError extends Error {
         this.name = "WorkspaceApiError";
     }
 }
-async function response<T>(request: Promise<Response>): Promise<T> {
+async function checked(request: Promise<Response>): Promise<Response> {
     let result: Response;
     try {
         result = await request;
@@ -57,9 +57,131 @@ async function response<T>(request: Promise<Response>): Promise<T> {
             result.status,
         );
     }
-    return result.json() as Promise<T>;
+    return result;
+}
+async function response<T>(request: Promise<Response>): Promise<T> {
+    return (await checked(request)).json() as Promise<T>;
+}
+function post<T>(path: string, body?: unknown) {
+    return response<T>(
+        fetch(path, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        }),
+    );
+}
+
+export interface EnrichmentPlan {
+    version: string;
+    steps: {
+        id: string;
+        capability: string;
+        inputs: Record<string, unknown>;
+        parameters: Record<string, unknown>;
+    }[];
+    outputs: {
+        step_id: string;
+        value_field: string;
+        target_column: string;
+        expected_unit?: string;
+    }[];
+    assumptions: string[];
+}
+export interface Validation {
+    valid: boolean;
+    errors: { code: string; message: string; step_id?: string | null }[];
+}
+export interface PlanRequest {
+    dataset_id: string;
+    sheet_name: string;
+    range_ref: string;
+    instruction: string;
+    output_columns: Record<string, string>;
+    allow_network: boolean;
+    mountain_resolution_policy: "strict" | "verified_only";
+    plan?: EnrichmentPlan;
+}
+export interface PlanDraft extends Omit<PlanRequest, "allow_network" | "plan"> {
+    plan_id: string;
+    fingerprint: string;
+    source_sha256: string;
+    status: "draft" | "approved";
+    approved_at: string | null;
+    planning_status: string;
+    reason: string | null;
+    validation: Validation;
+    plan: EnrichmentPlan | null;
+}
+export type JobStatus =
+    | "queued"
+    | "running"
+    | "completed"
+    | "needs_review"
+    | "failed"
+    | "cancelled"
+    | "timed_out";
+export const isTerminal = (status: JobStatus) =>
+    status !== "queued" && status !== "running";
+export interface Job {
+    job_id: string;
+    plan_id: string;
+    fingerprint: string;
+    status: JobStatus;
+    created_at: string;
+    started_at: string | null;
+    finished_at: string | null;
+    error: { code: string; message: string } | null;
+    metrics: Record<string, number> | null;
+    artifacts: { result?: string; report?: string };
+    execution_mode: "live" | "offline_fixture";
+    timeout_seconds: number;
+}
+export interface AuditReport extends Job {
+    source_sha256: string;
+    result_sha256?: string;
+    source_unchanged?: boolean;
+    preserved_cells?: string[];
+    rows?: { record_id: string; status: "success" | "partial" | "failure" }[];
+    execution?: {
+        provider_requests: Record<string, Record<string, number>>;
+        records: {
+            record_id: string;
+            row_result: {
+                steps: {
+                    step_id: string;
+                    result: {
+                        status: "success" | "failure";
+                        value: unknown;
+                        error_code: string | null;
+                        message: string | null;
+                        evidence: { source: string; reference: string }[];
+                    };
+                }[];
+            };
+        }[];
+    };
 }
 export const api = {
+    createPlan: (body: PlanRequest) => post<PlanDraft>("/api/plans", body),
+    getPlan: (id: string) => response<PlanDraft>(fetch(`/api/plans/${id}`)),
+    validatePlan: (id: string) => post<Validation>(`/api/plans/${id}/validate`),
+    approvePlan: (id: string, fingerprint: string) =>
+        post<PlanDraft>(`/api/plans/${id}/approve`, {
+            approved: true,
+            fingerprint,
+        }),
+    startRun: (id: string, allow_network: boolean, timeout_seconds: number) =>
+        post<Job>(`/api/plans/${id}/runs`, { allow_network, timeout_seconds }),
+    getJob: (id: string, signal?: AbortSignal) =>
+        response<Job>(fetch(`/api/jobs/${id}`, { signal })),
+    cancelJob: (id: string) => post<Job>(`/api/jobs/${id}/cancel`),
+    getReport: (id: string, signal?: AbortSignal) =>
+        response<AuditReport>(
+            fetch(`/api/jobs/${id}/artifacts/report`, { signal }),
+        ),
+    artifact: async (id: string, kind: "result" | "report") =>
+        (await checked(fetch(`/api/jobs/${id}/artifacts/${kind}`))).blob(),
     upload: (file: File) =>
         response<Dataset>(
             fetch(`/api/datasets?filename=${encodeURIComponent(file.name)}`, {

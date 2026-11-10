@@ -7,7 +7,8 @@
         "dev": "vite --host 127.0.0.1",
         "build": "tsc -b && vite build",
         "test": "vitest run",
-        "format:check": "prettier --check src index.html package.json tsconfig.json vite.config.ts"
+        "format:check": "prettier --check src e2e playwright.config.ts index.html package.json tsconfig.json vite.config.ts",
+        "test:e2e": "playwright test"
     },
     "dependencies": {
         "@radix-ui/react-slot": "^1.2.3",
@@ -21,6 +22,7 @@
         "tailwind-merge": "^3.3.0"
     },
     "devDependencies": {
+        "@playwright/test": "^1.65.0",
         "@tailwindcss/vite": "^4.1.0",
         "@testing-library/jest-dom": "^6.9.1",
         "@testing-library/react": "^16.3.0",

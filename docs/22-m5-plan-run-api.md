@@ -161,6 +161,7 @@ Other CLI/library callers retain the runner's default strict collision behavior.
 - Offline demos retain their explicitly downloaded copies under ignored
   `artifacts/`; remove the printed run directory when no longer needed.
 - Run one Uvicorn process on loopback, without multiple workers. No authentication,
-  browser E2E wiring (#104), frontend redesign, DAG UI, Review/Resume, Agent R1
-  integration or Wikidata optimization is included. Live acceptance is opt-in and
+  frontend redesign, DAG UI, Review/Resume, Agent R1 integration or Wikidata
+  optimization is included. Browser E2E-0 wiring and acceptance instructions are
+  documented in [23-e2e0-browser.md](23-e2e0-browser.md). Live acceptance is opt-in and
   was not required for the offline suite.

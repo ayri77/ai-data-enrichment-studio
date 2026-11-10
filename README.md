@@ -131,9 +131,11 @@ Not implemented yet:
 
 ### Local Dataset Workspace (M5-1)
 
-The first local web UI supports uploading XLSX, inspecting worksheets, selecting
+The local web UI supports uploading XLSX, inspecting worksheets, selecting
 an explicit range, and previewing real data using the existing ingestion layer.
-It is a single-user session with no provider calls or workbook writes.
+The E2E-0 panel below the preview connects natural-language planning, explicit
+fingerprint approval, bounded execution and separate XLSX/audit downloads.
+External requests require explicit opt-in; source inspection stays local.
 
 ```powershell
 # Terminal 1, repository root
@@ -153,7 +155,10 @@ The approved Data IDE foundation adds persisted Light/Dark appearance,
 English/Ukrainian/German localization, guided table boundaries with advanced A1
 input, and a schema-independent column inspector. See
 [UI Foundation integration and verification](docs/21-m5-ui-foundation.md).
-Plan, Execution, Review, and Export remain explicitly unavailable pending review.
+Dedicated Plan/Execution/Review/Export workspaces remain unavailable. The minimal
+Plan/Run/Download flow is available within Dataset; Review/Resume remains deferred.
+See [E2E-0 browser setup and reproducible acceptance](docs/23-e2e0-browser.md) for
+network/model configuration, both sample mappings and offline browser tests.
 
 ### Agentic workflow developer demo (M4)
 

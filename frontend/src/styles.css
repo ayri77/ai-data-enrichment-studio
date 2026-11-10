@@ -864,3 +864,77 @@ select {
         border-color: ButtonText;
     }
 }
+.plan-run {
+    border-top: 1px solid var(--studio-border);
+    padding: 24px;
+    display: grid;
+    gap: 16px;
+}
+.plan-run fieldset,
+.plan-run section {
+    border: 0;
+    padding: 0;
+    min-width: 0;
+    display: grid;
+    gap: 12px;
+}
+.plan-run label {
+    display: grid;
+    gap: 6px;
+}
+.plan-run textarea {
+    font: inherit;
+    color: inherit;
+    background: var(--studio-surface0);
+    border: 1px solid var(--studio-control-border);
+    border-radius: var(--studio-radius-control);
+    min-height: 90px;
+    width: 100%;
+    padding: 8px;
+    resize: vertical;
+}
+.plan-run textarea:focus-visible,
+.plan-run summary:focus-visible {
+    outline: var(--studio-focus-width) solid var(--studio-focus);
+    outline-offset: 3px;
+}
+.plan-run .mapping-row,
+.workflow-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: end;
+}
+.plan-run .network-opt-in {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.plan-run pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 400px;
+    overflow: auto;
+    margin: 0;
+}
+.plan-run code,
+.fingerprint {
+    overflow-wrap: anywhere;
+}
+.plan-run summary {
+    cursor: pointer;
+    padding-block: 8px;
+}
+.workflow-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin: 0;
+}
+.workflow-metrics dt {
+    color: var(--studio-muted);
+}
+.workflow-metrics dd {
+    margin: 0;
+    font-family: var(--studio-font-mono);
+}
