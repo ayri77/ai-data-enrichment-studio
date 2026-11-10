@@ -75,7 +75,7 @@ async function advanced(value: string) {
 }
 
 describe("Dataset UI Foundation", () => {
-    it("starts empty, exposes real preferences and marks future workspaces unavailable", () => {
+    it("starts empty, exposes preferences and five available workspaces", () => {
         render(<App />);
         expect(screen.getByLabelText("Worksheet")).toBeDisabled();
         expect(
@@ -83,11 +83,9 @@ describe("Dataset UI Foundation", () => {
         ).toBeDisabled();
         expect(screen.getByText("No table selected")).toBeInTheDocument();
         expect(
-            screen.getAllByRole("button", { name: /Not available/ }),
-        ).toHaveLength(4);
-        screen
-            .getAllByRole("button", { name: /Not available/ })
-            .forEach((button) => expect(button).toBeDisabled());
+            screen.getByRole("navigation").querySelectorAll("button"),
+        ).toHaveLength(5);
+        expect(screen.getByRole("button", { name: "Plan" })).toBeEnabled();
         expect(
             screen.queryByText(/verified distance/i),
         ).not.toBeInTheDocument();

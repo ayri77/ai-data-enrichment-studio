@@ -1,16 +1,23 @@
 import type { ReactNode } from "react";
 import { Database, Download, GitBranch, Play, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { Workspace } from "../useWorkflow";
 import type { Theme } from "../preferences";
 
 export function StudioShell({
     theme,
     onThemeChange,
     children,
+    workspace,
+    onNavigate,
+    completed,
 }: {
     theme: Theme;
     onThemeChange: (theme: Theme) => void;
     children: ReactNode;
+    workspace: Workspace;
+    onNavigate: (workspace: Workspace) => void;
+    completed: Workspace[];
 }) {
     const { t, i18n } = useTranslation();
     const workspaces = [
@@ -65,13 +72,21 @@ export function StudioShell({
                 {workspaces.map(({ id, icon: Icon }) => (
                     <button
                         key={id}
+                        aria-label={t(id)}
+                        aria-description={
+                            completed.includes(id as Workspace)
+                                ? t("ws.complete")
+                                : undefined
+                        }
                         type="button"
-                        disabled={id !== "dataset"}
-                        aria-current={id === "dataset" ? "page" : undefined}
+                        onClick={() => onNavigate(id as Workspace)}
+                        aria-current={id === workspace ? "page" : undefined}
                     >
                         <Icon aria-hidden="true" />
                         {t(id)}
-                        {id !== "dataset" && <small>{t("notAvailable")}</small>}
+                        {completed.includes(id as Workspace) && (
+                            <small aria-label={t("ws.complete")}>✓</small>
+                        )}
                     </button>
                 ))}
             </nav>

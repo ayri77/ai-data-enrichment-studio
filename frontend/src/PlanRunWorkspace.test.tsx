@@ -2,12 +2,14 @@ import {
     act,
     fireEvent,
     render,
+    renderHook,
     screen,
     waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
-import { PlanRunWorkspace } from "./components/PlanRunWorkspace";
+import App from "./App";
+import { useWorkflow } from "./useWorkflow";
 import {
     api,
     WorkspaceApiError,
@@ -21,6 +23,9 @@ import i18n, { messages } from "./i18n";
 vi.mock("./api", async (original) => ({
     ...(await original<typeof import("./api")>()),
     api: {
+        upload: vi.fn(),
+        preview: vi.fn(),
+        remove: vi.fn(),
         createPlan: vi.fn(),
         getPlan: vi.fn(),
         validatePlan: vi.fn(),
@@ -39,7 +44,14 @@ const preview: Preview = {
     sample_limit: 5,
     profile: {
         row_count: 10,
-        columns: [],
+        columns: ["country", "city", "country2", "city2", "distance"].map(
+            (name) => ({
+                name,
+                inferred_type: "Text",
+                null_count: name === "distance" ? 10 : 0,
+                warnings: [],
+            }),
+        ),
         sample_records: [],
         schema_warnings: [],
     },
@@ -139,7 +151,20 @@ const report: AuditReport = {
 
 beforeEach(async () => {
     vi.resetAllMocks();
+    localStorage.clear();
     await i18n.changeLanguage("en");
+    vi.mocked(api.upload).mockResolvedValue({
+        dataset_id: "source",
+        filename: "capitals.xlsx",
+        worksheets: [
+            {
+                name: "Sheet1",
+                columns: preview.profile.columns.map((x) => x.name),
+                row_count: 10,
+            },
+        ],
+    });
+    vi.mocked(api.preview).mockResolvedValue(preview);
     vi.mocked(api.createPlan).mockResolvedValue(draft);
     vi.mocked(api.approvePlan).mockResolvedValue({
         ...draft,
@@ -152,33 +177,40 @@ beforeEach(async () => {
 });
 const button = (key: string) =>
     screen.getByRole("button", { name: i18n.t(key) });
-async function generate(expectPlan = true) {
-    fireEvent.change(screen.getByLabelText("Enrichment instruction"), {
+const navigate = async (key: string) =>
+    userEvent.click(
+        screen.getByRole("navigation").querySelectorAll("button")[
+            ["dataset", "plan", "execution", "review", "export"].indexOf(key)
+        ],
+    );
+async function prepare() {
+    await userEvent.upload(
+        screen.getByLabelText("Upload Excel workbook"),
+        new File(["x"], "capitals.xlsx"),
+    );
+    await userEvent.click(button("previewAction"));
+    fireEvent.change(await screen.findByLabelText("Enrichment instruction"), {
         target: { value: "Literal cities" },
     });
-    fireEvent.change(screen.getByLabelText("Output name 1"), {
-        target: { value: "distance" },
-    });
-    fireEvent.change(screen.getByLabelText("Excel column 1"), {
-        target: { value: "E" },
-    });
-    await userEvent.click(
-        screen.getByLabelText(
-            "Allow external network requests for planning and execution",
-        ),
+    await userEvent.selectOptions(
+        screen.getByLabelText("Output column 1"),
+        "E",
     );
-    await userEvent.click(button("workflow.generate"));
-    if (expectPlan) await screen.findByTestId("fingerprint");
+    await userEvent.click(screen.getByLabelText(i18n.t("workflow.network")));
+}
+async function generate() {
+    await prepare();
+    await userEvent.click(button("ws.buildPlan"));
+    await screen.findByTestId("validation");
 }
 async function start() {
     await generate();
-    await userEvent.click(button("workflow.approve"));
+    await userEvent.click(button("ws.approveContinue"));
     await userEvent.click(button("workflow.run"));
 }
 
-it("sends exact source and explicit mapping; never approves or starts automatically", async () => {
-    render(<PlanRunWorkspace preview={preview} onLock={vi.fn()} />);
-    expect(button("workflow.generate")).toBeDisabled();
+it("uses exact source/mapping, validates and explicitly approves before a separate run", async () => {
+    render(<App />);
     await generate();
     expect(api.createPlan).toHaveBeenCalledWith({
         dataset_id: "source",
@@ -191,105 +223,160 @@ it("sends exact source and explicit mapping; never approves or starts automatica
     });
     expect(api.approvePlan).not.toHaveBeenCalled();
     expect(api.startRun).not.toHaveBeenCalled();
+    await navigate("execution");
     expect(button("workflow.run")).toBeDisabled();
-    await userEvent.click(button("workflow.approve"));
-    expect(api.approvePlan).toHaveBeenCalledWith("plan", "a".repeat(64));
+    await navigate("plan");
+    vi.mocked(api.validatePlan).mockResolvedValue(draft.validation);
+    vi.mocked(api.getPlan).mockResolvedValue(draft);
+    await userEvent.click(button("workflow.validate"));
+    expect(api.validatePlan).toHaveBeenCalledWith("plan");
+    expect(api.getPlan).toHaveBeenCalledWith("plan");
+    await userEvent.click(button("ws.approveContinue"));
+    expect(api.approvePlan).toHaveBeenCalledWith("plan", draft.fingerprint);
     expect(button("workflow.run")).toBeEnabled();
     expect(api.startRun).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText("Run timeout (seconds, 1–300)"), {
+    await userEvent.click(screen.getByText("Advanced policy and limits"));
+    fireEvent.change(screen.getByLabelText(i18n.t("workflow.timeout")), {
         target: { value: "301" },
     });
     expect(button("workflow.run")).toBeDisabled();
 });
 
-it.each(["instruction", "mapping", "network", "policy", "saved"])(
-    "clears approval and job state after changing %s",
+it("keeps polling and locks source edits across workspace changes, without cancellation", async () => {
+    vi.mocked(api.getJob).mockResolvedValueOnce({
+        ...queued,
+        status: "running",
+    });
+    const view = render(<App />);
+    await start();
+    await waitFor(() =>
+        expect(screen.getByTestId("job-status")).toHaveTextContent("Running"),
+    );
+    await navigate("dataset");
+    expect(screen.getByLabelText("Upload Excel workbook")).toBeDisabled();
+    expect(screen.getByLabelText("Enrichment instruction")).toBeDisabled();
+    await navigate("review");
+    await waitFor(() => expect(api.getReport).toHaveBeenCalled(), {
+        timeout: 3000,
+    });
+    expect(api.cancelJob).not.toHaveBeenCalled();
+    expect(api.startRun).toHaveBeenCalledTimes(1);
+    await navigate("execution");
+    expect(screen.getByTestId("job-status")).toHaveTextContent("Needs review");
+    const signal = vi.mocked(api.getJob).mock.calls.at(-1)![1]!;
+    view.unmount();
+    expect(signal.aborted).toBe(true);
+});
+
+it.each(["instruction", "mapping", "network", "policy", "saved", "source"])(
+    "invalidates current approval/results on %s edits, retaining prior runs in Diagnostics",
     async (change) => {
-        render(<PlanRunWorkspace preview={preview} onLock={vi.fn()} />);
+        render(<App />);
         await start();
-        await screen.findByText("Unresolved and operation errors");
+        await waitFor(() => expect(api.getReport).toHaveBeenCalled());
+        await navigate("dataset");
+        expect(
+            screen.getAllByText(i18n.t("ws.invalidateWarning"))[0],
+        ).toBeInTheDocument();
         if (change === "instruction")
             fireEvent.change(screen.getByLabelText("Enrichment instruction"), {
-                target: { value: "New instruction" },
+                target: { value: "New task" },
             });
         if (change === "mapping")
-            fireEvent.change(screen.getByLabelText("Excel column 1"), {
-                target: { value: "F" },
-            });
+            await userEvent.selectOptions(
+                screen.getByLabelText("Output column 1"),
+                "A",
+            );
         if (change === "network")
             await userEvent.click(
-                screen.getByLabelText(
-                    "Allow external network requests for planning and execution",
-                ),
+                screen.getByLabelText(i18n.t("workflow.network")),
             );
-        if (change === "policy")
-            fireEvent.change(
-                screen.getByLabelText("Mountain resolution policy"),
-                { target: { value: "verified_only" } },
+        if (change === "policy") {
+            await userEvent.click(
+                screen.getByText("Advanced policy and limits"),
             );
-        if (change === "saved")
+            fireEvent.change(screen.getByLabelText(i18n.t("workflow.policy")), {
+                target: { value: "verified_only" },
+            });
+        }
+        if (change === "saved") {
+            await userEvent.click(
+                screen.getByText(i18n.t("workflow.savedPlan")),
+            );
             fireEvent.change(screen.getByLabelText("EnrichmentPlan JSON"), {
                 target: { value: "{}" },
             });
-        expect(screen.queryByTestId("fingerprint")).not.toBeInTheDocument();
-        expect(screen.queryByTestId("job-status")).not.toBeInTheDocument();
-    },
-);
-
-it.each(["invalid", "missing"])(
-    "blocks approval and execution for a %s plan",
-    async (kind) => {
-        vi.mocked(api.createPlan).mockResolvedValue({
-            ...draft,
-            plan: kind === "missing" ? null : draft.plan,
-            validation: {
-                valid: false,
-                errors: [
-                    {
-                        code: "invalid_output_mapping",
-                        message: "Output mapping is invalid",
-                    },
-                ],
-            },
-        });
-        render(<PlanRunWorkspace preview={preview} onLock={vi.fn()} />);
-        await generate();
-        expect(
-            screen.getAllByText("Output mapping is invalid", {
-                exact: false,
-            })[0],
-        ).toBeInTheDocument();
-        expect(button("workflow.approve")).toBeDisabled();
+        }
+        if (change === "source")
+            fireEvent.change(screen.getByLabelText("Last row"), {
+                target: { value: "10" },
+            });
+        await navigate("execution");
         expect(button("workflow.run")).toBeDisabled();
-        expect(api.approvePlan).not.toHaveBeenCalled();
+        expect(screen.getByTestId("job-status")).toHaveTextContent(
+            i18n.t("ws.readyToRun"),
+        );
+        await userEvent.click(button("ws.diagnostics"));
+        expect(screen.queryByTestId("fingerprint")).not.toBeInTheDocument();
+        expect(screen.getByText(/job · Needs review/)).toBeInTheDocument();
     },
 );
 
-it("revalidates through the server and reads the current draft", async () => {
-    vi.mocked(api.validatePlan).mockResolvedValue(draft.validation);
-    vi.mocked(api.getPlan).mockResolvedValue(draft);
-    render(<PlanRunWorkspace preview={preview} onLock={vi.fn()} />);
+it.each(["invalid", "missing"])("blocks a %s plan", async (kind) => {
+    vi.mocked(api.createPlan).mockResolvedValue({
+        ...draft,
+        plan: kind === "missing" ? null : draft.plan,
+        validation: {
+            valid: false,
+            errors: [
+                {
+                    code: "invalid_output_mapping",
+                    message: "Output mapping is invalid",
+                },
+            ],
+        },
+    });
+    render(<App />);
     await generate();
-    await userEvent.click(button("workflow.validate"));
-    expect(api.validatePlan).toHaveBeenCalledWith("plan");
-    expect(api.getPlan).toHaveBeenCalledWith("plan");
+    expect(screen.getByTestId("validation")).toHaveTextContent(
+        "Validation failed",
+    );
+    expect(button("ws.approveContinue")).toBeDisabled();
+    await navigate("execution");
+    expect(button("workflow.run")).toBeDisabled();
+    expect(api.approvePlan).not.toHaveBeenCalled();
 });
 
-it("displays real partial metrics, report errors, stops polling and preserves state across locales", async () => {
-    render(<PlanRunWorkspace preview={preview} onLock={vi.fn()} />);
+it("shows only compact actual metrics, groups issues honestly and keeps technical details on demand", async () => {
+    render(<App />);
     await start();
-    await screen.findByText("Unresolved and operation errors");
-    expect(api.startRun).toHaveBeenCalledWith("plan", true, 180);
-    expect(screen.getByTestId("job-status")).toHaveTextContent("Needs review");
-    expect(screen.getAllByText("ambiguous")[0]).toBeInTheDocument();
+    await waitFor(() => expect(api.getReport).toHaveBeenCalled());
+    expect(screen.getByTestId("metric-partial_rows")).toHaveTextContent("3");
+    expect(
+        screen.queryByText("Actual provider request counters"),
+    ).not.toBeInTheDocument();
+    await navigate("review");
+    expect(screen.getByText("ambiguous")).toBeInTheDocument();
+    expect(button("ws.resume")).toBeDisabled();
+    await navigate("export");
     expect(button("workflow.downloadXlsx")).toBeEnabled();
+    expect(screen.getByLabelText("Workbook filename")).toHaveValue(
+        "capitals-enriched.xlsx",
+    );
+    await userEvent.click(button("ws.diagnostics"));
+    expect(screen.getByTestId("fingerprint")).toHaveTextContent(
+        draft.fingerprint,
+    );
+    expect(
+        screen.getByText("Actual provider request counters"),
+    ).toBeInTheDocument();
     for (const locale of ["uk", "de", "en"] as const) {
         await act(() => i18n.changeLanguage(locale));
-        expect(screen.getByTestId("job-status")).toHaveTextContent(
-            messages[locale]["workflow.status.needs_review"],
-        );
         expect(screen.getByTestId("fingerprint")).toHaveTextContent(
             draft.fingerprint,
+        );
+        expect(screen.getByRole("dialog")).toHaveAccessibleName(
+            messages[locale]["ws.diagnostics"],
         );
     }
     expect(api.getJob).toHaveBeenCalledTimes(1);
@@ -301,21 +388,22 @@ it.each(["failed", "cancelled", "timed_out"] as const)(
         vi.mocked(api.getJob).mockResolvedValue({
             ...queued,
             status,
-            artifacts: { report: "/api/jobs/job/artifacts/report" },
+            artifacts: { report: "/report" },
         });
         vi.mocked(api.getReport).mockResolvedValue({
             ...queued,
             status,
             source_sha256: draft.source_sha256,
         });
-        render(<PlanRunWorkspace preview={preview} onLock={vi.fn()} />);
+        render(<App />);
         await start();
         await waitFor(() => expect(api.getReport).toHaveBeenCalled());
-        expect(button("workflow.downloadXlsx")).toBeDisabled();
-        expect(button("workflow.downloadReport")).toBeEnabled();
         expect(screen.getByTestId("job-status")).toHaveTextContent(
             i18n.t(`workflow.status.${status}`),
         );
+        await navigate("export");
+        expect(button("workflow.downloadXlsx")).toBeDisabled();
+        expect(button("workflow.downloadReport")).toBeEnabled();
     },
 );
 
@@ -324,88 +412,136 @@ it.each([
     "llm_not_configured",
     "missing_api_key",
     "job_busy",
-])("keeps %s distinct in all locales", async (code) => {
+])("preserves distinct localized %s errors", async (code) => {
     vi.mocked(api.createPlan).mockRejectedValue(
         new WorkspaceApiError(code, "sanitized"),
     );
-    render(<PlanRunWorkspace preview={preview} onLock={vi.fn()} />);
-    await generate(false);
+    render(<App />);
+    await prepare();
+    await userEvent.click(button("ws.buildPlan"));
     await screen.findByRole("alert");
     for (const locale of ["uk", "de", "en"] as const) {
         await act(() => i18n.changeLanguage(locale));
         expect(screen.getByRole("alert")).toHaveTextContent(
             i18n.t(`error.${code}`),
         );
-        expect(screen.getByRole("alert")).toHaveAttribute(
-            "data-error-code",
-            code,
-        );
     }
     expect(api.approvePlan).not.toHaveBeenCalled();
 });
 
-it("recovers polling errors without starting another job", async () => {
+it("retries status/report without starting another job; retrying the approved plan is separate", async () => {
     vi.mocked(api.getJob).mockRejectedValueOnce(
         new WorkspaceApiError("network_error", "unreachable"),
     );
-    render(<PlanRunWorkspace preview={preview} onLock={vi.fn()} />);
+    render(<App />);
     await start();
     await screen.findByRole("alert");
-    expect(button("workflow.run")).toBeDisabled();
+    expect(button("workflow.cancel")).toBeEnabled();
     await userEvent.click(button("workflow.retry"));
-    await screen.findByText("Unresolved and operation errors");
+    await waitFor(() => expect(api.getReport).toHaveBeenCalled());
     expect(api.startRun).toHaveBeenCalledTimes(1);
+    await userEvent.click(button("ws.retryPlan"));
+    expect(api.startRun).toHaveBeenCalledTimes(2);
 });
 
-it("locks edits while active, requests cancellation and aborts polling on unmount", async () => {
+it("requests cancellation and keeps polling until a terminal backend status", async () => {
     vi.mocked(api.getJob).mockResolvedValue({ ...queued, status: "running" });
-    const lock = vi.fn();
-    const view = render(<PlanRunWorkspace preview={preview} onLock={lock} />);
+    render(<App />);
     await start();
-    await screen.findByText("Running");
-    expect(screen.getByLabelText("Enrichment instruction")).toBeDisabled();
-    expect(lock).toHaveBeenLastCalledWith(true);
+    await waitFor(() =>
+        expect(screen.getByTestId("job-status")).toHaveTextContent("Running"),
+    );
     await userEvent.click(button("workflow.cancel"));
     expect(api.cancelJob).toHaveBeenCalledWith("job");
-    const calls = vi.mocked(api.getJob).mock.calls;
-    const signal = calls[calls.length - 1][1]!;
-    view.unmount();
-    expect(signal.aborted).toBe(true);
-    expect(lock).toHaveBeenLastCalledWith(false);
+    expect(screen.getByTestId("job-status")).toHaveTextContent("Running");
 });
 
-it("discards late plan responses after changing the source selection", async () => {
-    let resolve!: (plan: PlanDraft) => void;
+it("discards a late plan response after its source binding changes", async () => {
+    let resolve!: (value: PlanDraft) => void;
     vi.mocked(api.createPlan).mockReturnValue(
         new Promise((done) => {
             resolve = done;
         }),
     );
-    const view = render(
-        <PlanRunWorkspace key="old" preview={preview} onLock={vi.fn()} />,
+    const view = renderHook(
+        ({ key }) =>
+            useWorkflow(
+                preview,
+                key,
+                "capitals.xlsx",
+                preview.profile.columns.map((c) => c.name),
+            ),
+        { initialProps: { key: "old" } },
     );
-    await generate(false);
-    view.rerender(
-        <PlanRunWorkspace
-            key="new"
-            preview={{ ...preview, range_ref: "A1:C4" }}
-            onLock={vi.fn()}
-        />,
-    );
-    await act(async () => resolve(draft));
-    expect(screen.queryByTestId("fingerprint")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Enrichment instruction")).toHaveValue("");
+    act(() => {
+        view.result.current.setInstruction("Literal cities");
+        view.result.current.setMapping([
+            { mode: "existing", name: "distance", column: "E" },
+        ]);
+        view.result.current.setNetwork(true);
+    });
+    let request!: Promise<void>;
+    act(() => {
+        request = view.result.current.action(view.result.current.create);
+    });
+    view.rerender({ key: "new" });
+    await act(async () => {
+        resolve(draft);
+        await request;
+    });
+    expect(view.result.current.plan).toBeNull();
+    expect(view.result.current.instruction).toBe("");
+    expect(view.result.current.workspace).toBe("dataset");
 });
 
-it("blocks selections beyond the backend row envelope and duplicate mappings", async () => {
-    render(
-        <PlanRunWorkspace
-            preview={{ ...preview, range_ref: "A1:E22" }}
-            onLock={vi.fn()}
-        />,
-    );
-    await generate(false);
-    expect(button("workflow.generate")).toBeDisabled();
+it("blocks the backend row envelope and rejects malformed supplied JSON before API submission", async () => {
+    vi.mocked(api.preview).mockResolvedValueOnce({
+        ...preview,
+        range_ref: "A1:E22",
+    });
+    const view = render(<App />);
+    await prepare();
+    expect(button("ws.buildPlan")).toBeDisabled();
     expect(screen.getByRole("alert")).toHaveTextContent("1–20");
+    view.unmount();
+    render(<App />);
+    await prepare();
+    await userEvent.click(screen.getByText(i18n.t("workflow.savedPlan")));
+    fireEvent.change(screen.getByLabelText("EnrichmentPlan JSON"), {
+        target: { value: "{" },
+    });
+    await userEvent.click(button("workflow.submitPlan"));
+    expect(await screen.findByRole("alert")).toHaveAttribute(
+        "data-error-code",
+        "plan_json",
+    );
     expect(api.createPlan).not.toHaveBeenCalled();
+});
+
+it("blocks starting an approved plan while a source replacement is pending across navigation", async () => {
+    render(<App />);
+    await generate();
+    await userEvent.click(button("ws.approveContinue"));
+    await navigate("dataset");
+    let resolve!: (value: Awaited<ReturnType<typeof api.upload>>) => void;
+    vi.mocked(api.upload).mockReturnValueOnce(
+        new Promise((done) => {
+            resolve = done;
+        }),
+    );
+    await userEvent.upload(
+        screen.getByLabelText("Upload Excel workbook"),
+        new File(["new"], "new.xlsx"),
+    );
+    await navigate("execution");
+    expect(button("workflow.run")).toBeDisabled();
+    await act(async () =>
+        resolve({
+            dataset_id: "replacement",
+            filename: "new.xlsx",
+            worksheets: [{ name: "Sheet1", columns: ["city"], row_count: 1 }],
+        }),
+    );
+    expect(button("workflow.run")).toBeDisabled();
+    expect(api.startRun).not.toHaveBeenCalled();
 });

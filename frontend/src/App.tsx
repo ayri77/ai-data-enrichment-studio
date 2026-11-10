@@ -1,29 +1,36 @@
 import { useEffect, useRef, useState } from "react";
-import {
-    FileSpreadsheet,
-    LoaderCircle,
-    ShieldCheck,
-    UploadCloud,
-    X,
-    Info,
-} from "lucide-react";
+import { SlidersHorizontal, Activity } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import "./i18n";
 import { StudioShell } from "./components/StudioShell";
-import { RangeSelection } from "./components/RangeSelection";
-import { DatasetPreview } from "./components/DatasetPreview";
-import { PlanRunWorkspace } from "./components/PlanRunWorkspace";
+import { DatasetWorkspace } from "./components/DatasetWorkspace";
+import {
+    Diagnostics,
+    ExecutionWorkspace,
+    ExportWorkspace,
+    PlanWorkspace,
+    ReviewWorkspace,
+} from "./components/WorkspaceViews";
 import { Button } from "./components/ui/button";
 import { initialTheme, savePreference } from "./preferences";
 import { useDataset } from "./useDataset";
+import { useWorkflow, type Workspace } from "./useWorkflow";
 
 export default function App() {
     const { t, i18n } = useTranslation();
     const [theme, setTheme] = useState(initialTheme);
-    const [dragging, setDragging] = useState(false);
-    const [workflowLocked, setWorkflowLocked] = useState(false);
-    const fileInput = useRef<HTMLInputElement>(null);
+    const [diagnostics, setDiagnostics] = useState<
+        "details" | "settings" | null
+    >(null);
+    const heading = useRef<HTMLHeadingElement>(null);
     const d = useDataset();
+    const w = useWorkflow(
+        d.preview,
+        `${d.dataset?.dataset_id ?? ""}:${d.sheet}:${d.range}`,
+        d.dataset?.filename,
+        d.dataset?.worksheets.find((ws) => ws.name === d.sheet)?.columns,
+        !!d.busy,
+    );
     useEffect(() => {
         savePreference("theme", theme);
         document.documentElement.style.colorScheme = theme;
@@ -31,149 +38,93 @@ export default function App() {
     }, [theme]);
     useEffect(() => {
         document.documentElement.lang = i18n.resolvedLanguage ?? "en";
-        document.title = `${t("datasetTitle")} · AI Data Enrichment Studio`;
-    }, [i18n.resolvedLanguage]);
+        document.title = `${t(w.workspace)} · AI Data Enrichment Studio`;
+    }, [i18n.resolvedLanguage, w.workspace, t]);
+    useEffect(() => {
+        heading.current?.focus();
+    }, [w.workspace]);
+    const completed: Workspace[] = [];
+    if (d.preview) completed.push("dataset");
+    if (w.plan?.status === "approved") completed.push("plan");
+    if (w.job?.status === "completed" || w.job?.status === "needs_review")
+        completed.push("execution");
     return (
-        <StudioShell theme={theme} onThemeChange={setTheme}>
+        <StudioShell
+            theme={theme}
+            onThemeChange={setTheme}
+            workspace={w.workspace}
+            onNavigate={w.navigate}
+            completed={completed}
+        >
             <div className="workspace-heading">
                 <div>
-                    <h1>
-                        {t("datasetTitle")}
-                        {d.dataset && (
-                            <span className="workspace-file mono">
-                                {" "}
-                                / {d.dataset.filename}
-                            </span>
-                        )}
+                    <span className="eyebrow">{t("ws.studio")}</span>
+                    <h1 ref={heading} tabIndex={-1}>
+                        {t(w.workspace)}
                     </h1>
-                    <p>{t("subtitle")}</p>
+                    <p>{t(`ws.${w.workspace}Hint`)}</p>
                 </div>
-                <span className="read-only">
-                    <ShieldCheck aria-hidden="true" />
-                    {t("readOnly")}
-                </span>
-            </div>
-            <section
-                className={`source-upload ${dragging ? "is-dragging" : ""}`}
-                aria-label={t("sourceWorkbook")}
-                onDragOver={(e) => {
-                    e.preventDefault();
-                    if (!d.busy && !workflowLocked) setDragging(true);
-                }}
-                onDragLeave={() => setDragging(false)}
-                onDrop={(e) => {
-                    e.preventDefault();
-                    setDragging(false);
-                    if (!workflowLocked) void d.upload(e.dataTransfer.files[0]);
-                }}
-            >
-                <input
-                    ref={fileInput}
-                    type="file"
-                    accept=".xlsx"
-                    className="sr-only"
-                    aria-label={t("uploadWorkbook")}
-                    disabled={!!d.busy || workflowLocked}
-                    onChange={(e) => {
-                        void d.upload(e.target.files?.[0]);
-                        e.target.value = "";
-                    }}
-                />
-                <span className="upload-glyph">
-                    {d.busy === "upload" ? (
-                        <LoaderCircle className="spin" />
-                    ) : d.dataset ? (
-                        <FileSpreadsheet />
-                    ) : (
-                        <UploadCloud />
-                    )}
-                </span>
-                <div className="upload-description">
-                    <strong>
-                        {d.busy === "upload"
-                            ? t("inspecting")
-                            : d.dataset
-                              ? d.dataset.filename
-                              : t("dropWorkbook")}
-                    </strong>
-                    <span>
-                        {d.dataset
-                            ? t("worksheets", {
-                                  count: d.dataset.worksheets.length,
-                              })
-                            : t("uploadHint")}
-                    </span>
-                </div>
-                <div className="upload-actions">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={!!d.busy || workflowLocked}
-                        onClick={() => fileInput.current?.click()}
-                    >
-                        {d.dataset ? t("replace") : t("browse")}
-                    </Button>
-                    {d.dataset && (
+                <div className="workspace-tools">
+                    {w.active && (
                         <button
-                            className="icon-button"
-                            type="button"
-                            disabled={!!d.busy || workflowLocked}
-                            aria-label={t("remove")}
-                            onClick={d.remove}
+                            className="active-job"
+                            onClick={() => w.navigate("execution")}
                         >
-                            <X />
+                            <Activity aria-hidden="true" />
+                            {t(`workflow.status.${w.job!.status}`)}
                         </button>
                     )}
+                    <Button
+                        variant="outline"
+                        onClick={() => setDiagnostics("settings")}
+                    >
+                        <SlidersHorizontal aria-hidden="true" />
+                        {t("ws.providerSettings")}
+                    </Button>
+                    <Button
+                        variant="outline"
+                        onClick={() => setDiagnostics("details")}
+                    >
+                        {t("ws.diagnostics")}
+                    </Button>
                 </div>
-            </section>
-            <p className="async-status" role="status" aria-live="polite">
-                {d.busy === "upload"
-                    ? t("inspecting")
-                    : d.busy === "preview"
-                      ? t("reading")
-                      : d.preview
-                        ? t("sampleCount", {
-                              shown: d.preview.profile.sample_records.length,
-                              total: d.preview.profile.row_count,
-                          })
-                        : ""}
-            </p>
-            {d.error && (
+            </div>
+            {(w.error || w.pollError) && (
                 <div
-                    className="error-banner"
                     role="alert"
-                    data-error-code={d.error}
+                    className="error-banner"
+                    data-error-code={w.error || w.pollError}
                 >
-                    <Info aria-hidden="true" />
-                    <span>
-                        {t(`error.${d.error}`, {
-                            defaultValue: t("error.request_failed"),
-                        })}
-                    </span>
+                    {t(`error.${w.error || w.pollError}`, {
+                        defaultValue: t("error.request_failed"),
+                    })}
+                    {w.pollError && (
+                        <Button variant="outline" onClick={w.retryPoll}>
+                            {t("workflow.retry")}
+                        </Button>
+                    )}
                 </div>
             )}
-            <RangeSelection
-                key={`${d.dataset?.dataset_id ?? "empty"}:${d.sheet}`}
-                sheets={d.dataset?.worksheets ?? []}
-                sheet={d.sheet}
-                range={d.range}
-                disabled={!d.dataset || !!d.busy || workflowLocked}
-                pending={d.busy === "preview"}
-                onSheet={(name) => d.selectSheet(name)}
-                onRange={d.editRange}
-                onPreview={() => void d.loadPreview()}
-            />
-            <DatasetPreview
-                preview={d.preview}
-                filename={d.dataset?.filename}
-                busy={d.busy === "preview"}
-                hasWorkbook={!!d.dataset}
-            />
-            {d.preview && !d.busy && (
-                <PlanRunWorkspace
-                    key={`${d.dataset?.dataset_id}:${d.sheet}:${d.range}`}
+            {w.busy && (
+                <p className="request-status" role="status">
+                    {t("workflow.requesting")}
+                </p>
+            )}
+            <div className="workspace-body" aria-busy={w.busy}>
+                {w.workspace === "dataset" && (
+                    <DatasetWorkspace d={d} workflow={w} />
+                )}
+                {w.workspace === "plan" && <PlanWorkspace w={w} />}
+                {w.workspace === "execution" && <ExecutionWorkspace w={w} />}
+                {w.workspace === "review" && <ReviewWorkspace w={w} />}
+                {w.workspace === "export" && <ExportWorkspace w={w} />}
+            </div>
+            {diagnostics && (
+                <Diagnostics
+                    w={w}
                     preview={d.preview}
-                    onLock={setWorkflowLocked}
+                    section={diagnostics}
+                    onClose={() => setDiagnostics(null)}
                 />
             )}
         </StudioShell>

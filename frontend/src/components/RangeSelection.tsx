@@ -94,6 +94,7 @@ export function RangeSelection(props: Props) {
                 <label className="sheet-control">
                     {t("worksheet")}
                     <select
+                        aria-label={t("worksheet")}
                         value={props.sheet}
                         onChange={(e) => props.onSheet(e.target.value)}
                     >
@@ -112,6 +113,7 @@ export function RangeSelection(props: Props) {
                         <label>
                             {t("firstColumn")}
                             <select
+                                aria-label={t("firstColumn")}
                                 value={guide.first}
                                 onChange={(e) => edit("first", e.target.value)}
                             >
@@ -128,6 +130,7 @@ export function RangeSelection(props: Props) {
                         <label>
                             {t("lastColumn")}
                             <select
+                                aria-label={t("lastColumn")}
                                 value={guide.last}
                                 onChange={(e) => edit("last", e.target.value)}
                             >
