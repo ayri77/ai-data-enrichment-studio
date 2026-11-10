@@ -90,6 +90,7 @@ export interface EnrichmentPlan {
 }
 export interface Validation {
     valid: boolean;
+    contract_valid?: boolean;
     errors: { code: string; message: string; step_id?: string | null }[];
 }
 export interface PlanRequest {

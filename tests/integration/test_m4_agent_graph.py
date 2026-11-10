@@ -733,3 +733,21 @@ def test_graph_trace_includes_bounded_repair_cycle() -> None:
     assert events[-1]["execute"]["status"] == "completed"
     assert executor.calls == 1
     assert repairer.calls == 1
+
+
+def test_graph_cannot_clear_planner_intent_conflicts_with_contract_only_validation():
+    plan = make_plan()
+    plan.steps[0].parameters = {"required_role": "country_capital"}
+    executor = FakeExecutor()
+    result = build_agent_graph(registry=make_registry(), executor=executor).invoke(
+        {
+            "plan": plan,
+            "instruction": "Calculate distances between literal cities.",
+            "dataset_profile": make_profile(),
+            "records": make_records(),
+        }
+    )
+    assert result["status"] == "rejected"
+    assert not result["validation"].valid and result["validation"].contract_valid
+    assert result["validation"].errors[0].code == "INTENT_PARAMETER_CONFLICT"
+    assert executor.calls == 0

@@ -530,3 +530,43 @@ def test_offset_selection_and_output_mapping(client):
         assert output["Notes"]["B2"].value == "=1+2"
     finally:
         output.close()
+
+
+@pytest.mark.parametrize("generated", [False, True])
+def test_intent_conflict_blocks_approval_after_independent_revalidation(generated):
+    proposal = ready_response()
+    for step in proposal["plan"]["steps"][:2]:
+        step["parameters"] = {"required_role": "country_capital"}
+    llm = ScriptedPlanClient(proposal, proposal, proposal)
+    with TestClient(create_app(offline_plan_client=llm)) as client:
+        body = request_body(upload(client), generate=generated)
+        body["instruction"] = CAPITALS_INSTRUCTION
+        if not generated:
+            body["plan"] = proposal["plan"]
+        response = client.post("/api/plans", json=body)
+        assert response.status_code == 201, response.text
+        plan = response.json()
+        assert plan["validation"]["contract_valid"]
+        assert not plan["validation"]["valid"]
+        assert len(plan["validation"]["errors"]) == 2
+        assert all(e["category"] == "intent" for e in plan["validation"]["errors"])
+        endpoint = f"/api/plans/{plan['plan_id']}"
+        assert client.post(endpoint + "/validate").json() == plan["validation"]
+        rejected = client.post(
+            endpoint + "/approve", json={"approved": True, "fingerprint": plan["fingerprint"]}
+        )
+        assert rejected.json()["error"]["code"] == "invalid_plan"
+        assert client.post(endpoint + "/runs", json={}).status_code == 409
+        assert len(llm.calls) == (3 if generated else 0)
+
+
+def test_explicit_capital_role_can_be_approved(client):
+    body = request_body(upload(client))
+    body["instruction"] = "Only accept country capitals; calculate their distances in km."
+    for step in body["plan"]["steps"][:2]:
+        step["parameters"] = {"required_role": "country_capital"}
+    response = client.post("/api/plans", json=body)
+    assert response.status_code == 201
+    plan = response.json()
+    assert plan["validation"]["valid"]
+    assert approve(client, plan)["status"] == "approved"

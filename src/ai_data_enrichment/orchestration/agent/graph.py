@@ -126,7 +126,7 @@ def build_agent_graph(
         result = PlanValidator(
             registry=registry,
             dataset_profile=profile,
-        ).validate(plan)
+        ).validate(plan, instruction=state.get("instruction"))
 
         if not result.valid:
             return {

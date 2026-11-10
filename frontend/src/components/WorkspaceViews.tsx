@@ -340,6 +340,12 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
                                         : "workflow.invalid",
                                 )}
                             </p>
+                            {w.plan.validation.contract_valid &&
+                                !w.plan.validation.valid && (
+                                    <p className="validation-note">
+                                        {t("workflow.intentConflict")}
+                                    </p>
+                                )}
                             {w.plan.reason && <p>{w.plan.reason}</p>}
                             {w.plan.validation.errors.map((err, i) => (
                                 <p className="validation-note" key={i}>
@@ -359,6 +365,9 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
                                         </strong>{" "}
                                         {t("ws.outputs")}
                                     </div>
+                                    <p className="notice">
+                                        {t("workflow.parameterHint")}
+                                    </p>
                                     <h3>{t("ws.outputs")}</h3>
                                     {w.plan.plan.outputs.map((o) => (
                                         <p key={o.target_column}>

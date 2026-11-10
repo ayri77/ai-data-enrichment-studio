@@ -37,7 +37,9 @@ def get_geocode_spec() -> CapabilitySpec:
                 allowed_values=["country_capital"],
                 description=(
                     "Optional hard constraint requiring the resolved location "
-                    "to have a verified country-capital administrative role."
+                    "to have a verified country-capital administrative role. Omit this "
+                    "parameter for literal-city lookup without a role restriction; "
+                    "null is not a valid value."
                 ),
             ),
         },

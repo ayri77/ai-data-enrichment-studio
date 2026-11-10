@@ -108,3 +108,39 @@ prints the model ID, decision/validation status and safe attempt summaries.
 No new genuine-model request was made for this change; manual acceptance is
 intentionally deferred until after merge. Planning validation does not establish
 factual correctness of later provider results.
+
+
+## Optional parameters and explicit intent (#119)
+
+Capability parameters may be omitted entirely: `allowed_values` constrains supplied
+values, not presence. Ordinary literal-city geocoding uses `parameters: {}`; a
+supplied `required_role: null` or an unsupported disable value remains invalid.
+Country-capital queries still support `required_role: "country_capital"`.
+
+Contract validation is unchanged. An additional deterministic intent policy checks
+all matching capability steps using only the original user instruction. It recognizes
+bounded English phrases: literal city/cities (including literal-city and city names),
+not necessarily capitals, regardless of administrative role, do not require capital
+status, and do not set required_role. Explicit global imperatives such as “Only accept
+country capitals” or “Require country-capital status” require the role; such a request
+can qualify literal name lookup. An explicit prohibition and requirement together
+remain conflicting and need clarification. Headers, samples and model assumptions
+are never evidence for policy. These rules do not prove general semantic equivalence,
+cover arbitrary languages, or resolve differently scoped instructions for individual
+steps. Human review of the final proposal remains required. The small policy model
+supports required/forbidden parameter values and can be extended with focused rules.
+
+`INTENT_PARAMETER_CONFLICT` identifies each affected step/parameter. These errors
+consume the existing repair budget (at most two repairs), without removing or coercing
+any constraint. Every proposal is independently revalidated; abstention stays final,
+including the observed false refusal about optional required_role. The API repeats
+both checks for generated and supplied plans on creation, validation and approval;
+the agent graph also preserves the instruction during revalidation.
+
+Validation exposes `contract_valid` separately from overall `valid`; a contract-valid
+intent conflict still blocks approval and running. The Plan UI explains the difference,
+labels model assumptions as unverified, and explains optional restrictions and
+execution-time provider evidence. Offline regressions do not establish improved model
+quality. After review and merge, repeat the original natural-language task above from
+the main Cursor folder, without internal parameter hints. No live-model acceptance
+claim is made by these tests.

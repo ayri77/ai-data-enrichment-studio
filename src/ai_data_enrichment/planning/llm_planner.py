@@ -152,7 +152,11 @@ class LLMPlanner:
                         ],
                     }
                 else:
-                    validation = validator.validate(decision.plan) if decision.plan else None
+                    validation = (
+                        validator.validate(decision.plan, instruction=instruction)
+                        if decision.plan
+                        else None
+                    )
                     if validation is None or validation.valid:
                         # A well-formed abstention is final, even during repair. We cannot
                         # independently prove task support from a free-text instruction.
