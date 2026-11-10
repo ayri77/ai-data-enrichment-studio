@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from openai import OpenAI
 from tests.integration.test_plan_run_api import approve, request_body, start, upload, wait
+from tests.support.planning import CAPITALS_INSTRUCTION, invalid_unit_response
 
 from ai_data_enrichment import plan_run
 from ai_data_enrichment.api import create_app
@@ -192,8 +193,9 @@ def test_injected_offline_mode_is_explicit():
         assert status["planning_mode"] == "offline_injected" and not status["live_ready"]
 
 
+@pytest.mark.parametrize("repair", [False, True])
 def test_configured_live_sdk_plan_validation_approval_report_and_no_secret_leak(
-    monkeypatch, caplog
+    monkeypatch, caplog, repair
 ):
     secret = token_urlsafe(40)
     calls = []
@@ -204,8 +206,12 @@ def test_configured_live_sdk_plan_validation_approval_report_and_no_secret_leak(
         assert request.headers["authorization"] == f"Bearer {secret}"
         body = json.loads(request.content)
         assert body["model"] == MODEL and body["store"] is False
+        assert body["max_output_tokens"] == 4096
         assert secret not in request.content.decode()
         calls.append(body)
+        if repair and len(calls) == 2:
+            feedback = json.loads(body["input"][3]["content"])["validation_feedback"]
+            assert feedback["errors"][0]["code"] == "PARAMETER_TYPE_MISMATCH"
         return httpx.Response(
             200,
             json={
@@ -224,7 +230,9 @@ def test_configured_live_sdk_plan_validation_approval_report_and_no_secret_leak(
                             {
                                 "type": "output_text",
                                 "text": json.dumps(
-                                    {"status": "ready", "plan": plan_payload(), "reason": None}
+                                    invalid_unit_response()
+                                    if repair and len(calls) == 1
+                                    else {"status": "ready", "plan": plan_payload(), "reason": None}
                                 ),
                                 "annotations": [],
                             }
@@ -235,6 +243,7 @@ def test_configured_live_sdk_plan_validation_approval_report_and_no_secret_leak(
         )
 
     def sdk(**kwargs):
+        assert kwargs["timeout"] == 30.0 and kwargs["max_retries"] == 0
         return OpenAI(
             **kwargs, http_client=cast(Any, httpx.Client(transport=httpx.MockTransport(respond)))
         )
@@ -248,12 +257,19 @@ def test_configured_live_sdk_plan_validation_approval_report_and_no_secret_leak(
         assert configured.json()["live_ready"]
         assert configured.json()["planning_mode"] == "live"
         assert not calls
-        body = {**request_body(upload(client), generate=True), "allow_network": True}
+        body = {
+            **request_body(upload(client), generate=True),
+            "allow_network": True,
+            "instruction": CAPITALS_INSTRUCTION,
+        }
         response = client.post("/api/plans", json=body)
         assert response.status_code == 201, response.text
         draft = response.json()
         assert draft["validation"]["valid"] and draft["status"] == "draft"
-        assert len(calls) == 1
+        assert len(calls) == (2 if repair else 1)
+        assert len(draft["planning_attempts"]) == len(calls)
+        if repair:
+            assert draft["planning_attempts"][0]["diagnostic_codes"] == ["PARAMETER_TYPE_MISMATCH"]
         assert client.post(f"/api/plans/{draft['plan_id']}/runs", json={}).status_code == 409
         approved = approve(client, draft)
         # Configuration updates neither approve nor invalidate/rewrite an existing exact plan.
@@ -307,8 +323,10 @@ def test_sdk_authentication_failure_does_not_log_or_return_response_credentials(
 ):
     secret = token_urlsafe(40)
     caplog.set_level(logging.DEBUG)
+    calls = []
 
     def respond(request):
+        calls.append(request)
         return httpx.Response(
             401,
             json={
@@ -333,6 +351,8 @@ def test_sdk_authentication_failure_does_not_log_or_return_response_credentials(
             json={**request_body(upload(client), generate=True), "allow_network": True},
         )
         assert response.status_code == 502
+        assert len(calls) == 1
+        assert "COMPLETION_ERROR" in response.text
         assert secret not in response.text + caplog.text
 
 

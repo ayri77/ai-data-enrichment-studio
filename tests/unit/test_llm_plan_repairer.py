@@ -13,6 +13,7 @@ from ai_data_enrichment.domain.dataset_profile import (
     PrimitiveType,
 )
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan
+from ai_data_enrichment.planning.instructions import PLAN_CONTRACT_GUIDANCE
 from ai_data_enrichment.planning.llm_plan_repairer import LLMPlanRepairer
 from ai_data_enrichment.validation.models import (
     ValidationDiagnostic,
@@ -117,6 +118,7 @@ def test_repair_sends_diagnostics_and_parses_response() -> None:
     assert len(client.calls) == 1
 
     messages, schema = client.calls[0]
+    assert PLAN_CONTRACT_GUIDANCE in messages[0]["content"]
     context = json.loads(messages[1]["content"])
 
     assert context["instruction"] == "Resolve mountain names."

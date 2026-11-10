@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
 from ai_data_enrichment.domain.dataset_profile import DatasetProfile
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan
+from ai_data_enrichment.planning.instructions import PLAN_CONTRACT_GUIDANCE
 from ai_data_enrichment.planning.llm_planner import PlanCompletionClient
 from ai_data_enrichment.validation.models import ValidationResult
 
@@ -55,7 +56,8 @@ class LLMPlanRepairer:
                     "Preserve the original user intent and valid plan structure. "
                     "Do not invent data, capabilities, or column names. "
                     "Do not execute operations. "
-                    "Do not claim the corrected plan has passed validation."
+                    "Do not claim the corrected plan has passed validation. "
+                    + PLAN_CONTRACT_GUIDANCE
                 ),
             },
             {

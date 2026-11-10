@@ -6,7 +6,7 @@ import logging
 import multiprocessing
 import os
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
@@ -39,7 +39,11 @@ from ai_data_enrichment.plan_run_worker import (
     execute_workbook,
     live_executor,
 )
-from ai_data_enrichment.planning.llm_planner import LLMPlanner, PlanCompletionClient
+from ai_data_enrichment.planning.llm_planner import (
+    LLMPlanner,
+    PlanCompletionClient,
+    PlanGenerationError,
+)
 from ai_data_enrichment.planning.openai_client import OpenAIPlanClient
 from ai_data_enrichment.provider_settings import ProviderConfiguration
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy, PlanValidator
@@ -238,6 +242,7 @@ class PlanRunService:
             ) from exc
         plan = body.plan
         decision, reason = "ready", None
+        planning_attempts = []
         if plan is None:
             api = None
             client = self.offline_plan_client
@@ -267,6 +272,18 @@ class PlanRunService:
                 )
                 plan = generated.response.plan
                 decision, reason = generated.response.status, generated.response.reason
+                planning_attempts = [asdict(attempt) for attempt in generated.attempts]
+            except PlanGenerationError as exc:
+                codes = sorted(
+                    {code for attempt in exc.attempts for code in attempt.diagnostic_codes}
+                )
+                raise WorkspaceError(
+                    "planning_failed",
+                    f"Planning failed after {len(exc.attempts)} completion attempts: "
+                    + ", ".join(codes)
+                    + ".",
+                    502,
+                ) from None
             except Exception as exc:
                 raise WorkspaceError(
                     "planning_failed", "The model could not return a usable planning response.", 502
@@ -281,6 +298,7 @@ class PlanRunService:
             "source_sha256": sha256(path.read_bytes()).hexdigest(),
             "planning_status": decision,
             "reason": reason,
+            "planning_attempts": planning_attempts,
         }
         fingerprint = sha256(json.dumps(draft, sort_keys=True).encode()).hexdigest()
         draft.update(

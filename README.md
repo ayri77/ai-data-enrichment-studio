@@ -592,3 +592,6 @@ The project originated as a final assignment for the **Agentic AI** discipline i
 **License:** No open-source license has been selected yet.
 
 Provider / Model setup from the Studio dialog: see [local ephemeral configuration and optional live acceptance](docs/25-provider-settings.md).
+
+Capability composition, bounded validation-feedback repair, diagnostics and the
+post-merge genuine-model acceptance procedure: see [live planning reliability](docs/26-live-planning-reliability.md).
