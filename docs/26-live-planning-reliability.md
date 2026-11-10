@@ -122,7 +122,8 @@ all matching capability steps using only the original user instruction. It recog
 bounded English phrases: literal city/cities (including literal-city and city names),
 not necessarily capitals, regardless of administrative role, do not require capital
 status, and do not set required_role. Explicit global imperatives such as “Only accept
-country capitals” or “Require country-capital status” require the role; such a request
+country capitals”, “Require country-capital status”, or “Set required_role=country_capital”
+require the role; such a request
 can qualify literal name lookup. An explicit prohibition and requirement together
 remain conflicting and need clarification. Headers, samples and model assumptions
 are never evidence for policy. These rules do not prove general semantic equivalence,

@@ -113,6 +113,7 @@ def test_explicit_prohibitions_accept_omission_and_reject_roles(instruction: str
         "Require country-capital status for both locations.",
         "Use literal city names. Only accept country capitals.",
         'Set required_role="country_capital" on both geocode steps.',
+        'Use literal city names and set required_role="country_capital" on both steps.',
     ],
 )
 def test_explicit_capital_queries_remain_supported(instruction: str) -> None:

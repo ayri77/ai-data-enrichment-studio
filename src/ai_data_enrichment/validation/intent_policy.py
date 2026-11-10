@@ -38,7 +38,8 @@ _NO_CAPITAL_ROLE = re.compile(
 )
 _REQUIRE_CAPITAL_ROLE = re.compile(
     r"(?:^|[.;!?]\s*|\band\s+)(?:please\s+)?(?:require country[ -]capital status|"
-    r"(?:use |accept )?only (?:use |accept )?country capitals)\b",
+    r"(?:use |accept )?only (?:use |accept )?country capitals|"
+    r"set required_role\s*=\s*[\"']?country_capital[\"']?)\b",
     re.IGNORECASE,
 )
 
