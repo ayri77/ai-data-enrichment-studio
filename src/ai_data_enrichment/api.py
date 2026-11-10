@@ -1,0 +1,244 @@
+"""Local, single-user dataset workspace. No planning or workbook writes."""
+
+import asyncio
+import logging
+from contextlib import asynccontextmanager, suppress
+from dataclasses import asdict
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from uuid import uuid4
+from xml.etree.ElementTree import ParseError
+from zipfile import ZipFile
+
+from defusedxml.ElementTree import iterparse
+from fastapi import FastAPI, Query, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, Response
+from openpyxl.utils.cell import coordinate_to_tuple
+from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
+
+from ai_data_enrichment.ingestion.excel_inspector import inspect_workbook
+from ai_data_enrichment.ingestion.excel_profiler import profile_worksheet
+from ai_data_enrichment.ingestion.profiling_limits import ProfilingLimits
+from ai_data_enrichment.ingestion.table_selection import TableSelection
+
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_EXPANDED_BYTES = 32 * 1024 * 1024
+MAX_ROWS = 5001  # Includes the header.
+MAX_COLUMNS = 100
+MAX_CELLS = 100_000
+MAX_DATASETS = 8
+PREVIEW_LIMITS = ProfilingLimits()  # Shared defaults: 5 rows, 200 chars, 12 KB.
+logger = logging.getLogger(__name__)
+
+
+class WorkspaceError(Exception):
+    """An intentionally public, path-free error."""
+
+    def __init__(self, code: str, message: str, status: int = 422) -> None:
+        self.code, self.message, self.status = code, message, status
+
+
+class PreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    sheet_name: str = Field(min_length=1, max_length=31)
+    range_ref: str = Field(min_length=1, max_length=32)
+
+
+def _check_bounds(bounds: tuple[int, int, int, int]) -> None:
+    min_col, min_row, max_col, max_row = bounds
+    if (
+        max_row > MAX_ROWS
+        or max_col > MAX_COLUMNS
+        or (max_col - min_col + 1) * (max_row - min_row + 1) > MAX_CELLS
+    ):
+        raise WorkspaceError(
+            "worksheet_limit",
+            "Use a table within 5,001 rows, 100 columns and 100,000 cells.",
+        )
+
+
+def _validate_archive(path: Path) -> None:
+    """Bound decompression and sparse XML coordinates before ingestion scans rows.
+
+    This only checks the resource envelope; Excel semantics belong to ingestion.
+    Never extract archive entries or trust their filenames as filesystem paths.
+    """
+    with ZipFile(path) as archive:
+        entries = archive.infolist()
+        if len(entries) > 2048 or sum(entry.file_size for entry in entries) > MAX_EXPANDED_BYTES:
+            raise WorkspaceError("workbook_limit", "Workbook expands beyond the local size limit.")
+        # Check every XML entry: relationship targets need not use conventional paths.
+        sheet_count = 0
+        for entry in entries:
+            max_row = max_col = cells = rows = 0
+            # Binary parts fail XML parsing immediately. XML relationship targets
+            # are checked regardless of extension; malformed sheets fail ingestion.
+            with archive.open(entry) as stream, suppress(ParseError):
+                for _, element in iterparse(stream, events=("end",)):
+                    tag = element.tag.rsplit("}", 1)[-1]
+                    if tag == "sheet":
+                        sheet_count += 1
+                        if sheet_count > 16:
+                            raise WorkspaceError(
+                                "worksheet_limit", "Use a workbook with up to 16 worksheets."
+                            )
+                    elif tag == "dimension":
+                        _check_bounds(TableSelection("sheet", element.attrib["ref"]).bounds)
+                    elif tag == "row":
+                        rows += 1
+                        max_row = max(max_row, int(element.attrib.get("r", rows)), rows)
+                    elif tag == "c":
+                        cells += 1
+                        row, col = coordinate_to_tuple(element.attrib["r"])
+                        max_row, max_col = max(max_row, row), max(max_col, col)
+                    if cells > MAX_CELLS:
+                        raise WorkspaceError("worksheet_limit", "Worksheet exceeds 100,000 cells.")
+                    _check_bounds((1, 1, max(1, max_col), max(1, max_row)))
+                    element.clear()
+
+
+def _inspect(path: Path) -> dict:
+    try:
+        _validate_archive(path)
+        summary = inspect_workbook(path)
+        if sum(len(name.encode("utf-8")) for ws in summary.worksheets for name in ws.columns) > (
+            PREVIEW_LIMITS.max_profile_bytes
+        ):
+            raise WorkspaceError(
+                "workbook_limit", "Worksheet headers exceed the metadata size limit."
+            )
+        return asdict(summary)
+    except WorkspaceError:
+        raise
+    except Exception as exc:
+        raise WorkspaceError(
+            "invalid_workbook", "Cannot read this workbook. Upload a valid, unencrypted .xlsx file."
+        ) from exc
+
+
+def _preview(path: Path, dataset_id: str, body: PreviewRequest) -> dict:
+    try:
+        selection = TableSelection(body.sheet_name, body.range_ref)
+        _check_bounds(selection.bounds)
+        profile = profile_worksheet(
+            path, body.sheet_name, dataset_id, PREVIEW_LIMITS, selection=selection
+        )
+        return {
+            "dataset_id": dataset_id,
+            "sheet_name": body.sheet_name,
+            "range_ref": body.range_ref,
+            "sample_limit": PREVIEW_LIMITS.max_sample_records,
+            "profile": profile.model_dump(mode="json"),
+        }
+    except WorkspaceError:
+        raise
+    except ValueError as exc:
+        # Ingestion errors can include paths or cell contents. Keep the API path-free.
+        raise WorkspaceError(
+            "invalid_selection",
+            "Check the worksheet and A1 range. The first selected row must contain unique, "
+            "non-empty text headers.",
+        ) from exc
+
+
+def create_app() -> FastAPI:
+    """Create an isolated workspace whose uploads are removed on shutdown."""
+    datasets: dict[str, Path] = {}
+    lock = asyncio.Lock()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        with TemporaryDirectory(prefix="enrichment-workspace-") as directory:
+            app.state.directory = Path(directory)
+            yield
+            datasets.clear()
+
+    app = FastAPI(title="Dataset Workspace", lifespan=lifespan)
+
+    @app.exception_handler(WorkspaceError)
+    async def workspace_error(_request: Request, exc: WorkspaceError):
+        return JSONResponse(
+            {"error": {"code": exc.code, "message": exc.message}}, status_code=exc.status
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(_request: Request, _exc: RequestValidationError):
+        return JSONResponse(
+            {
+                "error": {
+                    "code": "invalid_request",
+                    "message": "Check the upload or selection fields.",
+                }
+            },
+            status_code=422,
+        )
+
+    @app.exception_handler(Exception)
+    async def internal_error(_request: Request, exc: Exception):
+        logger.error("Workspace request failed", exc_info=exc)
+        return JSONResponse(
+            {
+                "error": {
+                    "code": "internal_error",
+                    "message": "The local request failed. Try again.",
+                }
+            },
+            status_code=500,
+        )
+
+    @app.get("/api/health")
+    async def health():
+        return {"status": "ok"}
+
+    @app.post("/api/datasets", status_code=201)
+    async def upload(request: Request, filename: str = Query(min_length=1, max_length=255)):
+        # Raw streaming avoids an unbounded multipart parser before our size check.
+        safe_name = filename.replace("\\", "/").rsplit("/", 1)[-1]
+        if Path(safe_name).suffix.lower() != ".xlsx":
+            raise WorkspaceError("invalid_file_type", "Only .xlsx workbooks are supported.")
+        async with lock:
+            if len(datasets) >= MAX_DATASETS:
+                raise WorkspaceError(
+                    "workspace_full", "Remove a dataset or restart the backend to free space.", 409
+                )
+            dataset_id = uuid4().hex
+            path = request.app.state.directory / f"{dataset_id}.xlsx"
+            try:
+                size = 0
+                with path.open("xb") as target:
+                    async for chunk in request.stream():
+                        size += len(chunk)
+                        if size > MAX_UPLOAD_BYTES:
+                            raise WorkspaceError(
+                                "upload_too_large", "Upload a file up to 10 MiB.", 413
+                            )
+                        target.write(chunk)
+                metadata = await run_in_threadpool(_inspect, path)
+                datasets[dataset_id] = path
+                return {"dataset_id": dataset_id, "filename": safe_name, **metadata}
+            finally:
+                if dataset_id not in datasets:
+                    path.unlink(missing_ok=True)
+
+    @app.post("/api/datasets/{dataset_id}/preview")
+    async def preview(dataset_id: str, body: PreviewRequest):
+        async with lock:
+            path = datasets.get(dataset_id)
+            if path is None:
+                raise WorkspaceError("dataset_not_found", "Upload the workbook again.", 404)
+            return await run_in_threadpool(_preview, path, dataset_id, body)
+
+    @app.delete("/api/datasets/{dataset_id}", status_code=204)
+    async def remove(dataset_id: str):
+        async with lock:
+            path = datasets.pop(dataset_id, None)
+            if path is not None:
+                path.unlink(missing_ok=True)
+        return Response(status_code=204)
+
+    return app
+
+
+app = create_app()

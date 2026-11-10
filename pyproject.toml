@@ -8,12 +8,15 @@ version = "0.1.0"
 description = "Evidence-driven agentic data enrichment for structured datasets"
 requires-python = ">=3.12"
 dependencies = [
+    "defusedxml>=0.7,<1",
+    "fastapi>=0.115,<1",
     "langgraph>=1,<2",
     "openai>=3.41,<4",
     "openpyxl>=3.1,<4",
     "pycountry>=26.2.16",
     "pydantic>=2.10,<3",
     "typer>=0.15,<1",
+    "uvicorn>=0.34,<1",
 ]
 
 [project.scripts]
@@ -21,6 +24,7 @@ enrichment = "ai_data_enrichment.cli:app"
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28,<1",
     "pytest>=8,<10",
     "pytest-cov>=6,<8",
     "pyright>=1.1.400,<2",
