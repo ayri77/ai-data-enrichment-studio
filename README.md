@@ -554,6 +554,11 @@ See the [M3 acceptance report](docs/15-m3-core-acceptance.md) and
 
 ## Technical documentation
 
+The local [M5-2 Plan/Run API](docs/22-m5-plan-run-api.md) supports source-bound
+planning, explicit approval, bounded runs, polling and XLSX/report downloads.
+Reproduce both official workbooks offline with
+`uv run --locked python scripts/demo_plan_run_api.py --generate`.
+
 The repository follows a **design-for-extension, implement-for-current-needs** approach:
 
 | Document | Contents |

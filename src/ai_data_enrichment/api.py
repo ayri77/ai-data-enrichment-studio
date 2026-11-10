@@ -1,4 +1,4 @@
-"""Local, single-user dataset workspace. No planning or workbook writes."""
+"""Local, single-user dataset workspace and source-bound Plan/Run API."""
 
 import asyncio
 import logging
@@ -22,6 +22,10 @@ from ai_data_enrichment.ingestion.excel_inspector import inspect_workbook
 from ai_data_enrichment.ingestion.excel_profiler import profile_worksheet
 from ai_data_enrichment.ingestion.profiling_limits import ProfilingLimits
 from ai_data_enrichment.ingestion.table_selection import TableSelection
+from ai_data_enrichment.plan_run import PlanBodyLimit, PlanRunService, PlanRunSettings
+from ai_data_enrichment.plan_run_worker import ExecutorFactory
+from ai_data_enrichment.planning.llm_planner import PlanCompletionClient
+from ai_data_enrichment.workspace_errors import WorkspaceError
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_EXPANDED_BYTES = 32 * 1024 * 1024
@@ -31,13 +35,6 @@ MAX_CELLS = 100_000
 MAX_DATASETS = 8
 PREVIEW_LIMITS = ProfilingLimits()  # Shared defaults: 5 rows, 200 chars, 12 KB.
 logger = logging.getLogger(__name__)
-
-
-class WorkspaceError(Exception):
-    """An intentionally public, path-free error."""
-
-    def __init__(self, code: str, message: str, status: int = 422) -> None:
-        self.code, self.message, self.status = code, message, status
 
 
 class PreviewRequest(BaseModel):
@@ -143,19 +140,36 @@ def _preview(path: Path, dataset_id: str, body: PreviewRequest) -> dict:
         ) from exc
 
 
-def create_app() -> FastAPI:
+def create_app(
+    *,
+    settings: PlanRunSettings | None = None,
+    offline_plan_client: PlanCompletionClient | None = None,
+    offline_executor_factory: ExecutorFactory | None = None,
+) -> FastAPI:
     """Create an isolated workspace whose uploads are removed on shutdown."""
     datasets: dict[str, Path] = {}
     lock = asyncio.Lock()
+    plan_run = PlanRunService(
+        datasets,
+        lock,
+        settings or PlanRunSettings.from_environment(),
+        offline_plan_client,
+        offline_executor_factory,
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         with TemporaryDirectory(prefix="enrichment-workspace-") as directory:
             app.state.directory = Path(directory)
-            yield
-            datasets.clear()
+            try:
+                yield
+            finally:
+                await plan_run.close()
+                datasets.clear()
 
-    app = FastAPI(title="Dataset Workspace", lifespan=lifespan)
+    app = FastAPI(title="Data Enrichment Workspace", lifespan=lifespan)
+    app.add_middleware(PlanBodyLimit)
+    app.include_router(plan_run.router)
 
     @app.exception_handler(WorkspaceError)
     async def workspace_error(_request: Request, exc: WorkspaceError):
@@ -169,7 +183,7 @@ def create_app() -> FastAPI:
             {
                 "error": {
                     "code": "invalid_request",
-                    "message": "Check the upload or selection fields.",
+                    "message": "Check the request fields.",
                 }
             },
             status_code=422,
@@ -233,6 +247,12 @@ def create_app() -> FastAPI:
     @app.delete("/api/datasets/{dataset_id}", status_code=204)
     async def remove(dataset_id: str):
         async with lock:
+            if plan_run.dataset_in_use(dataset_id):
+                raise WorkspaceError(
+                    "dataset_in_use",
+                    "Dataset is bound to retained plans. Restart to clear it.",
+                    409,
+                )
             path = datasets.pop(dataset_id, None)
             if path is not None:
                 path.unlink(missing_ok=True)
