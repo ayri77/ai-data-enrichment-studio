@@ -23,6 +23,9 @@ import i18n, { messages } from "./i18n";
 vi.mock("./api", async (original) => ({
     ...(await original<typeof import("./api")>()),
     api: {
+        providerSettings: vi.fn(),
+        configureProvider: vi.fn(),
+        removeProviderKey: vi.fn(),
         upload: vi.fn(),
         preview: vi.fn(),
         remove: vi.fn(),
@@ -151,6 +154,17 @@ const report: AuditReport = {
 
 beforeEach(async () => {
     vi.resetAllMocks();
+    vi.mocked(api.providerSettings).mockResolvedValue({
+        provider: "openai",
+        supported_models: [{ id: "gpt-4.1-mini", label: "gpt-4.1-mini" }],
+        model: "gpt-4.1-mini",
+        key_present: true,
+        server_network_allowed: true,
+        live_ready: true,
+        planning_mode: "live",
+        configuration_enabled: true,
+        storage: "process_memory",
+    });
     localStorage.clear();
     await i18n.changeLanguage("en");
     vi.mocked(api.upload).mockResolvedValue({
@@ -573,8 +587,215 @@ it("preserves the exact header when selecting an existing output column", async 
             { mode: "existing", name: " distance ", column: "E" },
         ]);
     });
+    await waitFor(() => expect(result.current.canBuild).toBe(true));
     await act(() => result.current.action(result.current.create));
     expect(api.createPlan).toHaveBeenCalledWith(
         expect.objectContaining({ output_columns: { " distance ": "E" } }),
     );
+});
+
+it.each(["en", "uk", "de"] as const)(
+    "configures masked ephemeral settings without losing the %s workflow or preferences",
+    async (locale) => {
+        render(<App />);
+        await generate();
+        await navigate("dataset");
+        await userEvent.selectOptions(
+            screen.getByLabelText(i18n.t("language")),
+            locale,
+        );
+        await userEvent.selectOptions(
+            screen.getByLabelText(i18n.t("theme")),
+            "light",
+        );
+        const secret = ["synthetic", "key", String(Math.random())].join("-");
+        const storage = JSON.stringify(localStorage);
+        const session = JSON.stringify(sessionStorage);
+        const log = vi.spyOn(console, "log");
+        const errorLog = vi.spyOn(console, "error");
+        const current = await api.providerSettings();
+        vi.mocked(api.configureProvider).mockResolvedValue({
+            ...current,
+            model: "gpt-4.1-mini",
+        });
+        vi.mocked(api.removeProviderKey).mockResolvedValue({
+            ...current,
+            key_present: false,
+            live_ready: false,
+        });
+        await userEvent.click(button("ws.providerSettings"));
+        const input = screen.getByLabelText(i18n.t("provider.keyInput"));
+        expect(input).toHaveAttribute("type", "password");
+        expect(input).toHaveValue("");
+        await userEvent.type(input, secret);
+        await userEvent.click(button("provider.apply"));
+        await screen.findByText(i18n.t("provider.saved"));
+        expect(input).toHaveValue("");
+        expect(api.configureProvider).toHaveBeenCalledWith({
+            model: "gpt-4.1-mini",
+            api_key: secret,
+        });
+        // Empty entry changes/keeps the model without returning or resending an existing key.
+        await userEvent.click(button("provider.apply"));
+        expect(api.configureProvider).toHaveBeenLastCalledWith({
+            model: "gpt-4.1-mini",
+        });
+        await userEvent.click(button("provider.remove"));
+        await screen.findByText(i18n.t("provider.removed"));
+        expect(button("provider.remove")).toBeDisabled();
+        await userEvent.type(input, secret);
+        await userEvent.click(button("ws.close"));
+        expect(input).toHaveValue("");
+        expect(JSON.stringify(localStorage)).toBe(storage);
+        expect(JSON.stringify(sessionStorage)).toBe(session);
+        expect(document.body.textContent).not.toContain(secret);
+        expect(
+            JSON.stringify(log.mock.calls) +
+                JSON.stringify(errorLog.mock.calls),
+        ).not.toContain(secret);
+        expect(
+            screen.getByLabelText(i18n.t("workflow.instruction")),
+        ).toHaveValue("Literal cities");
+        expect(
+            screen.getByLabelText(`${i18n.t("ws.targetColumn")} 1`),
+        ).toHaveValue("E");
+        expect(screen.getByLabelText(i18n.t("workflow.network"))).toBeChecked();
+        expect(document.querySelector(".studio")).toHaveAttribute(
+            "data-theme",
+            "light",
+        );
+        expect(document.documentElement.lang).toBe(locale);
+        await navigate("plan");
+        expect(screen.getByTestId("validation")).toBeInTheDocument();
+        expect(api.createPlan).toHaveBeenCalledTimes(1);
+        expect(api.approvePlan).not.toHaveBeenCalled();
+        expect(api.startRun).not.toHaveBeenCalled();
+        log.mockRestore();
+        errorLog.mockRestore();
+    },
+);
+
+it("clears rejected key input and presents a stable error without displaying a backend secret", async () => {
+    const secret = ["synthetic", String(Math.random())].join("-");
+    vi.mocked(api.configureProvider).mockRejectedValue(
+        new WorkspaceApiError("configuration_forbidden", secret),
+    );
+    render(<App />);
+    await userEvent.click(button("ws.providerSettings"));
+    const input = screen.getByLabelText(i18n.t("provider.keyInput"));
+    await waitFor(() => expect(input).toBeEnabled());
+    await userEvent.type(input, secret);
+    await userEvent.click(button("provider.apply"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+        i18n.t("error.configuration_forbidden"),
+    );
+    expect(input).toHaveValue("");
+    expect(document.body.textContent).not.toContain(secret);
+    expect(api.createPlan).not.toHaveBeenCalled();
+});
+
+it.each([
+    ["modelMissing", { model: null, live_ready: false }],
+    ["keyMissing", { key_present: false, live_ready: false }],
+    ["networkDisabled", { server_network_allowed: false, live_ready: false }],
+] as const)(
+    "blocks live generation with a clear %s reason while allowing submitted plans offline",
+    async (reason, overrides) => {
+        const current = await api.providerSettings();
+        vi.mocked(api.providerSettings).mockResolvedValue({
+            ...current,
+            ...overrides,
+        });
+        render(<App />);
+        await prepare();
+        expect(
+            screen.getByText(i18n.t(`provider.${reason}`)),
+        ).toBeInTheDocument();
+        expect(button("ws.buildPlan")).toBeDisabled();
+        await userEvent.click(
+            screen.getByLabelText(i18n.t("workflow.network")),
+        );
+        fireEvent.change(screen.getByLabelText(i18n.t("workflow.planJson")), {
+            target: { value: JSON.stringify(draft.plan) },
+        });
+        expect(button("workflow.submitPlan")).toBeEnabled();
+        await userEvent.click(button("workflow.submitPlan"));
+        await screen.findByTestId("validation");
+        expect(api.createPlan).toHaveBeenCalledWith(
+            expect.objectContaining({ plan: draft.plan, allow_network: false }),
+        );
+    },
+);
+
+it("distinguishes injected offline mode and still requires explicit consent for generated planning", async () => {
+    const current = await api.providerSettings();
+    vi.mocked(api.providerSettings).mockResolvedValue({
+        ...current,
+        planning_mode: "offline_injected",
+        live_ready: false,
+    });
+    render(<App />);
+    await prepare();
+    expect(screen.getByText(i18n.t("provider.offline"))).toBeInTheDocument();
+    expect(button("ws.buildPlan")).toBeEnabled();
+    await userEvent.click(screen.getByLabelText(i18n.t("workflow.network")));
+    expect(button("ws.buildPlan")).toBeDisabled();
+    expect(
+        screen.getByText(i18n.t("provider.consentMissing")),
+    ).toBeInTheDocument();
+});
+
+it("fails closed when readiness cannot be read and disables settings outside local mode", async () => {
+    vi.mocked(api.providerSettings).mockRejectedValue(new Error("offline"));
+    render(<App />);
+    await prepare();
+    expect(button("ws.buildPlan")).toBeDisabled();
+    expect(
+        screen.getByText(i18n.t("provider.unavailable")),
+    ).toBeInTheDocument();
+    await userEvent.click(button("ws.providerSettings"));
+    const current = {
+        provider: "openai",
+        supported_models: [],
+        model: null,
+        key_present: false,
+        server_network_allowed: false,
+        live_ready: false,
+        planning_mode: "live",
+        configuration_enabled: false,
+        storage: "process_memory",
+    } as const;
+    vi.mocked(api.providerSettings).mockResolvedValue({
+        ...current,
+        supported_models: [],
+    });
+    await userEvent.click(button("provider.refresh"));
+    await screen.findByText(i18n.t("provider.localOnly"));
+    expect(button("provider.apply")).toBeDisabled();
+    expect(screen.getByLabelText(i18n.t("provider.keyInput"))).toBeDisabled();
+});
+
+it("does not let an older readiness response overwrite newly applied settings", async () => {
+    let resolve!: (
+        value: Awaited<ReturnType<typeof api.providerSettings>>,
+    ) => void;
+    vi.mocked(api.providerSettings).mockReturnValueOnce(
+        new Promise((done) => {
+            resolve = done;
+        }),
+    );
+    const { result } = renderHook(() => useWorkflow(null, "source"));
+    const current = await api.providerSettings();
+    act(() =>
+        result.current.setProvider({ ...current, model: "gpt-4.1-mini" }),
+    );
+    await act(async () =>
+        resolve({
+            ...current,
+            model: null,
+            key_present: false,
+            live_ready: false,
+        }),
+    );
+    expect(result.current.planningReadiness).toBe("ready");
 });

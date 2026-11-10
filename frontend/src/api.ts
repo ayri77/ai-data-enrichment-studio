@@ -162,7 +162,56 @@ export interface AuditReport extends Job {
         }[];
     };
 }
+export interface ProviderReadiness {
+    provider: "openai";
+    supported_models: { id: string; label: string }[];
+    model: string | null;
+    key_present: boolean;
+    server_network_allowed: boolean;
+    live_ready: boolean;
+    planning_mode: "live" | "offline_injected";
+    configuration_enabled: boolean;
+    storage: "process_memory";
+}
+// Configuration errors retain only stable codes, never raw server messages or input.
+async function configureProvider(
+    method: "PUT" | "DELETE",
+    body?: { model: string | null; api_key?: string },
+): Promise<ProviderReadiness> {
+    try {
+        return await response<ProviderReadiness>(
+            fetch(
+                method === "DELETE"
+                    ? "/api/provider-settings/key"
+                    : "/api/provider-settings",
+                {
+                    method,
+                    cache: "no-store",
+                    credentials: "same-origin",
+                    redirect: "error",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Enrichment-Config": "1",
+                    },
+                    ...(body ? { body: JSON.stringify(body) } : {}),
+                },
+            ),
+        );
+    } catch (error) {
+        throw new WorkspaceApiError(
+            error instanceof WorkspaceApiError ? error.code : "request_failed",
+            "Provider configuration failed.",
+        );
+    }
+}
 export const api = {
+    providerSettings: () =>
+        response<ProviderReadiness>(
+            fetch("/api/provider-settings", { cache: "no-store" }),
+        ),
+    configureProvider: (body: { model: string | null; api_key?: string }) =>
+        configureProvider("PUT", body),
+    removeProviderKey: () => configureProvider("DELETE"),
     createPlan: (body: PlanRequest) => post<PlanDraft>("/api/plans", body),
     getPlan: (id: string) => response<PlanDraft>(fetch(`/api/plans/${id}`)),
     validatePlan: (id: string) => post<Validation>(`/api/plans/${id}/validate`),

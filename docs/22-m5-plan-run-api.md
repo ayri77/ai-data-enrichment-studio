@@ -31,6 +31,10 @@ This is reproducibility evidence, not live coverage or academic accuracy evidenc
 
 ## Local server and opt-in live runs
 
+For in-app model/key setup without environment credentials, use the new
+[trusted local launcher and Provider Settings](25-provider-settings.md).
+The environment-only entry point below remains available.
+
 The existing startup and Dataset API are preserved:
 
 ```powershell

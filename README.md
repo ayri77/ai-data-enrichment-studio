@@ -590,3 +590,5 @@ Development is organized around small, testable changes: **GitHub Issue → feat
 The project originated as a final assignment for the **Agentic AI** discipline in the Neoversity MSc Artificial Intelligence and Machine Learning program, and is being developed as a longer-term engineering portfolio project.
 
 **License:** No open-source license has been selected yet.
+
+Provider / Model setup from the Studio dialog: see [local ephemeral configuration and optional live acceptance](docs/25-provider-settings.md).

@@ -8,7 +8,12 @@ export default defineConfig({
         port: 5173,
         strictPort: true,
         proxy: {
-            "/api": process.env.API_PROXY_TARGET ?? "http://127.0.0.1:8010",
+            "/api": {
+                target: process.env.API_PROXY_TARGET ?? "http://127.0.0.1:8010",
+                // Preserve the browser authority for the backend's exact Host/Origin check.
+                changeOrigin: false,
+                xfwd: false,
+            },
         },
     },
     test: {

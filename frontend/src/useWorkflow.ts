@@ -8,6 +8,7 @@ import {
     type Job,
     type PlanDraft,
     type Preview,
+    type ProviderReadiness,
 } from "./api";
 import { parseRange } from "./range";
 import { validMappings, type OutputTarget } from "./workflowModel";
@@ -20,6 +21,33 @@ export function useWorkflow(
     sheetColumns: string[] = [],
     sourceBusy = false,
 ) {
+    const [provider, setProviderState] = useState<ProviderReadiness | null>(
+        null,
+    );
+    const [providerError, setProviderError] = useState(false);
+    const providerRevision = useRef(0);
+    function setProvider(next: ProviderReadiness) {
+        providerRevision.current++;
+        if (mounted.current) {
+            setProviderState(next);
+            setProviderError(false);
+        }
+    }
+    async function refreshProvider() {
+        const revision = ++providerRevision.current;
+        try {
+            const next = await api.providerSettings();
+            if (mounted.current && revision === providerRevision.current) {
+                setProviderState(next);
+                setProviderError(false);
+            }
+        } catch {
+            if (mounted.current && revision === providerRevision.current) {
+                setProviderState(null);
+                setProviderError(true);
+            }
+        }
+    }
     const [workspace, setWorkspace] = useState<Workspace>("dataset");
     const [instruction, setInstruction] = useState("");
     const [mapping, setMapping] = useState<OutputTarget[]>([
@@ -47,6 +75,7 @@ export function useWorkflow(
     const locked = busy || active || sourceBusy;
     useEffect(() => {
         mounted.current = true;
+        void refreshProvider();
         return () => {
             mounted.current = false;
         };
@@ -112,12 +141,28 @@ export function useWorkflow(
         !!preview && validMappings(mapping, preview, sheetColumns);
     const timeoutValid =
         /^\d+$/.test(timeout) && Number(timeout) >= 1 && Number(timeout) <= 300;
+    const planningReadiness = !provider
+        ? providerError
+            ? "unavailable"
+            : "loading"
+        : provider.planning_mode === "offline_injected"
+          ? "offline"
+          : !provider.server_network_allowed
+            ? "networkDisabled"
+            : !provider.model
+              ? "modelMissing"
+              : !provider.key_present
+                ? "keyMissing"
+                : "ready";
     const canBuild =
         !!preview &&
         withinBounds &&
         mappingValid &&
         !!instruction.trim() &&
-        (network || !!savedPlan.trim()) &&
+        (!!savedPlan.trim() ||
+            (network &&
+                (planningReadiness === "ready" ||
+                    planningReadiness === "offline"))) &&
         !locked;
     async function create() {
         if (!canBuild || !preview) return;
@@ -247,6 +292,10 @@ export function useWorkflow(
         window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
     return {
+        provider,
+        setProvider,
+        refreshProvider,
+        planningReadiness,
         workspace,
         navigate: setWorkspace,
         instruction,

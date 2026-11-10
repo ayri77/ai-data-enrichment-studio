@@ -302,7 +302,7 @@ def test_network_requires_both_opt_ins(server_enabled, request_enabled):
 
 
 @pytest.mark.parametrize(
-    "model,code", [(None, "llm_not_configured"), ("test-model", "missing_api_key")]
+    "model,code", [(None, "llm_not_configured"), ("gpt-4.1-mini", "missing_api_key")]
 )
 def test_missing_llm_configuration_is_distinct(monkeypatch, model, code):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
