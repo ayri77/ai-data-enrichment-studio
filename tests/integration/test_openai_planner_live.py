@@ -4,19 +4,19 @@ import os
 
 import pytest
 from openai import OpenAI
+from tests.support.planning import (
+    CAPITALS_INSTRUCTION,
+    MOUNTAINS_INSTRUCTION,
+    workbook_profile,
+)
 
 from ai_data_enrichment.capabilities.definitions import get_builtin_capabilities
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
-from ai_data_enrichment.domain.dataset_profile import (
-    ColumnProfile,
-    DatasetProfile,
-    PrimitiveType,
-)
 from ai_data_enrichment.domain.enrichment_plan import (
     ColumnReference,
     StepOutputReference,
 )
-from ai_data_enrichment.planning.llm_planner import LLMPlanner
+from ai_data_enrichment.planning.llm_planner import LLMPlanner, PlanGenerationResult
 from ai_data_enrichment.planning.openai_client import OpenAIPlanClient
 
 
@@ -40,6 +40,15 @@ def _build_live_planner() -> LLMPlanner:
     )
 
 
+def _report_attempts(result: PlanGenerationResult) -> None:
+    """Record nonsecret configuration and stable diagnostics, without raw completions."""
+    print(f"\nModel: {os.getenv('OPENAI_MODEL', 'gpt-6-luna')}")
+    print(f"Planning status: {result.response.status}")
+    print(f"Validation valid: {result.validation.valid if result.validation else None}")
+    for attempt in result.attempts:
+        print(f"Attempt {attempt.number}: {attempt.outcome}, codes={attempt.diagnostic_codes}")
+
+
 @pytest.mark.integration
 @pytest.mark.skipif(
     os.getenv("RUN_LIVE_LLM") != "1",
@@ -48,44 +57,21 @@ def _build_live_planner() -> LLMPlanner:
 def test_live_planner_generates_mountain_plan() -> None:
     """Generate and validate a mountain elevation plan using a real LLM."""
 
-    profile = DatasetProfile(
-        dataset_id="mountains",
-        name="Mountain dataset",
-        columns=[
-            ColumnProfile(
-                name="Mountain",
-                inferred_type=PrimitiveType.TEXT,
-                null_count=0,
-            ),
-            ColumnProfile(
-                name="Country",
-                inferred_type=PrimitiveType.TEXT,
-                null_count=0,
-            ),
-            ColumnProfile(
-                name="height",
-                inferred_type=PrimitiveType.NUMBER,
-                null_count=0,
-            ),
-        ],
-    )
+    profile = workbook_profile("mountains")
 
     planner = _build_live_planner()
 
     result = planner.generate(
-        instruction="Find the elevation of each mountain.",
+        instruction=MOUNTAINS_INSTRUCTION,
         dataset_profile=profile,
     )
 
-    print("\nPlanning response:")
-    print(result.response.model_dump_json(indent=2))
+    _report_attempts(result)
 
     assert result.response.status == "ready", result.response.reason
     assert result.response.plan is not None
 
-    print("\nValidation result:")
     assert result.validation is not None
-    print(result.validation.model_dump_json(indent=2))
 
     assert result.validation.valid, result.validation.errors
 
@@ -128,43 +114,39 @@ def test_live_planner_generates_mountain_plan() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        CAPITALS_INSTRUCTION,
+        CAPITALS_INSTRUCTION + " Compose two geocode steps, one per city/country pair, "
+        "feeding their step_output GeoPoints into geodesic_distance with parameters.unit = km.",
+    ],
+    ids=["free-text", "explicit-composition"],
+)
 @pytest.mark.skipif(
     os.getenv("RUN_LIVE_LLM") != "1",
     reason="Live LLM tests require explicit opt-in",
 )
-def test_live_planner_generates_capitals_plan() -> None:
+def test_live_planner_generates_capitals_plan(instruction: str) -> None:
     """Generate and validate a geodesic distance plan using a real LLM."""
 
-    profile = DatasetProfile(
-        dataset_id="capitals",
-        name="Capital distances",
-        columns=[
-            ColumnProfile(name="Capital_From", inferred_type=PrimitiveType.TEXT, null_count=0),
-            ColumnProfile(name="Country_From", inferred_type=PrimitiveType.TEXT, null_count=0),
-            ColumnProfile(name="Capital_To", inferred_type=PrimitiveType.TEXT, null_count=0),
-            ColumnProfile(name="Country_To", inferred_type=PrimitiveType.TEXT, null_count=0),
-            ColumnProfile(name="distance", inferred_type=PrimitiveType.NUMBER, null_count=0),
-        ],
-    )
+    profile = workbook_profile("capitals")
 
     planner = _build_live_planner()
 
     result = planner.generate(
-        instruction="Calculate straight-line distances between capitals in kilometers.",
+        instruction=instruction,
         dataset_profile=profile,
     )
 
-    print("\nPlanning response:")
-    print(result.response.model_dump_json(indent=2))
+    _report_attempts(result)
 
     assert result.response.status == "ready", result.response.reason
     assert result.response.plan is not None
 
     plan = result.response.plan
 
-    print("\nValidation result:")
     assert result.validation is not None
-    print(result.validation.model_dump_json(indent=2))
 
     assert result.validation.valid, result.validation.errors
 
@@ -184,6 +166,7 @@ def test_live_planner_generates_capitals_plan() -> None:
     )
 
     geocode_steps = [step for step in plan.steps if step.capability == "geocode"]
+    assert all("required_role" not in step.parameters for step in geocode_steps)
 
     from_step = next(
         step

@@ -463,7 +463,8 @@ def test_plan_generate_does_not_save_invalid_results(
     assert expected_message in result.output
     assert not output_path.exists()
 
-    mock_complete.assert_called_once()
+    # Invalid candidates consume the bounded repair budget; abstention is final.
+    assert mock_complete.call_count == (3 if decision["status"] == "ready" else 1)
 
 
 @pytest.mark.parametrize(

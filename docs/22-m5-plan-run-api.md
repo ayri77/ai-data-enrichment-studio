@@ -152,7 +152,10 @@ Other CLI/library callers retain the runner's default strict collision behavior.
   including worker startup. Each provider has 400 HTTP attempts (including retries),
   240 operation starts and 15 seconds of total rate/retry waiting. Existing bounded
   searches and provider timeouts remain in force. LLM calls use a 30-second SDK
-  timeout, no retries, 4096 output tokens and the bounded existing profile.
+  timeout, no SDK transport retries, 4096 output tokens per call and the bounded
+  existing profile. Generation has at most two validation-feedback repairs (three
+  completions total); authentication/transport failures stop immediately. See
+  [planning reliability](26-live-planning-reliability.md) for diagnostics and limits.
 - Cancellation and wall timeout terminate/reap the worker before reporting a
   terminal state. In-flight remote requests may already have reached providers.
   No partial workbook or execution report is published as a completed result;

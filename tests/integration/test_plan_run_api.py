@@ -12,6 +12,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from openpyxl import Workbook, load_workbook
+from tests.support.planning import (
+    CAPITALS_INSTRUCTION,
+    ScriptedPlanClient,
+    invalid_unit_response,
+    ready_response,
+)
 
 from ai_data_enrichment import plan_run
 from ai_data_enrichment.api import create_app
@@ -345,6 +351,61 @@ def test_planning_failure_is_sanitized():
         assert response.json()["error"]["code"] == "planning_failed"
         assert "secret-token" not in response.text
         assert "private" not in response.text
+
+
+@pytest.mark.parametrize("failure", ["repeated_invalid", "malformed_repair", "transport"])
+def test_failed_generated_repairs_remain_inspectable_and_unapprovable(failure):
+    invalid = invalid_unit_response()
+    responses = {
+        "repeated_invalid": [invalid, invalid, invalid],
+        "malformed_repair": [invalid, "sensitive-repair-marker", "sensitive-repair-marker"],
+        "transport": [invalid, RuntimeError("credential-marker")],
+    }[failure]
+    llm = ScriptedPlanClient(*responses)
+    with TestClient(create_app(offline_plan_client=llm)) as client:
+        body = {**request_body(upload(client), generate=True), "instruction": CAPITALS_INSTRUCTION}
+        response = client.post("/api/plans", json=body)
+        assert response.status_code == 201
+        plan = response.json()
+        assert len(llm.calls) == (2 if failure == "transport" else 3)
+        assert len(plan["planning_attempts"]) == len(llm.calls)
+        assert plan["plan"] == invalid["plan"]
+        assert not plan["validation"]["valid"]
+        assert plan["validation"]["errors"][0]["code"] == "PARAMETER_TYPE_MISMATCH"
+        assert "sensitive-repair-marker" not in response.text
+        assert "credential-marker" not in response.text
+        assert client.get(f"/api/plans/{plan['plan_id']}").json() == plan
+        endpoint = f"/api/plans/{plan['plan_id']}"
+        rejected = client.post(
+            endpoint + "/approve", json={"approved": True, "fingerprint": plan["fingerprint"]}
+        )
+        assert rejected.status_code == 422 and rejected.json()["error"]["code"] == "invalid_plan"
+        assert client.post(endpoint + "/runs", json={}).status_code == 409
+
+
+def test_repair_after_malformed_json_still_requires_explicit_approval():
+    llm = ScriptedPlanClient('{"status":', invalid_unit_response(), ready_response())
+    with TestClient(create_app(offline_plan_client=llm)) as client:
+        plan = draft(client, generate=True)
+        assert plan["validation"]["valid"]
+        assert len(llm.calls) == 3
+        assert plan["planning_attempts"][0]["diagnostic_codes"] == ["INVALID_JSON"]
+        assert plan["planning_attempts"][1]["diagnostic_codes"] == ["PARAMETER_TYPE_MISMATCH"]
+        assert plan["status"] == "draft" and plan["approved_at"] is None
+        assert client.post(f"/api/plans/{plan['plan_id']}/runs", json={}).status_code == 409
+        approve(client, plan)
+        assert len(llm.calls) == 3  # Approval revalidates independently without another LLM call.
+
+
+def test_exhausted_malformed_generation_has_safe_diagnostics(caplog):
+    llm = ScriptedPlanClient(*["private-source-marker" for _ in range(3)])
+    with TestClient(create_app(offline_plan_client=llm)) as client:
+        response = client.post("/api/plans", json=request_body(upload(client), generate=True))
+        assert response.status_code == 502
+        assert response.json()["error"]["code"] == "planning_failed"
+        assert "3 completion attempts" in response.text and "INVALID_JSON" in response.text
+        assert "private-source-marker" not in response.text + caplog.text
+        assert len(llm.calls) == 3
 
 
 def slow_executor(capabilities: frozenset[str], policy: MountainPolicy, max_rows: int):
