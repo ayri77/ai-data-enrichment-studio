@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.cell import column_index_from_string
 
@@ -37,6 +38,7 @@ class ExcelEnrichmentResult:
 
     output_path: Path
     job_result: JobExecutionResult
+    preserved_cells: tuple[str, ...] = ()
 
 
 class ExcelEnrichmentRunner:
@@ -68,6 +70,8 @@ class ExcelEnrichmentRunner:
         output_columns: Mapping[str, str],
         dataset_id: str,
         previous_job_id: str | None = None,
+        job_id: str | None = None,
+        preserve_existing_outputs: bool = False,
     ) -> ExcelEnrichmentResult:
         """Validate, execute and publish one selected Excel table."""
 
@@ -134,10 +138,25 @@ class ExcelEnrichmentRunner:
             ),
         ]
 
+        # The API may fill empty destinations while retaining existing values.
+        # Keep the default strict behavior for existing CLI/library callers.
+        preserved: set[str] = set()
+        if preserve_existing_outputs:
+            workbook = load_workbook(source_path, read_only=False, data_only=False)
+            try:
+                sheet = workbook[selection.sheet_name]
+                preserved = {
+                    coordinate
+                    for coordinate in target_coordinates
+                    if coordinate not in header_writes and sheet[coordinate].value is not None
+                }
+            finally:
+                workbook.close()
+
         validate_excel_targets(
             source_path,
             sheet_name=selection.sheet_name,
-            coordinates=target_coordinates,
+            coordinates=(cell for cell in target_coordinates if cell not in preserved),
         )
 
         # Execute the validated DAG using the configured providers.
@@ -145,6 +164,7 @@ class ExcelEnrichmentRunner:
             plan,
             batch.records,
             previous_job_id=previous_job_id,
+            job_id=job_id,
         )
 
         # Map successful operation results to original Excel rows.
@@ -162,10 +182,15 @@ class ExcelEnrichmentRunner:
             source_path,
             output_path,
             sheet_name=selection.sheet_name,
-            writes={**header_writes, **value_writes},
+            writes={
+                cell: value
+                for cell, value in {**header_writes, **value_writes}.items()
+                if cell not in preserved
+            },
         )
 
         return ExcelEnrichmentResult(
             output_path=output_path,
             job_result=job_result,
+            preserved_cells=tuple(sorted(preserved)),
         )

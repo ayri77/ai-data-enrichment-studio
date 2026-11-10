@@ -7,10 +7,15 @@ from ai_data_enrichment.capabilities.registry import CapabilityRegistry
 from ai_data_enrichment.execution.job_executor import JobExecutor
 from ai_data_enrichment.execution.job_models import JobExecutionPolicy
 from ai_data_enrichment.providers.geodesic import GeodesicDistanceHandler
-from ai_data_enrichment.providers.http_transport import UrllibJsonTransport
+from ai_data_enrichment.providers.http_transport import JsonTransport, UrllibJsonTransport
 from ai_data_enrichment.providers.open_meteo import OpenMeteoGeocodingHandler
 from ai_data_enrichment.providers.open_meteo_resolution import OpenMeteoResolutionService
 from ai_data_enrichment.providers.registry import ProviderRegistry
+from ai_data_enrichment.providers.request_policy import (
+    ProviderRequestPolicy,
+    ProviderRequestSession,
+)
+from ai_data_enrichment.providers.retry_transport import TransportRetryPolicy
 from ai_data_enrichment.providers.wikidata import (
     WikidataElevationHandler,
     WikidataMountainResolver,
@@ -31,6 +36,8 @@ def build_live_executor(
     resume_selections: Mapping[tuple[str, str], ResumeSelection] | None = None,
     audit_capitals: bool = False,
     mountain_resolution_policy: Literal["strict", "verified_only"] = "strict",
+    request_policies: Mapping[str, ProviderRequestPolicy] | None = None,
+    transport: JsonTransport | None = None,
 ) -> JobExecutor:
     """Bind built-in capabilities to explicitly approved providers."""
 
@@ -41,19 +48,30 @@ def build_live_executor(
     if mountain_resolution_policy != "strict" and not audit_mountains:
         raise ValueError("Verified-only policy requires audited mountain resolution.")
 
-    transport = UrllibJsonTransport(
+    transport = transport or UrllibJsonTransport(
         headers={
             "User-Agent": (
                 "AIDataEnrichmentStudio/0.1 (https://github.com/ayri77/ai-data-enrichment-studio)"
             )
         }
     )
+    session = ProviderRequestSession(request_policies) if request_policies else None
+    city_transport = (
+        session.wrap_transport("open-meteo", transport, retry_policy=TransportRetryPolicy())
+        if session
+        else transport
+    )
+    mountain_transport = (
+        session.wrap_transport("wikidata", transport, retry_policy=TransportRetryPolicy())
+        if session
+        else transport
+    )
     providers = ProviderRegistry(registry)
 
     providers.register(
         capability_id="geocode",
         provider_id="open-meteo",
-        handler=OpenMeteoGeocodingHandler(transport),
+        handler=OpenMeteoGeocodingHandler(city_transport),
     )
     providers.register(
         capability_id="geodesic_distance",
@@ -63,12 +81,12 @@ def build_live_executor(
     providers.register(
         capability_id="resolve_entity",
         provider_id="wikidata",
-        handler=WikidataMountainResolver(transport),
+        handler=WikidataMountainResolver(mountain_transport),
     )
     providers.register(
         capability_id="lookup_property",
         provider_id="wikidata",
-        handler=WikidataElevationHandler(transport),
+        handler=WikidataElevationHandler(mountain_transport),
     )
 
     selected = {
@@ -79,6 +97,7 @@ def build_live_executor(
     }
 
     return JobExecutor(
+        request_session=session,
         handlers=providers.resolve_handlers(
             capability_ids=selected,
             selected_providers=selected,
@@ -108,11 +127,11 @@ def build_live_executor(
         },
         resolution_services={
             **(
-                {"resolve_entity": WikidataMountainResolutionService(transport)}
+                {"resolve_entity": WikidataMountainResolutionService(mountain_transport)}
                 if audit_mountains
                 else {}
             ),
-            **({"geocode": OpenMeteoResolutionService(transport)} if audit_capitals else {}),
+            **({"geocode": OpenMeteoResolutionService(city_transport)} if audit_capitals else {}),
         },
         resolution_policies={
             **(
@@ -140,7 +159,7 @@ def build_live_executor(
         },
         approved_resolution_services={
             key: ApprovedWikidataMountainResolutionService(
-                transport,
+                mountain_transport,
                 approval=selection.approval,
                 source_report=selection.source_report,
             )
