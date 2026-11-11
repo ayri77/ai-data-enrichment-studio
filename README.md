@@ -461,6 +461,24 @@ and the final plan per run) to the ignored `artifacts/planner-experiments/`.
 Compare models or code changes by the share of valid `ready` plans, not by a
 single run.
 
+### Live resolution diagnostics (developer tool)
+
+`scripts/experiment_resolution.py` shows why each mountain name resolved, or
+did not, against live Wikidata. It runs the production resolution service once
+per name and then prints, for every candidate the source left unconfirmed, its
+recorded type (`instance of`) and whether it has a country. No OpenAI key is
+needed.
+
+```powershell
+uv run python -m scripts.experiment_resolution
+uv run python -m scripts.experiment_resolution --policy verified_only
+uv run python -m scripts.experiment_resolution --names "Annapurna/Nepal" "Annapurna I/Nepal"
+```
+
+The JSON report is written to the ignored `artifacts/resolution-experiments/`.
+`--offline` uses the injected offline responses and only checks that the script
+itself works. Results depend on live data and can change between runs.
+
 ### Execute an Excel enrichment job (M3)
 
 The `enrichment run` command executes a saved, validated plan
