@@ -7,9 +7,9 @@ import { DatasetWorkspace } from "./components/DatasetWorkspace";
 import {
     Diagnostics,
     ExecutionWorkspace,
-    ExportWorkspace,
     PlanWorkspace,
 } from "./components/WorkspaceViews";
+import { ExportWorkspace } from "./components/ExportWorkspace";
 import { ReviewWorkspace } from "./components/ReviewWorkspace";
 import { Button } from "./components/ui/button";
 import { initialTheme, savePreference } from "./preferences";

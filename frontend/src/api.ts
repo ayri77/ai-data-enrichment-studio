@@ -145,7 +145,15 @@ export interface AuditReport extends Job {
     result_sha256?: string;
     source_unchanged?: boolean;
     preserved_cells?: string[];
-    rows?: { record_id: string; status: "success" | "partial" | "failure" }[];
+    rows?: {
+        record_id: string;
+        status: "success" | "partial" | "failure";
+        /** Excel row number and the source values the plan used. */
+        row?: number | null;
+        inputs?: Record<string, ReviewValue>;
+        /** Steps whose entity the user chose during review. */
+        user_chosen_steps?: string[];
+    }[];
     execution?: {
         provider_requests: Record<string, Record<string, number>>;
         records: {

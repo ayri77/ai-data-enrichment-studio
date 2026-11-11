@@ -664,6 +664,20 @@ def test_resume_fills_rows_from_a_user_choice_as_a_new_audited_job(client):
     assert second["metrics"]["successful_rows"] == first["metrics"]["successful_rows"] + 1
     report = client.get(second["artifacts"]["report"]).json()
     assert report["previous_job_id"] == first["job_id"]
+    # Rows carry what they were computed from and which steps the user decided.
+    rows = {row["row"]: row for row in report["rows"]}
+    assert rows[2]["inputs"] == {
+        "Capital_From": "Kyiv",
+        "Country_From": "Ukraine",
+        "Capital_To": "Paris",
+        "Country_To": "France",
+    }
+    assert rows[2]["status"] == "success" and rows[2]["user_chosen_steps"] == ["from_city"]
+    assert rows[6]["status"] != "success" and rows[6]["user_chosen_steps"] == ["to_city"]
+    assert rows[3]["user_chosen_steps"] == []
+    earlier = client.get(first["artifacts"]["report"]).json()["rows"]
+    assert all(row["user_chosen_steps"] == [] for row in earlier)
+    assert "source_rows" not in report
     assert report["review_decisions"] == [decision]
     audit = report["execution"]["resolution_report"]
     assert audit["previous_job_id"] == first["job_id"]
