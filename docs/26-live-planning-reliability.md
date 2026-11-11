@@ -219,3 +219,28 @@ the final draft validation:
 Workbook-specific checks (column letters, overlap with the selected table, the A:CV
 envelope) stay in the API as `invalid_output_mapping`: the model cannot repair them.
 CLI planning passes no targets and is unchanged.
+
+
+## Supported planning models (measured 2026-11-11)
+
+Repeated live runs with `scripts/experiment_planner.py`, standard sample instructions,
+10 runs per row, at most two repairs. "Before" is commit `0b515aa` or earlier, "after"
+is `bf4f999` (required parameters and requested output targets merged).
+
+| Task | Model | Valid plans | Valid on first attempt |
+| --- | --- | --- | --- |
+| Capitals | `gpt-4.1-mini` | 10 of 10 (before) | 10 of 10 |
+| Capitals | `gpt-4o-mini` | 9 of 10 (before), 10 of 10 (after) | 9 of 10, 7 of 10 |
+| Mountains | `gpt-4.1-mini` | 10 of 10 (after) | 10 of 10 |
+| Mountains | `gpt-4o-mini` | 1 of 10 (before), 0 of 10 (after) | 0 of 10, 0 of 10 |
+
+On Mountains `gpt-4o-mini` returns `unsupported` on the first attempt ("no capability
+to directly resolve mountain elevations"): it does not compose `resolve_entity` with
+`lookup_property`. The result predates the contract changes, so it is not a regression.
+A first-attempt abstention is final by design, so the repair loop does not help.
+
+`gpt-4o-mini` is therefore removed from `SUPPORTED_MODELS`, and `gpt-4.1-mini` is the
+default when `OPENAI_MODEL` is unset. `gpt-4.1` remains selectable but has not been
+measured. Free-form and non-English instructions have not been measured on any model.
+The samples are small; treat the table as a floor for decisions, not as a rate.
+
