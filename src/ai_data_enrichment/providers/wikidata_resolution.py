@@ -20,6 +20,7 @@ from ai_data_enrichment.providers.wikidata_country import parse_country_codes
 from ai_data_enrichment.providers.wikidata_search import fetch_wikidata_search
 from ai_data_enrichment.providers.wikidata_verification import (
     fetch_wikidata_candidate_entities,
+    needs_provider_verification,
     verify_wikidata_mountain_candidate,
 )
 from ai_data_enrichment.resolution.engine import ResolutionEngine
@@ -161,8 +162,17 @@ class WikidataMountainResolutionService:
             ),
         )
 
-        for candidate in ordered[: self._max_verify_candidates]:
+        # The budget bounds provider work. Candidates decided from the claims that
+        # were already fetched (no class or no country) cost nothing and are always
+        # decided, so a namesake that could be a mountain is never left unexamined
+        # merely because films and ships with the same name came first.
+        lookups = 0
+        for candidate in ordered:
             qid = candidate.reference.entity_id
+            if needs_provider_verification(entities.get(qid)):
+                if lookups >= self._max_verify_candidates:
+                    continue
+                lookups += 1
             checked = verify_wikidata_mountain_candidate(
                 self._transport,
                 qid=qid,
@@ -242,7 +252,10 @@ class WikidataMountainResolutionService:
             )
             return self._emit(candidate_set=candidate_set, policy=policy, failure=failure)
 
-        exceeded = len(ordered) > self._max_verify_candidates
+        exceeded = (
+            sum(needs_provider_verification(entities.get(c.reference.entity_id)) for c in ordered)
+            > self._max_verify_candidates
+        )
         return self._emit(
             candidate_set=CandidateSet(
                 query=query,

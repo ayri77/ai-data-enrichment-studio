@@ -528,7 +528,8 @@ Both modes use the same P31/P279 mountain verification, P17 country verification
 slash-separated country support, and bounded claim batches. There is no type
 blacklist. `candidate_scan_complete` records whether every discovered candidate
 was attempted; `verification_complete` remains false while candidates are unknown.
-The 12-candidate verification budget and bounded subclass traversal still apply.
+The verification budget (12 candidates that need provider lookups) and bounded
+subclass traversal still apply.
 Approvals continue to require fresh source verification and use `user_override`.
 
 To compare both policies on the original 10-row Academic Mountains workbook,
