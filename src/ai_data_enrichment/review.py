@@ -6,6 +6,7 @@ which is validated and freshly re-verified when the resume job runs.
 """
 
 import re
+from collections.abc import Callable
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -206,16 +207,37 @@ def approvals_from_decisions(
     )
 
 
+def _steps_where(
+    resolution_report: dict[str, Any] | None, accept: Callable[[dict[str, Any]], bool]
+) -> dict[str, set[str]]:
+    steps: dict[str, set[str]] = {}
+    for operation in (resolution_report or {}).get("operations", ()):
+        if accept(operation["report"]["decision"]):
+            for link in operation.get("record_links", ()):
+                steps.setdefault(link["record_id"], set()).add(link["step_id"])
+    return steps
+
+
 def user_chosen_steps(resolution_report: dict[str, Any] | None) -> dict[str, set[str]]:
     """Map each record to the steps whose entity the user chose during review.
 
     Reads the serialized job report, so the public report can mark values that
     exist only because of a user decision.
     """
-    chosen: dict[str, set[str]] = {}
-    for operation in (resolution_report or {}).get("operations", ()):
-        if operation["report"]["decision"].get("basis") != "user_override":
-            continue
-        for link in operation.get("record_links", ()):
-            chosen.setdefault(link["record_id"], set()).add(link["step_id"])
-    return chosen
+    return _steps_where(resolution_report, lambda d: d.get("basis") == "user_override")
+
+
+def auto_accepted_steps(resolution_report: dict[str, Any] | None) -> dict[str, set[str]]:
+    """Map each record to steps resolved without asking although doubt remained.
+
+    That is the verified-only policy accepting the single confirmed candidate
+    while other matches could not be confirmed. A clean unique match is not
+    listed: nothing about it differs from a strict resolution.
+    """
+    return _steps_where(
+        resolution_report,
+        lambda d: (
+            d.get("basis") == "verified_only"
+            and "unchecked_alternatives_remain" in d.get("reason_codes", ())
+        ),
+    )

@@ -52,6 +52,7 @@ from ai_data_enrichment.resolution.resume import build_resume_selections
 from ai_data_enrichment.review import (
     ReviewDecision,
     approvals_from_decisions,
+    auto_accepted_steps,
     review_payload,
     user_chosen_steps,
 )
@@ -600,7 +601,9 @@ class PlanRunService:
                     else "completed"
                 )
                 source_rows = execution.pop("source_rows", {})
-                chosen = user_chosen_steps(execution["execution"].get("resolution_report"))
+                resolution = execution["execution"].get("resolution_report")
+                chosen = user_chosen_steps(resolution)
+                automatic = auto_accepted_steps(resolution)
                 execution["rows"] = [
                     {
                         "record_id": record.record_id,
@@ -610,6 +613,8 @@ class PlanRunService:
                         "inputs": source_rows.get(record.record_id, {}).get("inputs", {}),
                         # Steps whose entity was chosen by the user during review.
                         "user_chosen_steps": sorted(chosen.get(record.record_id, ())),
+                        # Steps accepted automatically while other matches stayed unconfirmed.
+                        "auto_accepted_steps": sorted(automatic.get(record.record_id, ())),
                     }
                     for record in result.records
                 ]

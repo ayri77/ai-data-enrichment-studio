@@ -83,6 +83,13 @@ function Note({ row, w }: { row: ResultRow; w: Workflow }) {
                     {t("results.chosen", { names: row.chosen.join(", ") })}
                 </span>
             )}
+            {row.automatic.length > 0 && (
+                <span className="result-automatic">
+                    {t("results.automatic", {
+                        names: row.automatic.join(", "),
+                    })}
+                </span>
+            )}
             {!row.filled && row.cause && (
                 <span className="result-cause">
                     {t(`results.cause.${row.cause.kind}`, {
@@ -222,8 +229,13 @@ function ResultTable({ w }: { w: Workflow }) {
     const [sort, setSort] = useState<Sort>({ key: "row", descending: false });
     const [open, setOpen] = useState<string | null>(null);
     const shown = sortRows(filterRows(rows, filter), sort, locale);
-    const filters = (["all", "filled", "empty", "chosen"] as const).filter(
-        (key) => key !== "chosen" || filterRows(rows, "chosen").length > 0,
+    // The two provenance filters appear only when such rows exist.
+    const filters = (
+        ["all", "filled", "empty", "chosen", "automatic"] as const
+    ).filter(
+        (key) =>
+            (key !== "chosen" && key !== "automatic") ||
+            filterRows(rows, key).length > 0,
     );
     const onSort = (key: string) =>
         setSort((old) => ({
@@ -308,6 +320,7 @@ function ResultTable({ w }: { w: Workflow }) {
                                     data-testid="row-outcome"
                                     data-filled={row.filled}
                                     data-chosen={row.chosen.length > 0}
+                                    data-automatic={row.automatic.length > 0}
                                 >
                                     <td className="mono">
                                         {row.row ?? row.recordId}

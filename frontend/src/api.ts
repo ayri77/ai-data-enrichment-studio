@@ -153,6 +153,8 @@ export interface AuditReport extends Job {
         inputs?: Record<string, ReviewValue>;
         /** Steps whose entity the user chose during review. */
         user_chosen_steps?: string[];
+        /** Steps accepted automatically while other matches stayed unconfirmed. */
+        auto_accepted_steps?: string[];
     }[];
     execution?: {
         provider_requests: Record<string, Record<string, number>>;

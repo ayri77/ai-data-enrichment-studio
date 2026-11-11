@@ -113,9 +113,9 @@
     "workflow.addMapping": "Ausgabezuordnung hinzufügen",
     "workflow.network": "Externe Netzwerkanfragen für Planung und Ausführung erlauben",
     "workflow.networkHint": "Live-Planung erfordert den Netzwerkzugriff des Servers (--allow-network beim lokalen Start), Modell und API-Schlüssel in den Anbieter- / Modelleinstellungen sowie Ihre gesonderte Zustimmung. Anweisungen und Beispieldaten können an OpenAI gesendet werden. Kein Rückgriff auf Testantworten.",
-    "workflow.policy": "Richtlinie zur Bergauflösung",
-    "workflow.strict": "Streng (Standard)",
-    "workflow.verifiedOnly": "Nur verifizierte (ausdrückliche Zustimmung)",
+    "workflow.policy": "Wenn die Quelle genau einen Treffer bestätigt",
+    "workflow.strict": "Mich fragen",
+    "workflow.verifiedOnly": "Automatisch ausfüllen (Standard)",
     "workflow.timeout": "Zeitlimit (Sekunden, 1–300)",
     "workflow.savedPlan": "Vorhandenen Plan verwenden (optional)",
     "workflow.planJson": "EnrichmentPlan-JSON",
@@ -385,5 +385,8 @@
     "ws.need.preview": "Tabellenblatt und Bereich wählen, dann „Auswahl anzeigen“ drücken.",
     "ws.need.instruction": "Anweisung schreiben: Was soll ausgefüllt werden?",
     "ws.need.mapping": "Die auszufüllende Spalte wählen.",
-    "ws.need.openSettings": "Einstellungen öffnen"
+    "ws.need.openSettings": "Einstellungen öffnen",
+    "workflow.policyHint": "Relevant, wenn andere Treffer mit demselben Namen nicht bestätigt werden konnten. Automatisch ausgefüllte Werte sind in den Ergebnissen markiert.",
+    "results.automatic": "Automatisch ausgefüllt: der einzige bestätigte Treffer für „{{names}}“; andere Treffer wurden nicht bestätigt.",
+    "results.filter.automatic": "Automatisch ({{count}})"
 }

@@ -337,7 +337,8 @@ it("uses exact source/mapping, validates and explicitly approves before a separa
         instruction: "Literal cities",
         output_columns: { distance: "E" },
         allow_network: true,
-        mountain_resolution_policy: "strict",
+        // Default: accept the single confirmed match; "strict" asks instead.
+        mountain_resolution_policy: "verified_only",
     });
     expect(api.approvePlan).not.toHaveBeenCalled();
     expect(api.startRun).not.toHaveBeenCalled();
@@ -409,14 +410,10 @@ it.each(["instruction", "mapping", "network", "policy", "saved", "source"])(
             await userEvent.click(
                 screen.getByLabelText(i18n.t("workflow.network")),
             );
-        if (change === "policy") {
-            await userEvent.click(
-                screen.getByText("Advanced policy and limits"),
-            );
+        if (change === "policy")
             fireEvent.change(screen.getByLabelText(i18n.t("workflow.policy")), {
-                target: { value: "verified_only" },
+                target: { value: "strict" },
             });
-        }
         if (change === "saved") {
             await userEvent.click(
                 screen.getByText(i18n.t("workflow.savedPlan")),
@@ -1127,7 +1124,7 @@ it("shows results with source values, readable numbers, reasons, filters and det
         ...report,
         rows: [
             line(2, "Kyiv", ["place"]),
-            line(3, "Lviv"),
+            { ...line(3, "Lviv"), auto_accepted_steps: ["place"] },
             { ...line(4, "Odesa"), status: "failure" },
             { ...line(5, "Xyz"), status: "failure" },
         ],
@@ -1202,6 +1199,17 @@ it("shows results with source values, readable numbers, reasons, filters and det
     expect(screen.getByTestId("result-stats")).toHaveTextContent(
         /filled 2 of 4.*min 470\.5 km.*max 2,023\.79 km.*average 1,247\.15 km/,
     );
+
+    // A value accepted without asking says so, and has its own filter.
+    const lviv = screen.getAllByTestId("row-outcome")[1];
+    expect(lviv).toHaveAttribute("data-automatic", "true");
+    expect(
+        within(lviv).getByText(i18n.t("results.automatic", { names: "Lviv" })),
+    ).toBeVisible();
+    await userEvent.click(
+        screen.getByRole("button", { name: "Automatic (1)" }),
+    );
+    expect(cells()).toEqual(["Lviv"]);
 
     // Filters and sorting change only what is shown.
     await userEvent.click(screen.getByRole("button", { name: "Empty (2)" }));

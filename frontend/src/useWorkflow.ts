@@ -71,7 +71,11 @@ export function useWorkflow(
     ]);
     const [savedPlan, setSavedPlan] = useState("");
     const [network, setNetwork] = useState(false);
-    const [policy, setPolicy] = useState<"strict" | "verified_only">("strict");
+    // What to do when the source confirms exactly one match but could not confirm
+    // the others: accept it (default, marked in the results) or ask the user.
+    const [policy, setPolicy] = useState<"strict" | "verified_only">(
+        "verified_only",
+    );
     const [timeout, setTimeout] = useState("180");
     const [plan, setPlan] = useState<PlanDraft | null>(null);
     const [job, setJob] = useState<Job | null>(null);

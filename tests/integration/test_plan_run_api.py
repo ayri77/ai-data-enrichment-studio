@@ -801,6 +801,31 @@ def annapurna_executor(
     )
 
 
+def test_single_confirmed_match_is_accepted_without_review_when_asked_and_marked():
+    with TestClient(create_app(offline_executor_factory=annapurna_executor)) as client:
+        body = {
+            **request_body(upload(client, "mountains"), "mountains"),
+            "mountain_resolution_policy": "verified_only",
+        }
+        plan = approve(client, client.post("/api/plans", json=body).json())
+        job = wait(client, start(client, plan))
+        report = client.get(job["artifacts"]["report"]).json()
+        rows = {row["row"]: row for row in report["rows"]}
+        # One confirmed summit, one unconfirmed namesake: filled, and flagged as such.
+        assert rows[11]["status"] == "success"
+        assert rows[11]["auto_accepted_steps"] == ["resolve"]
+        assert rows[11]["user_chosen_steps"] == []
+        # A clean unique match is an ordinary resolution and carries no flag.
+        assert rows[2]["status"] == "success" and rows[2]["auto_accepted_steps"] == []
+        review = client.get(f"/api/jobs/{job['job_id']}/review").json()
+        assert "Annapurna" not in {item["query"]["name"] for item in review["items"]}
+        workbook = load_workbook(BytesIO(client.get(job["artifacts"]["result"]).content))
+        try:
+            assert workbook["Sheet1"]["C11"].value == 8091
+        finally:
+            workbook.close()
+
+
 def test_mountains_use_the_same_review_and_resume_routes():
     with TestClient(create_app(offline_executor_factory=annapurna_executor)) as client:
         _, first, review = reviewed_job(client, "mountains")
