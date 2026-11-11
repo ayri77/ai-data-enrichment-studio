@@ -185,14 +185,22 @@ def test_role_conflicts_cannot_escape_bounded_repair(budget: int) -> None:
 )
 @pytest.mark.parametrize("after_conflict", [False, True])
 def test_abstentions_remain_truthful_and_final(reason, status, after_conflict) -> None:
-    responses = [role_response()] if after_conflict else []
-    client = ScriptedPlanClient(*responses, {"status": status, "plan": None, "reason": reason})
+    """Final at once on the first attempt; after a conflict only when repeated once."""
+    refusal = {"status": status, "plan": None, "reason": reason}
+    responses = [role_response(), refusal] if after_conflict else []
+    client = ScriptedPlanClient(*responses, refusal)
     result = LLMPlanner(client=client, registry=builtin_registry()).generate(
         instruction=CAPITALS_INSTRUCTION, dataset_profile=workbook_profile("capitals")
     )
     assert result.response.status == status and result.response.reason == reason
     assert result.response.plan is None and result.validation is None
-    assert len(client.calls) == 1 + after_conflict
+    assert len(client.calls) == 1 + 2 * after_conflict
+    if after_conflict:
+        assert [(a.outcome, a.diagnostic_codes) for a in result.attempts] == [
+            ("invalid", ("INTENT_PARAMETER_CONFLICT",)),
+            (status, ("ABSTENTION_AFTER_FEEDBACK",)),
+            (status, ()),
+        ]
 
 
 def test_null_repairs_by_omission_and_every_repair_checks_intent():
