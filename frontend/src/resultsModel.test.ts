@@ -107,6 +107,7 @@ it("joins source values, outputs and the root cause of an empty cell", () => {
         inputs: { From: "Kyiv" },
         outputs: { distance: 2023.7941796667708 },
         chosen: ["Kyiv"],
+        automatic: [],
         cause: null,
     });
     // The dependency failure is a consequence; the geocode failure is the cause.
@@ -138,6 +139,7 @@ it("reads older reports without source values or row numbers", () => {
         inputs: {},
         filled: false,
         chosen: [],
+        automatic: [],
         cause: null,
         steps: [],
     });
@@ -148,6 +150,17 @@ it("filters by outcome and sorts with empty values last in both directions", () 
     expect(filterRows(rows, "filled").map((r) => r.row)).toEqual([2, 3]);
     expect(filterRows(rows, "empty").map((r) => r.row)).toEqual([4, 5, 6]);
     expect(filterRows(rows, "chosen").map((r) => r.row)).toEqual([2]);
+    const auto = resultRows(
+        {
+            ...report,
+            rows: report.rows!.map((r) =>
+                r.row === 3 ? { ...r, auto_accepted_steps: ["from_city"] } : r,
+            ),
+        },
+        plan,
+    );
+    expect(auto[1].automatic).toEqual(["Lviv"]);
+    expect(filterRows(auto, "automatic").map((r) => r.row)).toEqual([3]);
     const by = (key: string, descending = false) =>
         sortRows(rows, { key, descending }, "en").map((r) => r.row);
     expect(by("out:distance")).toEqual([3, 2, 4, 5, 6]);

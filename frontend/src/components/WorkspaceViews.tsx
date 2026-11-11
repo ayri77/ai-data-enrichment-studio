@@ -244,6 +244,27 @@ export function DatasetConfiguration({
                     >
                         {t("workflow.addMapping")}
                     </Button>
+                    <label>
+                        {t("workflow.policy")}
+                        <select
+                            value={w.policy}
+                            onChange={(e) =>
+                                w.edit(() =>
+                                    w.setPolicy(
+                                        e.target.value as typeof w.policy,
+                                    ),
+                                )
+                            }
+                        >
+                            <option value="verified_only">
+                                {t("workflow.verifiedOnly")}
+                            </option>
+                            <option value="strict">
+                                {t("workflow.strict")}
+                            </option>
+                        </select>
+                    </label>
+                    <p className="muted">{t("workflow.policyHint")}</p>
                     <label className="network-opt-in">
                         <input
                             type="checkbox"
@@ -308,23 +329,6 @@ function AdvancedControls({ w }: { w: Workflow }) {
             {(w.plan || w.job) && (
                 <p className="notice">{t("ws.invalidateWarning")}</p>
             )}
-            <label>
-                {t("workflow.policy")}
-                <select
-                    disabled={w.locked}
-                    value={w.policy}
-                    onChange={(e) =>
-                        w.edit(() =>
-                            w.setPolicy(e.target.value as typeof w.policy),
-                        )
-                    }
-                >
-                    <option value="strict">{t("workflow.strict")}</option>
-                    <option value="verified_only">
-                        {t("workflow.verifiedOnly")}
-                    </option>
-                </select>
-            </label>
             <label>
                 {t("workflow.timeout")}
                 <input

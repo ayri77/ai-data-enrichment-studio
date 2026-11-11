@@ -1050,6 +1050,9 @@
 .result-chosen {
     color: var(--studio-operation);
 }
+.result-automatic {
+    color: var(--studio-muted);
+}
 .result-cause {
     color: var(--studio-muted);
 }

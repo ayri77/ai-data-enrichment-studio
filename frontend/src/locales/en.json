@@ -113,9 +113,9 @@
     "workflow.addMapping": "Add output mapping",
     "workflow.network": "Allow external network requests for planning and execution",
     "workflow.networkHint": "Live planning requires the server network gate (--allow-network in the local launcher), a model and an API key in Provider / Model settings, and your separate consent. Instructions and sample data may be sent to OpenAI. No fixture fallback.",
-    "workflow.policy": "Mountain resolution policy",
-    "workflow.strict": "Strict (default)",
-    "workflow.verifiedOnly": "Verified only (explicit opt-in)",
+    "workflow.policy": "If the source confirms exactly one match",
+    "workflow.strict": "Ask me to confirm",
+    "workflow.verifiedOnly": "Fill it in automatically (default)",
     "workflow.timeout": "Run timeout (seconds, 1–300)",
     "workflow.savedPlan": "Use an existing plan (optional)",
     "workflow.planJson": "EnrichmentPlan JSON",
@@ -385,5 +385,8 @@
     "ws.need.preview": "Choose the worksheet and range, then press “Preview selection”.",
     "ws.need.instruction": "Write the instruction: what should be filled in.",
     "ws.need.mapping": "Choose the column to fill.",
-    "ws.need.openSettings": "Open settings"
+    "ws.need.openSettings": "Open settings",
+    "workflow.policyHint": "Matters when other matches with the same name could not be confirmed. Values filled in automatically are marked in the results.",
+    "results.automatic": "Filled in automatically: the only confirmed match for “{{names}}”; other matches were not confirmed.",
+    "results.filter.automatic": "Automatic ({{count}})"
 }

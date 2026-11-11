@@ -129,8 +129,10 @@ actual provider request counts and the existing source-linked resolution audit.
 Its resolution job ID matches the API job ID. Row summaries use the existing
 `success | partial | failure` classification and also carry the Excel `row`
 number, the source `inputs` the plan used for that row (only columns referenced
-by the plan) and `user_chosen_steps` (steps whose entity the user chose during
-review), so a result can be read without opening the workbook; candidate decisions distinguish
+by the plan), `user_chosen_steps` (steps whose entity the user chose during
+review) and `auto_accepted_steps` (steps resolved under `verified_only` while
+other matches stayed unconfirmed), so a result can be read without opening the
+workbook; candidate decisions distinguish
 ambiguity, unresolved matches, incomplete verification and provider errors.
 Operation error codes are retained; failure messages are sanitized for download.
 HTTP errors use `{"error":{"code":"...","message":"..."}}`; in particular

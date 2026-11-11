@@ -44,6 +44,8 @@ export interface ResultRow {
     filled: boolean;
     /** Source values whose match the user chose during review. */
     chosen: string[];
+    /** Source values accepted automatically although other matches stayed unconfirmed. */
+    automatic: string[];
     /** The first real failure in the row, not its downstream consequences. */
     cause: { kind: Cause; code: string; subject: string | null } | null;
     steps: ResultStep[];
@@ -126,6 +128,11 @@ export function resultRows(
                     : undefined;
             outputs[output.target_column] = scalar(field) ? field : undefined;
         }
+        const subjects = (ids: string[] | undefined) =>
+            (ids ?? []).flatMap((id) => {
+                const value = subject(planSteps.get(id), inputs);
+                return value ? [value] : [];
+            });
         const failed = steps.find(
             (s) => !s.ok && s.errorCode !== "DEPENDENCY_FAILED",
         );
@@ -138,10 +145,8 @@ export function resultRows(
             filled:
                 Object.keys(outputs).length > 0 &&
                 Object.values(outputs).every((v) => v !== undefined),
-            chosen: (row.user_chosen_steps ?? []).flatMap((id) => {
-                const value = subject(planSteps.get(id), inputs);
-                return value ? [value] : [];
-            }),
+            chosen: subjects(row.user_chosen_steps),
+            automatic: subjects(row.auto_accepted_steps),
             cause: failed
                 ? {
                       kind: CAUSES[failed.errorCode ?? ""] ?? "other",
@@ -154,11 +159,13 @@ export function resultRows(
     });
 }
 
-export type RowFilter = "all" | "filled" | "empty" | "chosen";
+export type RowFilter = "all" | "filled" | "empty" | "chosen" | "automatic";
 export function filterRows(rows: ResultRow[], filter: RowFilter) {
     if (filter === "filled") return rows.filter((r) => r.filled);
     if (filter === "empty") return rows.filter((r) => !r.filled);
     if (filter === "chosen") return rows.filter((r) => r.chosen.length > 0);
+    if (filter === "automatic")
+        return rows.filter((r) => r.automatic.length > 0);
     return rows;
 }
 /** `key` is "row", "status", "in:<column>" or "out:<column>". */
