@@ -41,6 +41,26 @@ deployment cannot be open by accident.
 | `ENRICHMENT_STATIC_DIR` | no | Built frontend, default `frontend/dist` (set in the image) |
 | `PORT` | no | Listening port, default `10000` in the image |
 
+## Examples
+
+A visitor of a public demo usually has no suitable workbook at hand. While no
+workbook is loaded, the Dataset screen offers the bundled examples (Capitals and
+Mountains). One click downloads the example from the server, sends it through
+the **ordinary upload and preview**, and fills in the measured instruction and
+the output column. External-request consent stays unticked: that remains the
+visitor's decision.
+
+Each example also has a prepared plan. **Use it instead of asking the AI** puts
+that plan into the saved-plan field, so the demo continues when the planning
+provider is slow, unavailable or out of budget. The plan is validated like any
+supplied plan; execution still contacts the data sources.
+
+Routes (behind the access code like every other API route): `GET /api/samples`,
+`GET /api/samples/{id}/workbook`, `GET /api/samples/{id}/plan`. The files come
+from `samples/` and `demo/` under the working directory (`ENRICHMENT_DATA_DIR`
+overrides it); an example whose workbook is missing is not offered. The same
+buttons appear in the local launcher when it is started from the repository root.
+
 ## What a hosted demo does not have
 
 - **No persistence.** Uploads, plans, jobs and results live in memory and in a

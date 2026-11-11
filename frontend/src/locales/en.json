@@ -397,5 +397,10 @@
     "access.throttled": "Too many attempts. Wait a minute and try again.",
     "access.unreachable": "The server did not answer. Try again in a moment.",
     "error.access_required": "The access code is no longer accepted. Reload the page and enter it again.",
-    "error.access_throttled": "Too many attempts. Wait a minute and try again."
+    "error.access_throttled": "Too many attempts. Wait a minute and try again.",
+    "sample.try": "No workbook at hand? Try an example:",
+    "sample.capitals": "Capitals: distances between cities",
+    "sample.mountains": "Mountains: heights",
+    "sample.planHint": "This example comes with a prepared plan.",
+    "sample.usePlan": "Use it instead of asking the AI"
 }

@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 from starlette.staticfiles import StaticFiles
 
+from ai_data_enrichment import sample_catalog
 from ai_data_enrichment.ingestion.excel_inspector import inspect_workbook
 from ai_data_enrichment.ingestion.excel_profiler import profile_worksheet
 from ai_data_enrichment.ingestion.profiling_limits import ProfilingLimits
@@ -353,6 +354,32 @@ def create_app(
             if path is not None:
                 path.unlink(missing_ok=True)
         return Response(status_code=204)
+
+    @app.get("/api/samples")
+    async def samples():
+        """Example workbooks a visitor can try without a file of their own."""
+        return {"samples": sample_catalog.available()}
+
+    @app.get("/api/samples/{sample_id}/workbook")
+    async def sample_workbook(sample_id: str):
+        sample = sample_catalog.find(sample_id)
+        path = sample_catalog.workbook_path(sample) if sample else None
+        if path is None:
+            raise WorkspaceError("sample_not_found", "This example is not available.", 404)
+        # The browser uploads these bytes through the ordinary upload route, so an
+        # example passes exactly the same checks as a visitor's own workbook.
+        return Response(
+            await run_in_threadpool(path.read_bytes),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    @app.get("/api/samples/{sample_id}/plan")
+    async def sample_plan(sample_id: str):
+        sample = sample_catalog.find(sample_id)
+        plan = await run_in_threadpool(sample_catalog.prepared_plan, sample) if sample else None
+        if plan is None:
+            raise WorkspaceError("sample_not_found", "This example has no prepared plan.", 404)
+        return plan
 
     if static_dir is not None:
         # Mounted last: API routes win, everything else is the single-page frontend.

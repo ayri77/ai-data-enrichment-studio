@@ -304,6 +304,19 @@ export function DatasetConfiguration({
                 </p>
             </div>
             <div className="workspace-actions">
+                {w.sample?.has_plan && !w.savedPlan.trim() && (
+                    <p className="sample-plan muted">
+                        {t("sample.planHint")}{" "}
+                        <button
+                            type="button"
+                            className="inline-link"
+                            disabled={w.locked}
+                            onClick={() => void w.action(w.loadPreparedPlan)}
+                        >
+                            {t("sample.usePlan")}
+                        </button>
+                    </p>
+                )}
                 <BuildChecklist w={w} onOpenSettings={onOpenSettings} />
                 <Button
                     disabled={!w.canBuild}

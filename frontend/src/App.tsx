@@ -39,6 +39,7 @@ function Studio() {
         d.dataset?.filename,
         d.dataset?.worksheets.find((ws) => ws.name === d.sheet)?.columns,
         !!d.busy,
+        d.sample,
     );
     useEffect(() => {
         savePreference("theme", theme);

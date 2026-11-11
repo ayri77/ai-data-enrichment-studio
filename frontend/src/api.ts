@@ -42,6 +42,15 @@ let accessCode = "";
 export function setAccessCode(code: string) {
     accessCode = code;
 }
+/** A bundled example: a public workbook, its measured instruction and output. */
+export interface Sample {
+    sample_id: string;
+    filename: string;
+    instruction: string;
+    output: { name: string; column: string };
+    /** A prepared plan exists, so the example also works without the AI provider. */
+    has_plan: boolean;
+}
 export interface AccessState {
     /** True on a hosted deployment that asks for a code. */
     required: boolean;
@@ -291,6 +300,11 @@ async function configureProvider(
 export const api = {
     access: () =>
         response<AccessState>(call("/api/access", { cache: "no-store" })),
+    samples: () => response<{ samples: Sample[] }>(call("/api/samples")),
+    sampleWorkbook: async (id: string) =>
+        (await checked(call(`/api/samples/${id}/workbook`))).blob(),
+    samplePlan: (id: string) =>
+        response<EnrichmentPlan>(call(`/api/samples/${id}/plan`)),
     providerSettings: () =>
         response<ProviderReadiness>(
             call("/api/provider-settings", { cache: "no-store" }),
