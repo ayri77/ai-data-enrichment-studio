@@ -22,6 +22,13 @@ import {
     type Choices,
 } from "./reviewModel";
 
+export type Requirement =
+    | "preview"
+    | "selection"
+    | "instruction"
+    | "mapping"
+    | "consent"
+    | "provider";
 export type Workspace = "dataset" | "plan" | "execution" | "review" | "export";
 export function useWorkflow(
     preview: Preview | null,
@@ -168,16 +175,28 @@ export function useWorkflow(
               : !provider.key_present
                 ? "keyMissing"
                 : "ready";
-    const canBuild =
-        !!preview &&
-        withinBounds &&
-        mappingValid &&
-        !!instruction.trim() &&
-        (!!savedPlan.trim() ||
-            (network &&
-                (planningReadiness === "ready" ||
-                    planningReadiness === "offline"))) &&
-        !locked;
+    // One list drives both the button and the on-screen explanation of what is
+    // still missing, so the two can never disagree.
+    const requirements: { key: Requirement; met: boolean }[] = [
+        { key: "preview", met: !!preview },
+        ...(preview ? [{ key: "selection" as const, met: withinBounds }] : []),
+        { key: "instruction", met: !!instruction.trim() },
+        { key: "mapping", met: mappingValid },
+        // A saved plan is validated offline and needs neither consent nor a model.
+        ...(savedPlan.trim()
+            ? []
+            : [
+                  { key: "consent" as const, met: network },
+                  {
+                      key: "provider" as const,
+                      met:
+                          planningReadiness === "ready" ||
+                          planningReadiness === "offline",
+                  },
+              ]),
+    ];
+    const missing = requirements.filter((r) => !r.met).map((r) => r.key);
+    const canBuild = missing.length === 0 && !locked;
     async function create() {
         if (!canBuild || !preview) return;
         let supplied: EnrichmentPlan | undefined;
@@ -388,6 +407,7 @@ export function useWorkflow(
         mappingValid,
         timeoutValid,
         canBuild,
+        missing,
         canRun,
         action,
         create,
