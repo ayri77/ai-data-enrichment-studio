@@ -26,8 +26,10 @@ from tests.support.planning import (
 
 from ai_data_enrichment.capabilities.definitions import get_builtin_capabilities
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
+from ai_data_enrichment.plan_run_worker import MAX_PLAN_STEPS
 from ai_data_enrichment.planning.llm_planner import LLMPlanner, PlanGenerationError
 from ai_data_enrichment.planning.openai_client import OpenAIPlanClient
+from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy
 
 
 class RecordingClient:
@@ -73,6 +75,10 @@ def run() -> None:
         action="store_true",
         help="Save raw LLM responses and prompts (public fixtures only)",
     )
+    parser.add_argument(
+        "--output-targets",
+        help="Comma-separated target column names, as the UI sends them (e.g. distance)",
+    )
     parser.add_argument("--out", type=Path, default=Path("artifacts/planner-experiments"))
     args = parser.parse_args()
 
@@ -102,6 +108,13 @@ def run() -> None:
     )
     experiment_dir.mkdir(parents=True, exist_ok=False)
     profile = workbook_profile(args.case)
+    targets = [name.strip() for name in (args.output_targets or "").split(",") if name.strip()]
+    # With targets, mirror the UI/API planning policy; without, keep the unbound baseline.
+    policy = (
+        PlanValidationPolicy(max_steps=MAX_PLAN_STEPS, output_targets=frozenset(targets))
+        if targets
+        else None
+    )
     records: list[dict[str, object]] = []
 
     with OpenAI(timeout=45.0, max_retries=0) as api:
@@ -114,7 +127,9 @@ def run() -> None:
             )
             record: dict[str, object] = {"run": index}
             try:
-                result = planner.generate(instruction=instruction, dataset_profile=profile)
+                result = planner.generate(
+                    instruction=instruction, dataset_profile=profile, validation_policy=policy
+                )
                 record.update(
                     status=result.response.status,
                     reason=result.response.reason,
@@ -158,6 +173,7 @@ def run() -> None:
         "git_revision": source_revision(),
         "repeat": args.repeat,
         "max_repair_attempts": args.repairs,
+        "output_targets": targets or None,
         "prompt": instruction,  # Only official sample instructions, unless overridden.
         "success_count": sum(
             r.get("status") == "ready" and r.get("valid") is True for r in records

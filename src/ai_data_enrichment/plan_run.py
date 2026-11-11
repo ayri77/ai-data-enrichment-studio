@@ -90,6 +90,11 @@ class PlanBodyLimit:
         await self.app(scope, replay, send)
 
 
+def _validation_policy(output_columns: dict[str, str]) -> PlanValidationPolicy:
+    """One policy for planning and for the final draft validation."""
+    return PlanValidationPolicy(max_steps=MAX_PLAN_STEPS, output_targets=frozenset(output_columns))
+
+
 def timestamp() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -193,12 +198,13 @@ class PlanRunService:
             path, selection.sheet_name, draft["dataset_id"], selection=selection
         )
         validation = (
-            PlanValidator(
-                builtin_registry(), profile, PlanValidationPolicy(max_steps=MAX_PLAN_STEPS)
-            )
+            PlanValidator(builtin_registry(), profile, _validation_policy(draft["output_columns"]))
             .validate(plan, instruction=draft["instruction"])
             .model_dump(mode="json")
         )
+        if any(error["code"] == "OUTPUT_TARGET_MISMATCH" for error in validation["errors"]):
+            # Already reported precisely; the coordinate checks below need matching names.
+            return validation
         try:
             build_output_header_writes(
                 plan,
@@ -269,7 +275,11 @@ class PlanRunService:
                         max_output_tokens=4096,
                     )
                 generated = LLMPlanner(client=client, registry=builtin_registry()).generate(
-                    instruction=body.instruction, dataset_profile=profile
+                    instruction=body.instruction,
+                    dataset_profile=profile,
+                    # The same policy as the final validation, so its diagnostics
+                    # (step limit, requested output targets) can still be repaired.
+                    validation_policy=_validation_policy(body.output_columns),
                 )
                 plan = generated.response.plan
                 decision, reason = generated.response.status, generated.response.reason
