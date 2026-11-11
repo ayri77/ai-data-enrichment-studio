@@ -110,3 +110,49 @@ def test_hosted_entry_point_refuses_to_start_open_or_without_a_frontend(
     with TestClient(create_hosted_app()) as client:
         assert client.get("/api/access").json()["required"] is True
         assert upload(client).status_code == 401
+
+
+def test_examples_are_listed_downloadable_and_pass_the_ordinary_upload_checks(
+    site: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    granted = {"X-Access-Code": CODE}
+    with TestClient(create_app(access_code=CODE, static_dir=site)) as client:
+        # Examples are part of the protected API like everything else.
+        assert client.get("/api/samples").status_code == 401
+        listed = client.get("/api/samples", headers=granted).json()["samples"]
+        assert [s["sample_id"] for s in listed] == ["capitals", "mountains"]
+        capitals = listed[0]
+        assert capitals["filename"] == "capitals.xlsx" and capitals["has_plan"] is True
+        assert capitals["output"] == {"name": "distance", "column": "E"}
+        assert "distance" in capitals["instruction"]
+        workbook = client.get("/api/samples/capitals/workbook", headers=granted)
+        assert workbook.content == WORKBOOK
+        uploaded = client.post(
+            "/api/datasets",
+            params={"filename": capitals["filename"]},
+            content=workbook.content,
+            headers=granted,
+        ).json()
+        # The prepared plan is valid for exactly this workbook and output column.
+        plan = client.get("/api/samples/capitals/plan", headers=granted).json()
+        draft = client.post(
+            "/api/plans",
+            headers=granted,
+            json={
+                "dataset_id": uploaded["dataset_id"],
+                "sheet_name": "Sheet1",
+                "range_ref": "A1:E11",
+                "instruction": capitals["instruction"],
+                "output_columns": {capitals["output"]["name"]: capitals["output"]["column"]},
+                "plan": plan,
+            },
+        )
+        assert draft.status_code == 201 and draft.json()["validation"]["valid"] is True
+        for path in ("/api/samples/unknown/workbook", "/api/samples/unknown/plan"):
+            response = client.get(path, headers=granted)
+            assert response.status_code == 404
+            assert response.json()["error"]["code"] == "sample_not_found"
+        # An installation without the bundled files simply offers no examples.
+        monkeypatch.setenv("ENRICHMENT_DATA_DIR", str(tmp_path / "elsewhere"))
+        assert client.get("/api/samples", headers=granted).json() == {"samples": []}
+        assert client.get("/api/samples/capitals/workbook", headers=granted).status_code == 404

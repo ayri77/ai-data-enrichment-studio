@@ -10,6 +10,7 @@ import {
     type Preview,
     type ProviderReadiness,
     type Review,
+    type Sample,
 } from "./api";
 import { parseRange } from "./range";
 import { validMappings, type OutputTarget } from "./workflowModel";
@@ -36,6 +37,7 @@ export function useWorkflow(
     filename?: string,
     sheetColumns: string[] = [],
     sourceBusy = false,
+    sample: Sample | null = null,
 ) {
     const [provider, setProviderState] = useState<ProviderReadiness | null>(
         null,
@@ -106,8 +108,16 @@ export function useWorkflow(
     // The hook lives above all workspace bodies. Navigation never owns job lifetime.
     useEffect(() => {
         invalidate();
-        setInstruction("");
-        setMapping([{ mode: "existing", name: "", column: "" }]);
+        // A bundled example arrives with its instruction and output column;
+        // any other source starts empty.
+        setInstruction(sample?.instruction ?? "");
+        setMapping([
+            {
+                mode: "existing",
+                name: sample?.output.name ?? "",
+                column: sample?.output.column ?? "",
+            },
+        ]);
         setSavedPlan("");
     }, [sourceKey]);
     useEffect(() => {
@@ -201,6 +211,15 @@ export function useWorkflow(
     ];
     const missing = requirements.filter((r) => !r.met).map((r) => r.key);
     const canBuild = missing.length === 0 && !locked;
+    // Insurance for a demo: the example's prepared plan needs no AI request.
+    async function loadPreparedPlan() {
+        if (!sample?.has_plan || locked) return;
+        const prepared = await api.samplePlan(sample.sample_id);
+        if (mounted.current) {
+            invalidate();
+            setSavedPlan(JSON.stringify(prepared, null, 4));
+        }
+    }
     async function create() {
         if (!canBuild || !preview) return;
         let supplied: EnrichmentPlan | undefined;
@@ -385,6 +404,8 @@ export function useWorkflow(
         setMapping,
         savedPlan,
         setSavedPlan,
+        sample,
+        loadPreparedPlan,
         network,
         setNetwork,
         policy,

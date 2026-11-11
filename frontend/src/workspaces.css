@@ -1176,3 +1176,16 @@
 .access-gate .access-language {
     margin-top: 6px;
 }
+
+/* Bundled examples on the empty Dataset screen. */
+.sample-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 12px;
+}
+.workspace-actions > .sample-plan {
+    flex-basis: 100%;
+    font-size: 12px;
+}

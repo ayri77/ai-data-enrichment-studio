@@ -423,6 +423,57 @@ test("capitals: a chosen candidate resumes as a new audited job and fills the ro
     expect((await earlier.json()).metrics.successful_rows).toBe(1);
 });
 
+test("example: one click fills the task; the prepared plan runs without an AI request", async ({
+    page,
+}) => {
+    const planning: string[] = [];
+    page.on("request", (r) => {
+        if (r.url().endsWith("/api/plans") && r.method() === "POST")
+            planning.push(r.postData() ?? "");
+    });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Mountains: heights" }).click();
+    // Uploaded, previewed and filled in without touching a file dialog.
+    await expect(page.getByLabel("Enrichment instruction")).toHaveValue(
+        /elevation in metres of each mountain/,
+    );
+    await expect(
+        page.getByLabel("Output column 1", { exact: true }),
+    ).toHaveValue("C");
+    await expect(page.locator(".upload-description strong")).toHaveText(
+        "mountains.xlsx",
+    );
+    await page
+        .getByLabel(
+            "Allow external network requests for planning and execution",
+        )
+        .check();
+    await page
+        .getByRole("button", { name: "Use it instead of asking the AI" })
+        .click();
+    await page
+        .getByRole("button", { name: "Submit and validate plan" })
+        .click();
+    await page
+        .getByRole("button", { name: "Approve / Continue to Execution" })
+        .click();
+    // The submitted request carried the prepared plan itself.
+    expect(planning).toHaveLength(1);
+    expect(JSON.parse(planning[0]).plan.steps.length).toBeGreaterThan(0);
+    await page.getByRole("button", { name: "Start bounded run" }).click();
+    await expect(page.getByTestId("metric-total_rows")).toHaveText("10", {
+        timeout: 30_000,
+    });
+    // Removing the workbook brings the examples back.
+    await navigate(page, "Dataset");
+    await page.getByRole("button", { name: "Remove workbook" }).click();
+    await expect(
+        page.getByRole("button", {
+            name: "Capitals: distances between cities",
+        }),
+    ).toBeVisible();
+});
+
 test("invalid saved plan cannot be approved; source selection clears its draft", async ({
     page,
 }) => {

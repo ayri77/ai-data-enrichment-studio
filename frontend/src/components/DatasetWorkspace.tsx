@@ -104,6 +104,24 @@ export function DatasetWorkspace({
                             )}
                         </div>
                     </section>
+                    {!d.dataset && d.samples.length > 0 && (
+                        <div className="sample-row">
+                            <span className="muted">{t("sample.try")}</span>
+                            {d.samples.map((sample) => (
+                                <Button
+                                    key={sample.sample_id}
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={!!d.busy || workflowLocked}
+                                    onClick={() => void d.loadSample(sample)}
+                                >
+                                    {t(`sample.${sample.sample_id}`, {
+                                        defaultValue: sample.filename,
+                                    })}
+                                </Button>
+                            ))}
+                        </div>
+                    )}
                     <p
                         className="async-status"
                         role="status"

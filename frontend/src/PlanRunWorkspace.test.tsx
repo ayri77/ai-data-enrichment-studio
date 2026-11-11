@@ -27,6 +27,9 @@ vi.mock("./api", async (original) => ({
     ...(await original<typeof import("./api")>()),
     api: {
         access: vi.fn(),
+        samples: vi.fn(),
+        sampleWorkbook: vi.fn(),
+        samplePlan: vi.fn(),
         providerSettings: vi.fn(),
         configureProvider: vi.fn(),
         removeProviderKey: vi.fn(),
@@ -1301,4 +1304,69 @@ it("shows no list of missing items once a plan can be built", async () => {
     await prepare();
     expect(document.querySelector("[data-requirement]")).toBeNull();
     expect(button("ws.buildPlan")).toBeEnabled();
+});
+
+it("goes from an empty screen to a ready task with one click on an example", async () => {
+    const example = {
+        sample_id: "capitals",
+        filename: "capitals.xlsx",
+        instruction: "Calculate the distance between the two cities.",
+        output: { name: "distance", column: "E" },
+        has_plan: true,
+    };
+    vi.mocked(api.samples).mockResolvedValue({ samples: [example] });
+    vi.mocked(api.sampleWorkbook).mockResolvedValue(new Blob(["x"]));
+    vi.mocked(api.samplePlan).mockResolvedValue(draft.plan!);
+    render(<App />);
+    await userEvent.click(
+        await screen.findByRole("button", { name: i18n.t("sample.capitals") }),
+    );
+    // The example travels through the ordinary upload and preview.
+    await waitFor(() => expect(api.preview).toHaveBeenCalled());
+    const uploaded = vi.mocked(api.upload).mock.calls[0][0];
+    expect(uploaded.name).toBe("capitals.xlsx");
+    expect(api.preview).toHaveBeenCalledWith("source", "Sheet1", "A1:E11");
+    // Instruction and output column arrive filled in; consent stays the user's.
+    expect(await screen.findByLabelText("Enrichment instruction")).toHaveValue(
+        example.instruction,
+    );
+    expect(screen.getByLabelText("Output column 1")).toHaveValue("E");
+    expect(screen.getByLabelText(i18n.t("workflow.network"))).not.toBeChecked();
+    expect(
+        [...document.querySelectorAll("[data-requirement]")].map((item) =>
+            item.getAttribute("data-requirement"),
+        ),
+    ).toEqual(["consent"]);
+    expect(button("ws.buildPlan")).toBeDisabled();
+
+    // The prepared plan needs neither consent nor the AI provider.
+    await userEvent.click(
+        screen.getByRole("button", { name: i18n.t("sample.usePlan") }),
+    );
+    await waitFor(() => expect(button("workflow.submitPlan")).toBeEnabled());
+    expect(api.samplePlan).toHaveBeenCalledWith("capitals");
+    expect(document.querySelector("[data-requirement]")).toBeNull();
+    await userEvent.click(button("workflow.submitPlan"));
+    await waitFor(() => expect(api.createPlan).toHaveBeenCalled());
+    expect(vi.mocked(api.createPlan).mock.calls[0][0]).toMatchObject({
+        instruction: example.instruction,
+        output_columns: { distance: "E" },
+        plan: draft.plan,
+    });
+});
+
+it("offers no examples when the server has none, and forgets one after a manual change", async () => {
+    render(<App />);
+    await waitFor(() => expect(api.samples).toHaveBeenCalled());
+    expect(screen.queryByText(i18n.t("sample.try"))).toBeNull();
+    // A workbook of the user's own starts with an empty task, as before.
+    await userEvent.upload(
+        screen.getByLabelText("Upload Excel workbook"),
+        new File(["x"], "own.xlsx"),
+    );
+    await userEvent.click(button("previewAction"));
+    expect(await screen.findByLabelText("Enrichment instruction")).toHaveValue(
+        "",
+    );
+    expect(screen.queryByText(i18n.t("sample.planHint"))).toBeNull();
 });

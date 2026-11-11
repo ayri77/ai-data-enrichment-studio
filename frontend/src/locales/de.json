@@ -397,5 +397,10 @@
     "access.throttled": "Zu viele Versuche. Warten Sie eine Minute und versuchen Sie es erneut.",
     "access.unreachable": "Der Server hat nicht geantwortet. Versuchen Sie es gleich noch einmal.",
     "error.access_required": "Der Zugangscode wird nicht mehr akzeptiert. Laden Sie die Seite neu und geben Sie ihn erneut ein.",
-    "error.access_throttled": "Zu viele Versuche. Warten Sie eine Minute und versuchen Sie es erneut."
+    "error.access_throttled": "Zu viele Versuche. Warten Sie eine Minute und versuchen Sie es erneut.",
+    "sample.try": "Keine Arbeitsmappe zur Hand? Probieren Sie ein Beispiel:",
+    "sample.capitals": "Hauptstädte: Entfernungen zwischen Städten",
+    "sample.mountains": "Berge: Höhen",
+    "sample.planHint": "Zu diesem Beispiel gibt es einen vorbereiteten Plan.",
+    "sample.usePlan": "Ihn verwenden, ohne die KI zu fragen"
 }
