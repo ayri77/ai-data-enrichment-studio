@@ -2,7 +2,7 @@
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -17,11 +17,15 @@ from ai_data_enrichment.orchestration.excel_runner import ExcelEnrichmentRunner
 from ai_data_enrichment.orchestration.live_executor import build_live_executor
 from ai_data_enrichment.providers.http_transport import JsonTransport
 from ai_data_enrichment.providers.request_policy import ProviderRequestPolicy
+from ai_data_enrichment.resolution.resume import ResumeSelection
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy
 
 MountainPolicy = Literal["strict", "verified_only"]
 # Trusted application injection only; never supplied in an HTTP request.
-ExecutorFactory = Callable[[frozenset[str], MountainPolicy, int], JobExecutor]
+# Called as factory(capabilities, policy, max_rows); a resume additionally passes
+# resume_selections=... as a keyword.
+ExecutorFactory = Callable[..., JobExecutor]
+ResumeSelections = Mapping[tuple[str, str], ResumeSelection]
 MAX_RUN_ROWS = 20
 MAX_PLAN_STEPS = 12
 MAX_PROVIDER_REQUESTS = 400
@@ -40,10 +44,12 @@ def live_executor(
     max_rows: int,
     *,
     transport: JsonTransport | None = None,
+    resume_selections: ResumeSelections | None = None,
 ) -> JobExecutor:
     return build_live_executor(
         builtin_registry(),
         max_rows=max_rows,
+        resume_selections=resume_selections,
         audit_capitals="geocode" in capabilities,
         audit_mountains="resolve_entity" in capabilities,
         mountain_resolution_policy=policy if "resolve_entity" in capabilities else "strict",
@@ -70,6 +76,9 @@ class RunTask:
     plan: EnrichmentPlan
     output_columns: dict[str, str]
     mountain_policy: MountainPolicy
+    # Set only for a user-approved resume of an earlier job.
+    resume_selections: dict[tuple[str, str], ResumeSelection] | None = None
+    previous_job_id: str | None = None
 
 
 def execute_workbook(task: RunTask, factory: ExecutorFactory) -> None:
@@ -81,12 +90,18 @@ def execute_workbook(task: RunTask, factory: ExecutorFactory) -> None:
     try:
         if sha256(task.source_path.read_bytes()).hexdigest() != task.source_sha256:
             raise ValueError("Source changed")
+        capabilities = frozenset(step.capability for step in task.plan.steps)
         runner = ExcelEnrichmentRunner(
             registry=builtin_registry(),
-            executor=factory(
-                frozenset(step.capability for step in task.plan.steps),
-                task.mountain_policy,
-                MAX_RUN_ROWS,
+            executor=(
+                factory(
+                    capabilities,
+                    task.mountain_policy,
+                    MAX_RUN_ROWS,
+                    resume_selections=task.resume_selections,
+                )
+                if task.resume_selections
+                else factory(capabilities, task.mountain_policy, MAX_RUN_ROWS)
             ),
             max_rows=MAX_RUN_ROWS,
             validation_policy=PlanValidationPolicy(max_steps=MAX_PLAN_STEPS),
@@ -99,6 +114,7 @@ def execute_workbook(task: RunTask, factory: ExecutorFactory) -> None:
             output_columns=task.output_columns,
             dataset_id=task.dataset_id,
             job_id=task.job_id,
+            previous_job_id=task.previous_job_id,
             preserve_existing_outputs=True,
         )
         if sha256(task.source_path.read_bytes()).hexdigest() != task.source_sha256:

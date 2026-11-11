@@ -83,6 +83,8 @@ provide the dataset ID and actual worksheet/range; the range includes headers.
 | Cancel | `POST /api/jobs/{job_id}/cancel` | 202; request cancellation, poll until terminal |
 | Download | `GET /api/jobs/{job_id}/artifacts/result` | Separate enriched XLSX after successful publication |
 | Report | `GET /api/jobs/{job_id}/artifacts/report` | JSON audit for every terminal job, including stops/failures |
+| Review | `GET /api/jobs/{job_id}/review` | Ambiguous queries of a finished job, grouped once per query, with source candidates |
+| Resume | `POST /api/jobs/{job_id}/resume` | 202; a **new** job that applies the user's decisions to the same approved plan |
 
 Example draft request after uploading Capitals:
 
@@ -131,7 +133,105 @@ Operation error codes are retained; failure messages are sanitized for download.
 HTTP errors use `{"error":{"code":"...","message":"..."}}`; in particular
 `network_disabled` (403), `llm_not_configured`, `missing_api_key` (422),
 `planning_failed` (502), `approval_required`, `approval_mismatch`, `source_changed`
-and `job_busy` (409) remain distinct.
+and `job_busy` (409) remain distinct. Review adds `review_not_available` (409),
+`invalid_decision` and `no_decisions` (422).
+
+## Review and resume
+
+A job that ends in `needs_review` usually contains queries for which the source
+returned several verified candidates and the strict policy refused to guess. The
+two routes let a user settle those queries and fill the affected rows without
+re-planning. They are thin: all rules live in the existing approval and resume
+code ([resolution foundation](08-resolution-foundation.md), section 10).
+
+`GET /api/jobs/{job_id}/review` is available for `completed` and `needs_review`
+jobs and reads only the stored report:
+
+```json
+{
+  "job_id": "<job>",
+  "previous_job_id": null,
+  "affected_rows": 2,
+  "items": [
+    {
+      "operation_id": "<opaque>",
+      "capability": "geocode",
+      "provider_id": "open-meteo",
+      "query": {"name": "Kyiv", "entity_type": "city", "context": {"country_code": "UA"}},
+      "status": "needs_review",
+      "reason_codes": ["multiple_eligible_candidates"],
+      "search_complete": true,
+      "affected": [
+        {"record_id": "Sheet1!2", "row": 2, "step_id": "from_city"},
+        {"record_id": "Sheet1!6", "row": 6, "step_id": "to_city"}
+      ],
+      "candidates": [
+        {
+          "source": "open-meteo", "entity_id": "703448", "label": "Kyiv",
+          "selectable": true, "blocker": null,
+          "recommended": false, "recommendation_reasons": [],
+          "attributes": {"latitude": 50.45, "longitude": 30.52, "country_code": "UA"},
+          "evidence": []
+        }
+      ]
+    }
+  ],
+  "informational": []
+}
+```
+
+- **One item per query, not per row.** Identical queries are executed once, so
+  one decision covers every row and step that used the query (`affected`).
+- **`items`** are the queries a user can decide: status `needs_review` or
+  `incomplete_verification` with at least one selectable candidate.
+  **`informational`** lists other non-resolved queries (nothing found, provider
+  error); they are shown for context and cannot be approved.
+- **`selectable` / `blocker`.** A candidate is selectable only if the source
+  verified it and did not exclude it. Otherwise `blocker` is `unverified`,
+  `excluded` or `type`. The same function (`approval_blocker`) guards the
+  resume, so the list cannot offer something the resume would reject.
+- **`recommended`** is a suggestion, never a decision. It is set when exactly
+  one candidate is selectable (`only_selectable_candidate`), or, for cities, when
+  the existing ranked geographic strategy has a single leader
+  (`country_capital_role`, `administrative_seat_role`, `population_recorded`).
+  Equal candidates get no recommendation. Nothing is applied until the user
+  sends a decision.
+
+`POST /api/jobs/{job_id}/resume` requires a `needs_review` job and a body of
+1 or more decisions, at most one per `operation_id`:
+
+```json
+{"decisions": [
+  {"operation_id": "<opaque>", "source": "open-meteo", "entity_id": "703448"},
+  {"operation_id": "<other>"}
+]}
+```
+
+The body also takes `allow_network` and `timeout_seconds` exactly like Start; a
+live resume contacts the providers again and therefore needs `allow_network: true`.
+
+A decision with `source` and `entity_id` approves that candidate; a decision
+without both leaves the query empty on purpose. Items that are not mentioned are
+also left as they were. The server expands each approval to all affected
+records, validates it against the stored report (listed, verified, not excluded,
+same workbook hash, same plan) and starts a **new job** on the same approved
+plan. The response and the new job carry `previous_job_id` and
+`review_decisions` (both `null` for an ordinary run); the report stores them too. The first job, its workbook and its report are never
+modified, so a different choice can be made from the same starting point.
+
+During the new run each approved query is searched again and the approved
+candidate is accepted only if the source still verifies it; the decision is then
+audited as `basis: user_override`. Otherwise the operation fails with
+`APPROVAL_NOT_REVERIFIED` and the cell stays empty.
+
+Errors: `review_not_available` when the job is not in a reviewable state,
+`invalid_decision` for an unknown or duplicate operation or a candidate that
+cannot be approved, `no_decisions` when every decision leaves its query empty
+(a new job would change nothing). Messages do not contain record identifiers.
+
+Known limits: the resume recomputes the whole selected table (up to
+`MAX_RUN_ROWS`), not only the affected rows; approved results are searched once
+per affected record; the review state is in memory with the job.
 
 The uploaded workbook is stored byte-for-byte. Approval is bound to its SHA-256,
 dataset ID, worksheet/range, full plan, instruction, mapping and resolution policy.
@@ -168,7 +268,7 @@ Other CLI/library callers retain the runner's default strict collision behavior.
 - Offline demos retain their explicitly downloaded copies under ignored
   `artifacts/`; remove the printed run directory when no longer needed.
 - Run one Uvicorn process on loopback, without multiple workers. No authentication,
-  frontend redesign, DAG UI, Review/Resume, Agent R1 integration or Wikidata
+  frontend redesign, DAG UI, Agent R1 integration or Wikidata
   optimization is included. Browser E2E-0 wiring and acceptance instructions are
   documented in [23-e2e0-browser.md](23-e2e0-browser.md). Live acceptance is opt-in and
   was not required for the offline suite.
