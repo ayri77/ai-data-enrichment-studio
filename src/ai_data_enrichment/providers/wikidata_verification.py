@@ -75,6 +75,22 @@ def fetch_wikidata_candidate_entities(
     return results
 
 
+def needs_provider_verification(entity_data: object) -> bool:
+    """Whether verifying this already-fetched entity can require further requests.
+
+    A candidate without a recorded class or without a country is decided from the
+    fetched claims alone (it cannot be positively eligible), so it must not use up
+    the budget meant for candidates whose class and country have to be looked up.
+    Anything unusual counts as needing the provider, which only costs budget.
+    """
+    if not isinstance(entity_data, dict) or "missing" in entity_data:
+        return False
+    claims = entity_data.get("claims")
+    if not isinstance(claims, dict):
+        return False
+    return bool(claims.get(WIKIDATA_P_INSTANCE_OF)) and WIKIDATA_P_COUNTRY in claims
+
+
 def verify_wikidata_mountain_candidate(
     transport: JsonTransport,
     *,

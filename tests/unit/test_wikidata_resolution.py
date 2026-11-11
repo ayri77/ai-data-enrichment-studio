@@ -181,9 +181,34 @@ def test_claim_batches_do_not_hide_an_unfinished_candidate_scan(verified_only: b
     assert [len(batch) for batch in batches] == [50, 1, 1]
 
 
+def test_a_plausible_namesake_is_examined_even_when_many_unrelated_ones_come_first() -> None:
+    # Fourteen claim-less namesakes sort before the two real candidates. With a
+    # lookup budget of one, the old count-everything rule spent it on the first
+    # unrelated namesake and accepted nothing; a verified-only run would then
+    # have had no idea that a second real candidate existed.
+    unrelated = {f"Q1{i:03}": {"id": f"Q1{i:03}", "claims": {}} for i in range(14)}
+    real = {"Q513": _entity("Q513"), "Q9010": _entity("Q9010")}
+    transport = _transport(
+        [_search_hit(qid) for qid in (*unrelated, *real)], entities={**unrelated, **real}
+    )
+    outcome = WikidataMountainResolutionService(transport, max_verify_candidates=1).resolve(
+        inputs={"name": "Mount Everest", "country": "Nepal"},
+        policy=_policy(verified_only=True),
+    )
+    by_id = {c.reference.entity_id: c for c in outcome.report.candidate_set.candidates}
+    assert all(by_id[q].reason_codes == ("country_or_type_unverified",) for q in unrelated)
+    assert by_id["Q513"].verification == "verified"
+    # The budget still bounds real lookups, and says so.
+    assert by_id["Q9010"].reason_codes == ("search_match_only",)
+    assert not outcome.report.candidate_set.candidate_scan_complete
+    assert (
+        outcome.report.candidate_set.incomplete_reason == "candidate_verification_budget_exceeded"
+    )
+
+
 @pytest.mark.parametrize("verified_only", [False, True])
 @pytest.mark.parametrize("positive_count", [1, 2])
-def test_fifteen_candidates_preserve_budget_audit_under_each_policy(
+def test_candidates_decided_from_fetched_claims_never_use_the_lookup_budget(
     verified_only: bool, positive_count: int
 ) -> None:
     positives = {"Q513": _entity("Q513")}
@@ -202,17 +227,23 @@ def test_fifteen_candidates_preserve_budget_audit_under_each_policy(
     )
     candidate_set = outcome.report.candidate_set
     assert candidate_set.search_complete
-    assert not candidate_set.candidate_scan_complete
+    # Fifteen candidates exceed the 12-lookup budget in number, but the namesakes
+    # without any claims are decided locally, so every candidate was examined.
+    assert candidate_set.candidate_scan_complete
     assert not candidate_set.verification_complete
     assert candidate_set.provider_error_code is None
-    assert candidate_set.incomplete_reason == "candidate_verification_budget_exceeded"
+    assert candidate_set.incomplete_reason == "candidate_verification_incomplete"
     assert len(candidate_set.candidates) == 15
     assert sum(c.verification == "verified" for c in candidate_set.candidates) == positive_count
     assert (
         sum(c.verification == "unchecked" for c in candidate_set.candidates) == 15 - positive_count
     )
-    # The unchanged 12-candidate budget leaves exactly three candidates unattempted.
-    assert sum(c.reason_codes == ("search_match_only",) for c in candidate_set.candidates) == 3
+    # Unknown stays unknown: examined, not confirmed, and never silently dropped.
+    assert not any(c.reason_codes == ("search_match_only",) for c in candidate_set.candidates)
+    assert (
+        sum(c.reason_codes == ("country_or_type_unverified",) for c in candidate_set.candidates)
+        == 15 - positive_count
+    )
     if verified_only and positive_count == 1:
         assert outcome.operation.value == EntityRef(source="wikidata", entity_id="Q513")
         assert outcome.report.decision.basis == "verified_only"
