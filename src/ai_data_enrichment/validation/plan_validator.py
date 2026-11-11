@@ -303,8 +303,25 @@ class PlanValidator:
         step: PlanStep,
         capability: CapabilitySpec,
     ) -> list[ValidationDiagnostic]:
-        """Validate parameter names, types, and allowed values."""
+        """Validate required presence, parameter names, types, and allowed values."""
         errors: list[ValidationDiagnostic] = []
+
+        # Handlers reject a missing required parameter for every row, so report it
+        # before approval instead of accepting a plan that cannot execute.
+        for parameter_name, parameter_spec in capability.parameters.items():
+            if parameter_spec.required and parameter_name not in step.parameters:
+                errors.append(
+                    ValidationDiagnostic(
+                        code="MISSING_REQUIRED_PARAMETER",
+                        message=(
+                            f"Capability '{step.capability}' requires parameter "
+                            f"'{parameter_name}'. Allowed values: "
+                            f"{parameter_spec.allowed_values}."
+                        ),
+                        step_id=step.id,
+                        field=f"parameters.{parameter_name}",
+                    )
+                )
 
         # Current capability parameters are restricted to string choices, not free-form JSON.
         for parameter_name, parameter_value in step.parameters.items():

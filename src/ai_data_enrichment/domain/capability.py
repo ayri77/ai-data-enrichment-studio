@@ -46,12 +46,20 @@ class OutputSpec(BaseModel):
 
 
 class ParameterSpec(BaseModel):
-    """Describe an optional parameter; omission uses capability defaults."""
+    """Describe one capability parameter.
+
+    A required parameter must be supplied by every step. An optional parameter may be
+    omitted, which means it is not applied; no handler substitutes a default value.
+    """
 
     type: Literal[DataType.TEXT] = Field(description="Semantic type of the parameter")
+    required: bool = Field(
+        default=False,
+        description="True if every step must supply it; false if it may be omitted entirely",
+    )
     allowed_values: list[str] = Field(
         min_length=1,
-        description="Permitted values if provided; the parameter may be omitted entirely",
+        description="Permitted values whenever the parameter is supplied",
     )
     description: str = Field(
         min_length=1, description="Human-readable description of the parameter"

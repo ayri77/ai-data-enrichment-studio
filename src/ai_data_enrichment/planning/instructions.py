@@ -15,10 +15,12 @@ PLAN_CONTRACT_GUIDANCE = (
     '{"kind":"step_output","step_id":"producer_step"}, or '
     '{"kind":"literal","value":"explicit task constant"}. '
     "Parameters are direct JSON values matching each capability's parameter contract, "
-    "never input-reference objects. Capability parameters are optional and may be omitted "
-    "entirely from parameters; an empty parameters object is valid. allowed_values governs "
-    "values only if provided, not mandatory presence. Never use null or unsupported values "
-    "to disable optional parameters. Text parameters require strings from allowed_values. "
+    "never input-reference objects. Each parameter contract states required=true or "
+    "required=false. Supply every required parameter. An optional parameter may be omitted "
+    "entirely; an empty parameters object is valid when no parameter is required. "
+    "allowed_values governs the value whenever a parameter is supplied. Never use null or "
+    "unsupported values to disable optional parameters. Text parameters require strings "
+    "from allowed_values. "
     "For literal-city geocoding, parameters={} is valid; omit required_role unless the user "
     "explicitly requests country-capital status. "
     "Do not add restrictions that contradict explicit user requirements. "

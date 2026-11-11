@@ -31,6 +31,7 @@ def test_optional_parameter_metadata_and_prompt_permit_omission() -> None:
     geocode = registry.get("geocode")
     assert geocode
     assert geocode.parameters["required_role"].allowed_values == ["country_capital"]
+    assert geocode.parameters["required_role"].required is False
     assert "Omit this parameter" in geocode.parameters["required_role"].description
     client = ScriptedPlanClient(ready_response())
     result = LLMPlanner(client=client, registry=registry).generate(
@@ -40,9 +41,18 @@ def test_optional_parameter_metadata_and_prompt_permit_omission() -> None:
     assert result.response.plan
     assert all(s.parameters == {} for s in result.response.plan.steps[:2])
     prompt = client.calls[0][0][0]["content"]
+    # The model reads the same flag from the capability contracts in its context.
+    context = json.loads(client.calls[0][0][1]["content"])
+    flags = {
+        c["id"]: {n: p["required"] for n, p in c["parameters"].items()}
+        for c in context["capabilities"]
+    }
+    assert flags["geocode"] == {"required_role": False}
+    assert flags["geodesic_distance"] == {"unit": True}
     for text in (
-        "may be omitted entirely",
-        "allowed_values governs values only if provided",
+        "Supply every required parameter",
+        "An optional parameter may be omitted entirely",
+        "allowed_values governs the value whenever a parameter is supplied",
         "Never use null or unsupported values",
         "parameters={} is valid",
         "Model assumptions are unverified claims",

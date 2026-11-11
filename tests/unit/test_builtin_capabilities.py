@@ -94,6 +94,7 @@ def test_builtin_capabilities_include_resolve_entity() -> None:
     assert resolve_entity_capability.parameters == {
         "entity_type": ParameterSpec(
             type=DataType.TEXT,
+            required=True,
             allowed_values=["mountain"],
             description="Entity type",
         ),
@@ -120,6 +121,7 @@ def test_builtin_capabilities_include_lookup_property() -> None:
     assert lookup_property_capability.parameters == {
         "property": ParameterSpec(
             type=DataType.TEXT,
+            required=True,
             allowed_values=["elevation"],
             description="Property",
         ),
@@ -160,6 +162,7 @@ def test_builtin_capabilities_include_geodesic_distance() -> None:
     assert geodesic_distance_capability.parameters == {
         "unit": ParameterSpec(
             type=DataType.TEXT,
+            required=True,
             allowed_values=["km"],
             description="Distance unit",
         ),
@@ -184,3 +187,20 @@ def test_geodesic_distance_description_explains_distance_semantics() -> None:
     assert "surface" in description
     assert "shortest" in description
     assert "road" in description
+
+
+def test_only_parameters_that_handlers_demand_are_declared_required() -> None:
+    """The contract must tell the planner the truth about mandatory parameters."""
+    required = {
+        (capability.id, name)
+        for capability in get_builtin_capabilities()
+        for name, parameter in capability.parameters.items()
+        if parameter.required
+    }
+    assert required == {
+        ("resolve_entity", "entity_type"),
+        ("lookup_property", "property"),
+        ("geodesic_distance", "unit"),
+    }
+    geocode = next(c for c in get_builtin_capabilities() if c.id == "geocode")
+    assert not geocode.parameters["required_role"].required
