@@ -16,12 +16,62 @@ import { Button } from "./ui/button";
 import { ProviderSettings } from "./ProviderSettings";
 import { PlanGraph } from "./PlanGraph";
 
+/** What is still missing before a plan can be built, next to the button itself. */
+function BuildChecklist({
+    w,
+    onOpenSettings,
+}: {
+    w: Workflow;
+    onOpenSettings?: () => void;
+}) {
+    const { t } = useTranslation();
+    if (!w.missing.length) return null;
+    const text: Record<(typeof w.missing)[number], string> = {
+        preview: t("ws.need.preview"),
+        selection: t("workflow.selectionLimit"),
+        instruction: t("ws.need.instruction"),
+        mapping: t("ws.need.mapping"),
+        consent: t("provider.consentMissing"),
+        provider: t(`provider.${w.planningReadiness}`),
+    };
+    const settings =
+        w.planningReadiness === "modelMissing" ||
+        w.planningReadiness === "keyMissing" ||
+        w.planningReadiness === "unavailable";
+    return (
+        <div className="build-checklist" role="status">
+            <strong>{t("ws.need.title")}</strong>
+            <ul>
+                {w.missing.map((key) => (
+                    <li key={key} data-requirement={key}>
+                        {text[key]}
+                        {key === "provider" && settings && onOpenSettings && (
+                            <>
+                                {" "}
+                                <button
+                                    type="button"
+                                    className="inline-link"
+                                    onClick={onOpenSettings}
+                                >
+                                    {t("ws.need.openSettings")}
+                                </button>
+                            </>
+                        )}
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+}
+
 export function DatasetConfiguration({
     workflow: w,
     preview,
+    onOpenSettings,
 }: {
     workflow: Workflow;
     preview: Preview | null;
+    onOpenSettings?: () => void;
 }) {
     const { t } = useTranslation();
     const first = preview
@@ -219,17 +269,13 @@ export function DatasetConfiguration({
                     </details>
                     <AdvancedControls w={w} />
                 </fieldset>
-                {preview && !w.withinBounds && (
-                    <p role="alert">{t("workflow.selectionLimit")}</p>
-                )}
-                {!w.savedPlan.trim() && (
-                    <>
+                {!w.savedPlan.trim() &&
+                    (w.planningReadiness === "ready" ||
+                        w.planningReadiness === "offline") && (
                         <p role="status">
                             {t(`provider.${w.planningReadiness}`)}
                         </p>
-                        {!w.network && <p>{t("provider.consentMissing")}</p>}
-                    </>
-                )}
+                    )}
                 <p className="muted">
                     {w.savedPlan.trim()
                         ? t("ws.offlineValidation")
@@ -237,6 +283,7 @@ export function DatasetConfiguration({
                 </p>
             </div>
             <div className="workspace-actions">
+                <BuildChecklist w={w} onOpenSettings={onOpenSettings} />
                 <Button
                     disabled={!w.canBuild}
                     onClick={() => void w.action(w.create)}

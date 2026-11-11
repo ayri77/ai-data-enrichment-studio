@@ -624,7 +624,9 @@ it("blocks the backend row envelope and rejects malformed supplied JSON before A
     const view = render(<App />);
     await prepare();
     expect(button("ws.buildPlan")).toBeDisabled();
-    expect(screen.getByRole("alert")).toHaveTextContent("1–20");
+    expect(
+        document.querySelector('[data-requirement="selection"]'),
+    ).toHaveTextContent("1–20");
     view.unmount();
     render(<App />);
     await prepare();
@@ -1234,4 +1236,60 @@ it("shows results with source values, readable numbers, reasons, filters and det
         ).toBeInTheDocument();
         expect(cells()).toEqual(["Kyiv", "Lviv", "Odesa", "Xyz"]);
     }
+});
+
+it("says next to the button what is still missing, and opens settings for a missing model", async () => {
+    // A key from the environment with an unsupported model: ready except for the model.
+    vi.mocked(api.providerSettings).mockResolvedValue({
+        provider: "openai",
+        supported_models: [{ id: "gpt-4.1-mini", label: "gpt-4.1-mini" }],
+        model: null,
+        key_present: true,
+        server_network_allowed: true,
+        live_ready: false,
+        planning_mode: "live",
+        configuration_enabled: true,
+        storage: "process_memory",
+    });
+    render(<App />);
+    const missing = () =>
+        [...document.querySelectorAll("[data-requirement]")].map((item) =>
+            item.getAttribute("data-requirement"),
+        );
+    await waitFor(() =>
+        expect(missing()).toEqual([
+            "preview",
+            "instruction",
+            "mapping",
+            "consent",
+            "provider",
+        ]),
+    );
+    expect(button("ws.buildPlan")).toBeDisabled();
+    // Each completed step leaves the list; the model is what remains.
+    await prepare();
+    expect(missing()).toEqual(["provider"]);
+    expect(button("ws.buildPlan")).toBeDisabled();
+    const model = document.querySelector('[data-requirement="provider"]')!;
+    expect(model).toHaveTextContent(i18n.t("provider.modelMissing"));
+    for (const locale of ["uk", "de", "en"] as const) {
+        await act(() => i18n.changeLanguage(locale));
+        expect(model).toHaveTextContent(
+            messages[locale]["provider.modelMissing"],
+        );
+    }
+    await userEvent.click(
+        within(model as HTMLElement).getByRole("button", {
+            name: i18n.t("ws.need.openSettings"),
+        }),
+    );
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByLabelText(i18n.t("provider.model"))).toBeInTheDocument();
+});
+
+it("shows no list of missing items once a plan can be built", async () => {
+    render(<App />);
+    await prepare();
+    expect(document.querySelector("[data-requirement]")).toBeNull();
+    expect(button("ws.buildPlan")).toBeEnabled();
 });

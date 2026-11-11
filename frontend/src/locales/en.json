@@ -274,11 +274,11 @@
     "provider.loading": "Checking provider readiness…",
     "provider.unavailable": "Cannot check provider readiness. Retry in Provider / Model settings.",
     "provider.networkDisabled": "Server network access is disabled. Restart the local launcher with --allow-network to enable live planning.",
-    "provider.modelMissing": "Choose a planning model in Provider / Model settings.",
+    "provider.modelMissing": "No supported planning model is selected. Choose one in Provider / Model settings.",
     "provider.keyMissing": "No API key configured. Add one in Provider / Model settings.",
     "provider.ready": "Live planning configuration is ready. Credentials and model access are verified only when generating a plan.",
     "provider.offline": "Injected offline planning responses are active. This is not a live OpenAI request.",
-    "provider.consentMissing": "Enable external-request consent in Dataset before generating a plan.",
+    "provider.consentMissing": "Tick “Allow external network requests for planning and execution”.",
     "provider.keyStatus": "Backend API key",
     "provider.keyPresent": "Key configured (never returned to the browser)",
     "provider.serverGate": "Server network access",
@@ -380,5 +380,10 @@
     "results.stats.min": "min {{value}}",
     "results.stats.max": "max {{value}}",
     "results.stats.mean": "average {{value}}",
-    "review.blockedCount": "Other matches that cannot be chosen: {{count}}"
+    "review.blockedCount": "Other matches that cannot be chosen: {{count}}",
+    "ws.need.title": "Before you can build a plan:",
+    "ws.need.preview": "Choose the worksheet and range, then press “Preview selection”.",
+    "ws.need.instruction": "Write the instruction: what should be filled in.",
+    "ws.need.mapping": "Choose the column to fill.",
+    "ws.need.openSettings": "Open settings"
 }

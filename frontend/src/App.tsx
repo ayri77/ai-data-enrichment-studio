@@ -112,7 +112,11 @@ export default function App() {
             )}
             <div className="workspace-body" aria-busy={w.busy}>
                 {w.workspace === "dataset" && (
-                    <DatasetWorkspace d={d} workflow={w} />
+                    <DatasetWorkspace
+                        d={d}
+                        workflow={w}
+                        onOpenSettings={() => setDiagnostics("settings")}
+                    />
                 )}
                 {w.workspace === "plan" && <PlanWorkspace w={w} />}
                 {w.workspace === "execution" && <ExecutionWorkspace w={w} />}

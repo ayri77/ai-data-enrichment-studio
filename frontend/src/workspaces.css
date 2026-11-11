@@ -1091,3 +1091,24 @@
     margin-top: 6px;
     font-size: 11px;
 }
+
+/* What is still missing before the primary action becomes available. */
+.build-checklist {
+    flex-basis: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--studio-border);
+    border-left: 3px solid var(--studio-unresolved);
+    border-radius: 5px;
+    background: var(--studio-surface0);
+    font-size: 12px;
+}
+.build-checklist strong {
+    font-weight: 500;
+}
+.workspace-body .build-checklist ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}

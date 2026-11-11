@@ -16,9 +16,11 @@ import type { Workflow } from "../useWorkflow";
 export function DatasetWorkspace({
     d,
     workflow,
+    onOpenSettings,
 }: {
     d: ReturnType<typeof useDataset>;
     workflow: Workflow;
+    onOpenSettings?: () => void;
 }) {
     const { t } = useTranslation();
     const [dragging, setDragging] = useState(false);
@@ -152,7 +154,11 @@ export function DatasetWorkspace({
                     hasWorkbook={!!d.dataset}
                 />
             </div>
-            <DatasetConfiguration workflow={workflow} preview={d.preview} />
+            <DatasetConfiguration
+                workflow={workflow}
+                preview={d.preview}
+                onOpenSettings={onOpenSettings}
+            />
         </div>
     );
 }

@@ -70,7 +70,11 @@ and unexpected errors log only their exception type, without exception text or
 traceback that could contain credentials.
 
 Environment `OPENAI_MODEL` (supported identifiers only) and `OPENAI_API_KEY` are
-optional **startup snapshots**. Apply replaces runtime values; an empty input
+optional **startup snapshots**. To avoid entering the key after every restart, keep both
+in the ignored `.env` and start with `uv run --locked --env-file .env python -m
+ai_data_enrichment.local_server --allow-network`. An `OPENAI_MODEL` outside the
+supported list is not applied: the model stays unset, Build Plan stays disabled
+and the Dataset screen says that a supported model must be chosen. Apply replaces runtime values; an empty input
 keeps the current key. Remove clears the runtime key without falling back to the
 environment. Restart restores environment defaults if they still exist; otherwise
 model/key are absent. Closing/reloading the browser does not clear backend memory.

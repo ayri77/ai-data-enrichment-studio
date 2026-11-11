@@ -274,11 +274,11 @@
     "provider.loading": "Anbieterbereitschaft wird geprüft…",
     "provider.unavailable": "Bereitschaft konnte nicht geprüft werden. In den Anbieter- / Modelleinstellungen erneut versuchen.",
     "provider.networkDisabled": "Der Netzwerkzugriff des Servers ist deaktiviert. Den lokalen Server mit --allow-network neu starten, um Live-Planung zu aktivieren.",
-    "provider.modelMissing": "Ein Planungsmodell in den Anbieter- / Modelleinstellungen auswählen.",
+    "provider.modelMissing": "Kein unterstütztes Planungsmodell gewählt. Wählen Sie eines unter „Anbieter- / Modelleinstellungen“.",
     "provider.keyMissing": "Kein API-Schlüssel konfiguriert. In den Anbieter- / Modelleinstellungen hinzufügen.",
     "provider.ready": "Die Konfiguration für Live-Planung ist bereit. Schlüssel und Modellzugriff werden erst beim Erstellen eines Plans geprüft.",
     "provider.offline": "Injizierte Offline-Planungsantworten sind aktiv. Dies ist keine Live-Anfrage an OpenAI.",
-    "provider.consentMissing": "Vor dem Erstellen eines Plans unter Daten externen Anfragen zustimmen.",
+    "provider.consentMissing": "„Externe Netzwerkanfragen für Planung und Ausführung erlauben“ aktivieren.",
     "provider.keyStatus": "API-Schlüssel im Backend",
     "provider.keyPresent": "Schlüssel konfiguriert (wird nie an den Browser zurückgegeben)",
     "provider.serverGate": "Netzwerkzugriff des Servers",
@@ -380,5 +380,10 @@
     "results.stats.min": "Min. {{value}}",
     "results.stats.max": "Max. {{value}}",
     "results.stats.mean": "Durchschnitt {{value}}",
-    "review.blockedCount": "Weitere, nicht wählbare Treffer: {{count}}"
+    "review.blockedCount": "Weitere, nicht wählbare Treffer: {{count}}",
+    "ws.need.title": "Für den Plan fehlt noch:",
+    "ws.need.preview": "Tabellenblatt und Bereich wählen, dann „Auswahl anzeigen“ drücken.",
+    "ws.need.instruction": "Anweisung schreiben: Was soll ausgefüllt werden?",
+    "ws.need.mapping": "Die auszufüllende Spalte wählen.",
+    "ws.need.openSettings": "Einstellungen öffnen"
 }
