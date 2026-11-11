@@ -167,7 +167,10 @@ def test_delete_unknown_ids_capacity_and_shutdown_cleanup(monkeypatch):
     with TestClient(workspace_app) as client:
         directory = workspace_app.state.directory
         dataset_id = upload(client, workbook_bytes()).json()["dataset_id"]
-        assert upload(client, workbook_bytes()).status_code == 409
+        # At the limit the oldest workbook gives way and its file is removed.
+        newer = upload(client, workbook_bytes())
+        assert newer.status_code == 201
+        assert [p.stem for p in directory.glob("*.xlsx")] == [newer.json()["dataset_id"]]
         assert client.delete(f"/api/datasets/{dataset_id}").status_code == 204
         response = client.post(
             f"/api/datasets/{dataset_id}/preview",

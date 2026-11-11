@@ -251,6 +251,13 @@ Other CLI/library callers retain the runner's default strict collision behavior.
   In-process identities plus one spawned worker per run, with polling.
 - Up to 20 selected data rows, 12 DAG steps, columns A:CV, 64 KiB serialized plan
   request, 32 retained plans and 16 retained jobs. Existing upload limits remain.
+- Retention: at most 8 workbooks, 32 plans and 16 jobs are kept. When a limit is
+  reached the oldest finished item gives way instead of asking for a restart: the
+  oldest finished job with its artifacts; the oldest plan without a running job;
+  the oldest workbook together with its plans and finished jobs. Nothing bound to
+  a running job is ever dropped; only if nothing can be dropped does the request
+  return `workspace_full` (409). A dropped plan, job or artifact answers 404, so
+  download anything that must outlive later runs.
 - Wall time: 180 seconds by default, configurable per run from 1 to 300 seconds,
   including worker startup. Each provider has 400 HTTP attempts (including retries),
   240 operation starts and 15 seconds of total rate/retry waiting. Existing bounded

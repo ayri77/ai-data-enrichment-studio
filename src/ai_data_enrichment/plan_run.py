@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
+from shutil import rmtree
 from time import monotonic
 from typing import Literal
 from uuid import uuid4
@@ -170,11 +171,53 @@ class PlanRunService:
         self.jobs: dict[str, dict] = {}
         self.tasks: dict[str, asyncio.Task] = {}
         self.cancel_events: dict[str, asyncio.Event] = {}
+        self.directories: dict[str, Path] = {}
         self.router = APIRouter(prefix="/api")
         self._routes()
 
     def dataset_in_use(self, dataset_id: str) -> bool:
         return any(p["dataset_id"] == dataset_id for p in self.plans.values())
+
+    # Retention: a long-running process (a hosted demo, a local session with many
+    # runs) must not end in "restart to continue". When a limit is reached the
+    # oldest finished item is dropped. Nothing with a running job is ever dropped.
+    def _active(self, **match: str) -> bool:
+        return any(
+            job["status"] not in TERMINAL and all(job[k] == v for k, v in match.items())
+            for job in self.jobs.values()
+        )
+
+    def _drop_job(self, job_id: str) -> None:
+        del self.jobs[job_id]
+        self.tasks.pop(job_id, None)
+        self.cancel_events.pop(job_id, None)
+        rmtree(self.directories.pop(job_id), ignore_errors=True)
+
+    def make_room_for_job(self) -> None:
+        if len(self.jobs) < MAX_JOBS:
+            return
+        oldest = next((i for i, job in self.jobs.items() if job["status"] in TERMINAL), None)
+        if oldest is None:
+            raise WorkspaceError("workspace_full", "Wait for the current run to finish.", 409)
+        self._drop_job(oldest)
+
+    def make_room_for_plan(self) -> None:
+        if len(self.plans) < MAX_PLANS:
+            return
+        oldest = next((i for i in self.plans if not self._active(plan_id=i)), None)
+        if oldest is None:
+            raise WorkspaceError("workspace_full", "Wait for the current run to finish.", 409)
+        del self.plans[oldest]
+
+    def release_dataset(self, dataset_id: str) -> bool:
+        """Forget plans and finished jobs bound to a dataset; False while it is running."""
+        if self._active(dataset_id=dataset_id):
+            return False
+        for job_id in [i for i, job in self.jobs.items() if job["dataset_id"] == dataset_id]:
+            self._drop_job(job_id)
+        for plan_id in [i for i, p in self.plans.items() if p["dataset_id"] == dataset_id]:
+            del self.plans[plan_id]
+        return True
 
     def network_gate(self, requested: bool) -> None:
         if not requested or not self.settings.allow_network:
@@ -343,8 +386,7 @@ class PlanRunService:
         @router.post("/plans", status_code=201)
         async def create(body: PlanRequest):
             async with self.lock:
-                if len(self.plans) >= MAX_PLANS:
-                    raise WorkspaceError("workspace_full", "Restart to clear retained plans.", 409)
+                self.make_room_for_plan()
                 return await run_in_threadpool(self.create_plan, body)
 
         @router.get("/plans/{plan_id}")
@@ -474,10 +516,9 @@ class PlanRunService:
         source = self.source(draft)
         if self.offline_executor_factory is None:
             self.network_gate(body.allow_network)
-        if len(self.jobs) >= MAX_JOBS:
-            raise WorkspaceError("workspace_full", "Restart to clear retained jobs.", 409)
         if any(job["status"] not in TERMINAL for job in self.jobs.values()):
             raise WorkspaceError("job_busy", "Wait for or cancel the current run.", 409)
+        self.make_room_for_job()
         job_id = uuid4().hex
         directory = source.parent / job_id
         directory.mkdir()
@@ -513,6 +554,7 @@ class PlanRunService:
             previous_job_id=previous_job_id,
         )
         self.jobs[job_id] = job
+        self.directories[job_id] = directory
         self.cancel_events[job_id] = asyncio.Event()
         self.tasks[job_id] = asyncio.create_task(self.supervise(task, draft, job))
         return dict(job)
