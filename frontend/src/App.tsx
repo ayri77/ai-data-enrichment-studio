@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { SlidersHorizontal, Activity } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import "./i18n";
+import { AccessBoundary } from "./components/AccessBoundary";
 import { StudioShell } from "./components/StudioShell";
 import { DatasetWorkspace } from "./components/DatasetWorkspace";
 import {
@@ -17,6 +18,14 @@ import { useDataset } from "./useDataset";
 import { useWorkflow, type Workspace } from "./useWorkflow";
 
 export default function App() {
+    return (
+        <AccessBoundary>
+            <Studio />
+        </AccessBoundary>
+    );
+}
+
+function Studio() {
     const { t, i18n } = useTranslation();
     const [theme, setTheme] = useState(initialTheme);
     const [diagnostics, setDiagnostics] = useState<

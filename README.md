@@ -461,6 +461,13 @@ and the final plan per run) to the ignored `artifacts/planner-experiments/`.
 Compare models or code changes by the share of valid `ready` plans, not by a
 single run.
 
+### Hosted demo
+
+A public demo runs as one process behind a shared access code, with the provider
+key taken from the environment. See [docs/27-hosted-demo.md](docs/27-hosted-demo.md)
+for the Docker image, the Render blueprint (`render.yaml`) and the limits of a
+hosted instance.
+
 ### Live resolution diagnostics (developer tool)
 
 `scripts/experiment_resolution.py` shows why each mountain name resolved, or

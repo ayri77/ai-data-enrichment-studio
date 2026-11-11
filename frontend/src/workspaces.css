@@ -1115,3 +1115,64 @@
     flex-direction: column;
     gap: 3px;
 }
+
+/* Hosted demo: the studio stays hidden until the access check has answered. */
+.access-boundary {
+    display: contents;
+}
+.access-boundary[data-access="checking"] {
+    visibility: hidden;
+}
+.access-gate {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: var(--studio-surface0);
+    color: var(--studio-text);
+}
+.access-gate form {
+    width: min(380px, 100%);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 28px;
+    border: 1px solid var(--studio-border);
+    border-radius: 8px;
+    background: var(--studio-surface1);
+}
+.access-gate svg {
+    width: 22px;
+    height: 22px;
+    color: var(--studio-accent);
+}
+.access-gate h1 {
+    font-size: var(--studio-font-heading);
+}
+.access-gate p {
+    color: var(--studio-muted);
+    font-size: var(--studio-font-body);
+}
+.access-gate [role="alert"] {
+    color: var(--studio-danger);
+}
+.access-gate label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--studio-muted);
+}
+.access-gate input,
+.access-gate select {
+    min-height: 36px;
+    padding: 6px 10px;
+    border: 1px solid var(--studio-control-border);
+    border-radius: 5px;
+    background: var(--studio-surface2, var(--studio-surface0));
+    color: var(--studio-text);
+    font: inherit;
+}
+.access-gate .access-language {
+    margin-top: 6px;
+}
