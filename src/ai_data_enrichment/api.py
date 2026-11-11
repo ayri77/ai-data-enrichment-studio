@@ -2,10 +2,13 @@
 
 import asyncio
 import logging
+from collections import deque
 from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
+from hmac import compare_digest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from time import monotonic
 from uuid import uuid4
 from xml.etree.ElementTree import ParseError
 from zipfile import ZipFile
@@ -17,6 +20,7 @@ from fastapi.responses import JSONResponse, Response
 from openpyxl.utils.cell import coordinate_to_tuple
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
+from starlette.staticfiles import StaticFiles
 
 from ai_data_enrichment.ingestion.excel_inspector import inspect_workbook
 from ai_data_enrichment.ingestion.excel_profiler import profile_worksheet
@@ -34,6 +38,11 @@ MAX_ROWS = 5001  # Includes the header.
 MAX_COLUMNS = 100
 MAX_CELLS = 100_000
 MAX_DATASETS = 8
+# Hosted access code: unauthenticated paths, and limits on wrong-code attempts.
+ACCESS_OPEN_PATHS = frozenset({"/api/health", "/api/access"})
+ACCESS_MAX_FAILURES = 20
+ACCESS_WINDOW_SECONDS = 60.0
+ACCESS_FAILURE_DELAY_SECONDS = 0.4
 PREVIEW_LIMITS = ProfilingLimits()  # Shared defaults: 5 rows, 200 chars, 12 KB.
 logger = logging.getLogger(__name__)
 
@@ -147,8 +156,15 @@ def create_app(
     local_browser_configuration: bool = False,
     offline_plan_client: PlanCompletionClient | None = None,
     offline_executor_factory: ExecutorFactory | None = None,
+    access_code: str | None = None,
+    static_dir: Path | None = None,
 ) -> FastAPI:
-    """Create an isolated workspace whose uploads are removed on shutdown."""
+    """Create an isolated workspace whose uploads are removed on shutdown.
+
+    `access_code` protects every API route of a publicly reachable deployment;
+    `static_dir` serves the built frontend from the same origin. Both are unset
+    for the local launcher.
+    """
     datasets: dict[str, Path] = {}
     lock = asyncio.Lock()
     settings = settings or PlanRunSettings.from_environment()
@@ -197,6 +213,55 @@ def create_app(
         if request.url.path.startswith("/api/provider-settings"):
             response.headers["Cache-Control"] = "no-store"
         return response
+
+    failed_attempts: deque[float] = deque()
+
+    def _granted(request: Request) -> bool:
+        if access_code is None:
+            return True
+        offered = request.headers.get("x-access-code", "")
+        return compare_digest(offered.encode(), access_code.encode())
+
+    async def _refuse(request: Request) -> JSONResponse | None:
+        """Return a refusal for a request without the access code, else None.
+
+        A wrong code is slowed down and counted, so the code cannot be guessed
+        by rapid retries; a missing code is simply refused.
+        """
+        if _granted(request):
+            return None
+        now = monotonic()
+        while failed_attempts and now - failed_attempts[0] > ACCESS_WINDOW_SECONDS:
+            failed_attempts.popleft()
+        if len(failed_attempts) >= ACCESS_MAX_FAILURES:
+            return JSONResponse(
+                {"error": {"code": "access_throttled", "message": "Too many attempts. Wait."}},
+                status_code=429,
+            )
+        if request.headers.get("x-access-code"):
+            failed_attempts.append(now)
+            await asyncio.sleep(ACCESS_FAILURE_DELAY_SECONDS)
+        return JSONResponse(
+            {"error": {"code": "access_required", "message": "Enter the access code."}},
+            status_code=401,
+        )
+
+    @app.middleware("http")
+    async def require_access_code(request: Request, call_next):
+        path = request.url.path
+        if path.startswith("/api/") and path not in ACCESS_OPEN_PATHS:
+            refusal = await _refuse(request)
+            if refusal is not None:
+                return refusal
+        return await call_next(request)
+
+    @app.get("/api/access")
+    async def access(request: Request):
+        """Tell the frontend whether a code is needed and whether the offered one works."""
+        refusal = await _refuse(request) if request.headers.get("x-access-code") else None
+        if refusal is not None and refusal.status_code == 429:
+            return refusal
+        return {"required": access_code is not None, "granted": _granted(request)}
 
     @app.exception_handler(WorkspaceError)
     async def workspace_error(_request: Request, exc: WorkspaceError):
@@ -288,6 +353,10 @@ def create_app(
             if path is not None:
                 path.unlink(missing_ok=True)
         return Response(status_code=204)
+
+    if static_dir is not None:
+        # Mounted last: API routes win, everything else is the single-page frontend.
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend")
 
     return app
 

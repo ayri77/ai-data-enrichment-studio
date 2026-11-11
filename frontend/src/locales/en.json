@@ -388,5 +388,14 @@
     "ws.need.openSettings": "Open settings",
     "workflow.policyHint": "Matters when other matches with the same name could not be confirmed. Values filled in automatically are marked in the results.",
     "results.automatic": "Filled in automatically: the only confirmed match for “{{names}}”; other matches were not confirmed.",
-    "results.filter.automatic": "Automatic ({{count}})"
+    "results.filter.automatic": "Automatic ({{count}})",
+    "access.title": "Access code",
+    "access.hint": "This demo is protected. Enter the access code you were given.",
+    "access.label": "Access code",
+    "access.submit": "Continue",
+    "access.wrong": "That code is not correct.",
+    "access.throttled": "Too many attempts. Wait a minute and try again.",
+    "access.unreachable": "The server did not answer. Try again in a moment.",
+    "error.access_required": "The access code is no longer accepted. Reload the page and enter it again.",
+    "error.access_throttled": "Too many attempts. Wait a minute and try again."
 }

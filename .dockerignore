@@ -1,0 +1,19 @@
+# Keep the build context small and free of local secrets and artifacts.
+.git
+.github
+.venv
+.env
+.env.*
+!.env.example
+artifacts
+**/__pycache__
+.pytest_cache
+.ruff_cache
+frontend/node_modules
+frontend/dist
+frontend/test-results
+frontend/playwright-report
+tests
+docs
+benchmarks
+scripts

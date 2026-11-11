@@ -36,6 +36,29 @@ export class WorkspaceApiError extends Error {
         this.name = "WorkspaceApiError";
     }
 }
+// A hosted demo protects its API with a shared access code. It is held in
+// memory for the page and sent with every request; locally it stays empty.
+let accessCode = "";
+export function setAccessCode(code: string) {
+    accessCode = code;
+}
+export interface AccessState {
+    /** True on a hosted deployment that asks for a code. */
+    required: boolean;
+    /** True when no code is needed or the one sent with the request is right. */
+    granted: boolean;
+}
+function call(input: string, init?: RequestInit) {
+    if (!accessCode)
+        return init === undefined ? fetch(input) : fetch(input, init);
+    return fetch(input, {
+        ...init,
+        headers: {
+            ...(init?.headers as Record<string, string> | undefined),
+            "X-Access-Code": accessCode,
+        },
+    });
+}
 async function checked(request: Promise<Response>): Promise<Response> {
     let result: Response;
     try {
@@ -64,7 +87,7 @@ async function response<T>(request: Promise<Response>): Promise<T> {
 }
 function post<T>(path: string, body?: unknown) {
     return response<T>(
-        fetch(path, {
+        call(path, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -241,7 +264,7 @@ async function configureProvider(
 ): Promise<ProviderReadiness> {
     try {
         return await response<ProviderReadiness>(
-            fetch(
+            call(
                 method === "DELETE"
                     ? "/api/provider-settings/key"
                     : "/api/provider-settings",
@@ -266,15 +289,17 @@ async function configureProvider(
     }
 }
 export const api = {
+    access: () =>
+        response<AccessState>(call("/api/access", { cache: "no-store" })),
     providerSettings: () =>
         response<ProviderReadiness>(
-            fetch("/api/provider-settings", { cache: "no-store" }),
+            call("/api/provider-settings", { cache: "no-store" }),
         ),
     configureProvider: (body: { model: string | null; api_key?: string }) =>
         configureProvider("PUT", body),
     removeProviderKey: () => configureProvider("DELETE"),
     createPlan: (body: PlanRequest) => post<PlanDraft>("/api/plans", body),
-    getPlan: (id: string) => response<PlanDraft>(fetch(`/api/plans/${id}`)),
+    getPlan: (id: string) => response<PlanDraft>(call(`/api/plans/${id}`)),
     validatePlan: (id: string) => post<Validation>(`/api/plans/${id}/validate`),
     approvePlan: (id: string, fingerprint: string) =>
         post<PlanDraft>(`/api/plans/${id}/approve`, {
@@ -284,10 +309,10 @@ export const api = {
     startRun: (id: string, allow_network: boolean, timeout_seconds: number) =>
         post<Job>(`/api/plans/${id}/runs`, { allow_network, timeout_seconds }),
     getJob: (id: string, signal?: AbortSignal) =>
-        response<Job>(fetch(`/api/jobs/${id}`, { signal })),
+        response<Job>(call(`/api/jobs/${id}`, { signal })),
     cancelJob: (id: string) => post<Job>(`/api/jobs/${id}/cancel`),
     getReview: (id: string, signal?: AbortSignal) =>
-        response<Review>(fetch(`/api/jobs/${id}/review`, { signal })),
+        response<Review>(call(`/api/jobs/${id}/review`, { signal })),
     resumeJob: (
         id: string,
         decisions: ReviewDecision[],
@@ -301,13 +326,13 @@ export const api = {
         }),
     getReport: (id: string, signal?: AbortSignal) =>
         response<AuditReport>(
-            fetch(`/api/jobs/${id}/artifacts/report`, { signal }),
+            call(`/api/jobs/${id}/artifacts/report`, { signal }),
         ),
     artifact: async (id: string, kind: "result" | "report") =>
-        (await checked(fetch(`/api/jobs/${id}/artifacts/${kind}`))).blob(),
+        (await checked(call(`/api/jobs/${id}/artifacts/${kind}`))).blob(),
     upload: (file: File) =>
         response<Dataset>(
-            fetch(`/api/datasets?filename=${encodeURIComponent(file.name)}`, {
+            call(`/api/datasets?filename=${encodeURIComponent(file.name)}`, {
                 method: "POST",
                 body: file,
                 headers: { "Content-Type": "application/octet-stream" },
@@ -315,14 +340,14 @@ export const api = {
         ),
     preview: (id: string, sheet_name: string, range_ref: string) =>
         response<Preview>(
-            fetch(`/api/datasets/${id}/preview`, {
+            call(`/api/datasets/${id}/preview`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ sheet_name, range_ref }),
             }),
         ),
     remove: (id: string) =>
-        fetch(`/api/datasets/${id}`, { method: "DELETE" }).catch(
+        call(`/api/datasets/${id}`, { method: "DELETE" }).catch(
             () => undefined,
         ),
 };
