@@ -900,6 +900,9 @@
 .review-technical {
     flex-shrink: 0;
 }
+.review-technical[open] > .candidate-list {
+    margin-top: 10px;
+}
 .review-technical[open] {
     display: flex;
     flex-direction: column;

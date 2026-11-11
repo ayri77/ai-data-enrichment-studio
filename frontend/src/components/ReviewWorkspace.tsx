@@ -193,6 +193,30 @@ function Technical({ item }: { item: ReviewItem }) {
     );
 }
 
+/** Matches the source did not confirm: kept for audit, out of the way of the choice. */
+function Blocked({ item, w }: { item: ReviewItem; w: Workflow }) {
+    const { t } = useTranslation();
+    const blocked = item.candidates.filter((c) => !c.selectable);
+    if (!blocked.length) return null;
+    return (
+        <details className="review-technical" data-advanced="true">
+            <summary>
+                {t("review.blockedCount", { count: blocked.length })}
+            </summary>
+            <div className="candidate-list">
+                {blocked.map((candidate) => (
+                    <Candidate
+                        key={candidateKey(candidate)}
+                        item={item}
+                        candidate={candidate}
+                        w={w}
+                    />
+                ))}
+            </div>
+        </details>
+    );
+}
+
 function ReviewCard({ item, w }: { item: ReviewItem; w: Workflow }) {
     const { t, i18n } = useTranslation();
     const code = useCode();
@@ -221,14 +245,16 @@ function ReviewCard({ item, w }: { item: ReviewItem; w: Workflow }) {
                 className="candidate-list"
                 aria-label={t("review.candidates", { name: item.query.name })}
             >
-                {item.candidates.map((candidate) => (
-                    <Candidate
-                        key={candidateKey(candidate)}
-                        item={item}
-                        candidate={candidate}
-                        w={w}
-                    />
-                ))}
+                {item.candidates
+                    .filter((candidate) => candidate.selectable)
+                    .map((candidate) => (
+                        <Candidate
+                            key={candidateKey(candidate)}
+                            item={item}
+                            candidate={candidate}
+                            w={w}
+                        />
+                    ))}
                 <div className="candidate" data-selected={choice === "empty"}>
                     <label>
                         <input
@@ -251,6 +277,7 @@ function ReviewCard({ item, w }: { item: ReviewItem; w: Workflow }) {
                     </label>
                 </div>
             </fieldset>
+            <Blocked item={item} w={w} />
             <Technical item={item} />
         </article>
     );
