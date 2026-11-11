@@ -93,7 +93,7 @@
     "error.invalid_workbook": "Cannot read this workbook. Upload a valid, unencrypted .xlsx file.",
     "error.worksheet_limit": "Use up to 16 worksheets per workbook; each table must fit 5,001 rows, 100 columns and 100,000 cells.",
     "error.workbook_limit": "Workbook exceeds the local archive or metadata limits. Use a smaller workbook.",
-    "error.workspace_full": "The local workspace is full. Download artifacts, then restart the backend to clear retained datasets, plans and jobs.",
+    "error.workspace_full": "The workspace is at its limit and a run is still in progress. Wait for it to finish, then try again.",
     "error.dataset_not_found": "This dataset is no longer available. Upload the workbook again.",
     "error.invalid_request": "Check the upload or selection fields.",
     "error.internal_error": "The local request failed. Please try again.",

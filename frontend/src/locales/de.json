@@ -93,7 +93,7 @@
     "error.invalid_workbook": "Arbeitsmappe nicht lesbar. Eine gültige, unverschlüsselte .xlsx-Datei hochladen.",
     "error.worksheet_limit": "Bis zu 16 Arbeitsblätter pro Arbeitsmappe verwenden; jede Tabelle muss in 5.001 Zeilen, 100 Spalten und 100.000 Zellen passen.",
     "error.workbook_limit": "Arbeitsmappe überschreitet lokale Archiv- oder Metadatengrenzen. Eine kleinere Arbeitsmappe verwenden.",
-    "error.workspace_full": "Der lokale Arbeitsbereich ist voll. Laden Sie Artefakte herunter und starten Sie den Server neu, um Daten, Pläne und Aufträge zu löschen.",
+    "error.workspace_full": "Der Arbeitsbereich ist voll und ein Lauf ist noch aktiv. Warten Sie, bis er beendet ist, und versuchen Sie es erneut.",
     "error.dataset_not_found": "Dieser Datensatz ist nicht mehr verfügbar. Arbeitsmappe erneut hochladen.",
     "error.invalid_request": "Upload- oder Auswahlfelder prüfen.",
     "error.internal_error": "Die lokale Anfrage ist fehlgeschlagen. Erneut versuchen.",

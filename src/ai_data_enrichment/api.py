@@ -241,9 +241,13 @@ def create_app(
             raise WorkspaceError("invalid_file_type", "Only .xlsx workbooks are supported.")
         async with lock:
             if len(datasets) >= MAX_DATASETS:
-                raise WorkspaceError(
-                    "workspace_full", "Remove a dataset or restart the backend to free space.", 409
-                )
+                # Drop the oldest workbook together with its plans and finished jobs.
+                oldest = next((i for i in datasets if plan_run.release_dataset(i)), None)
+                if oldest is None:
+                    raise WorkspaceError(
+                        "workspace_full", "Wait for the current run to finish.", 409
+                    )
+                datasets.pop(oldest).unlink(missing_ok=True)
             dataset_id = uuid4().hex
             path = request.app.state.directory / f"{dataset_id}.xlsx"
             try:

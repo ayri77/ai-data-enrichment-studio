@@ -21,6 +21,7 @@ from tests.support.planning import (
 )
 from tests.support.wikidata import entity_statement
 
+from ai_data_enrichment import api as api_module
 from ai_data_enrichment import plan_run
 from ai_data_enrichment.api import create_app
 from ai_data_enrichment.evaluation.plan_run_fixtures import (
@@ -486,12 +487,13 @@ def test_request_size_and_retained_plan_limit(client, monkeypatch):
     )
     assert response.status_code == 413
     assert response.json()["error"]["code"] == "request_too_large"
+    # At the limit the oldest plan gives way; the workspace never asks for a restart.
     monkeypatch.setattr(plan_run, "MAX_PLANS", 1)
-    draft(client)
-    body = request_body(upload(client))
-    response = client.post("/api/plans", json=body)
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "workspace_full"
+    first = draft(client)
+    response = client.post("/api/plans", json=request_body(upload(client)))
+    assert response.status_code == 201
+    assert client.get(f"/api/plans/{first['plan_id']}").status_code == 404
+    assert client.get(f"/api/plans/{response.json()['plan_id']}").status_code == 200
 
 
 def test_existing_successful_output_is_preserved_and_run_limit_enforced(client, monkeypatch):
@@ -513,9 +515,12 @@ def test_existing_successful_output_is_preserved_and_run_limit_enforced(client, 
     report = client.get(job["artifacts"]["report"]).json()
     assert report["preserved_cells"] == ["C2"]
     assert report["source_unchanged"] is True
-    response = client.post(f"/api/plans/{plan['plan_id']}/runs", json={})
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "workspace_full"
+    # At the limit the oldest finished job and its artifacts give way to the new run.
+    second = wait(client, start(client, plan))
+    assert second["job_id"] != job["job_id"]
+    assert client.get(f"/api/jobs/{job['job_id']}").status_code == 404
+    assert client.get(job["artifacts"]["report"]).status_code == 404
+    assert client.get(second["artifacts"]["report"]).status_code == 200
 
 
 def test_offset_selection_and_output_mapping(client):
@@ -821,3 +826,26 @@ def test_mountains_use_the_same_review_and_resume_routes():
             assert workbook["Sheet1"]["C11"].value == 8091
         finally:
             workbook.close()
+
+
+def test_a_running_job_is_never_evicted(monkeypatch):
+    monkeypatch.setattr(plan_run, "MAX_JOBS", 1)
+    monkeypatch.setattr(plan_run, "MAX_PLANS", 1)
+    monkeypatch.setattr(api_module, "MAX_DATASETS", 1)
+    with TestClient(create_app(offline_executor_factory=slow_executor)) as client:
+        plan = approve(client, draft(client))
+        running = start(client, plan)
+        # Neither its plan nor its workbook can be pushed out while it runs.
+        workbook = Path("samples/capitals.xlsx").read_bytes()
+        blocked = client.post("/api/datasets", params={"filename": "next.xlsx"}, content=workbook)
+        assert blocked.status_code == 409
+        assert blocked.json()["error"]["code"] == "workspace_full"
+        body = request_body(plan["dataset_id"])
+        assert client.post("/api/plans", json=body).json()["error"]["code"] == "workspace_full"
+        assert client.get(f"/api/plans/{plan['plan_id']}").status_code == 200
+        client.post(f"/api/jobs/{running['job_id']}/cancel")
+        wait(client, running)
+        # Once it has finished, a new workbook replaces it with its plan and job.
+        upload(client)
+        assert client.get(f"/api/plans/{plan['plan_id']}").status_code == 404
+        assert client.get(f"/api/jobs/{running['job_id']}").status_code == 404
