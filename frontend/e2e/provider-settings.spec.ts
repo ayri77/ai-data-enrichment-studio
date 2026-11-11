@@ -9,6 +9,10 @@ test("trusted local settings → real SDK with injected response → validated d
     const secret = randomUUID();
     const consoleMessages: string[] = [];
     page.on("console", (message) => consoleMessages.push(message.text()));
+    // Provider settings are an Advanced tool.
+    await page.addInitScript(() =>
+        localStorage.setItem("enrichment.mode", "advanced"),
+    );
     await page.goto("/");
     await page
         .getByLabel("Upload Excel workbook")

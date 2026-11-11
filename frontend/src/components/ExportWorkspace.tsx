@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { isTerminal } from "../api";
+import { useAdvanced } from "../mode";
 import type { Workflow } from "../useWorkflow";
 import {
     columnStats,
@@ -242,7 +243,9 @@ function ResultTable({ w }: { w: Workflow }) {
             key,
             descending: old.key === key ? !old.descending : false,
         }));
-    const span = inputs.length + outputs.length + 3;
+    // The per-step detail of a row is an Advanced tool, and so is its column.
+    const advanced = useAdvanced();
+    const span = inputs.length + outputs.length + (advanced ? 3 : 2);
     return (
         <>
             <div className="result-toolbar">
@@ -306,11 +309,13 @@ function ResultTable({ w }: { w: Workflow }) {
                                 sort={sort}
                                 onSort={onSort}
                             />
-                            <th>
-                                <span className="sr-only">
-                                    {t("results.details")}
-                                </span>
-                            </th>
+                            {advanced && (
+                                <th>
+                                    <span className="sr-only">
+                                        {t("results.details")}
+                                    </span>
+                                </th>
+                            )}
                         </tr>
                     </thead>
                     <tbody>
@@ -356,37 +361,40 @@ function ResultTable({ w }: { w: Workflow }) {
                                     <td className="result-note">
                                         <Note row={row} w={w} />
                                     </td>
-                                    <td>
-                                        <button
-                                            type="button"
-                                            className="row-toggle"
-                                            aria-expanded={
-                                                open === row.recordId
-                                            }
-                                            aria-label={t(
-                                                "results.detailsFor",
-                                                {
-                                                    row:
-                                                        row.row ?? row.recordId,
-                                                },
-                                            )}
-                                            onClick={() =>
-                                                setOpen((old) =>
-                                                    old === row.recordId
-                                                        ? null
-                                                        : row.recordId,
-                                                )
-                                            }
-                                        >
-                                            {open === row.recordId ? (
-                                                <ChevronDown aria-hidden="true" />
-                                            ) : (
-                                                <ChevronRight aria-hidden="true" />
-                                            )}
-                                        </button>
-                                    </td>
+                                    {advanced && (
+                                        <td>
+                                            <button
+                                                type="button"
+                                                className="row-toggle"
+                                                aria-expanded={
+                                                    open === row.recordId
+                                                }
+                                                aria-label={t(
+                                                    "results.detailsFor",
+                                                    {
+                                                        row:
+                                                            row.row ??
+                                                            row.recordId,
+                                                    },
+                                                )}
+                                                onClick={() =>
+                                                    setOpen((old) =>
+                                                        old === row.recordId
+                                                            ? null
+                                                            : row.recordId,
+                                                    )
+                                                }
+                                            >
+                                                {open === row.recordId ? (
+                                                    <ChevronDown aria-hidden="true" />
+                                                ) : (
+                                                    <ChevronRight aria-hidden="true" />
+                                                )}
+                                            </button>
+                                        </td>
+                                    )}
                                 </tr>
-                                {open === row.recordId && (
+                                {advanced && open === row.recordId && (
                                     <Detail row={row} span={span} />
                                 )}
                             </Fragment>
@@ -408,25 +416,34 @@ function ResultTable({ w }: { w: Workflow }) {
 
 export function ExportWorkspace({ w }: { w: Workflow }) {
     const { t } = useTranslation();
+    const advanced = useAdvanced();
+    const reviewable = advanced || w.job?.status === "needs_review";
     return (
         <div className="stage-layout">
             <section className="workspace-panel panel-scroll summary-content">
                 <div className="panel-title">
                     <Download aria-hidden="true" />
                     <h2>{t("ws.outputWorkbook")}</h2>
-                    {w.report?.source_unchanged !== undefined && (
-                        <span
-                            className={`source-check ${
-                                w.report.source_unchanged
-                                    ? "success-text"
-                                    : "validation-note"
-                            }`}
-                        >
-                            <CheckCircle2 aria-hidden="true" />{" "}
-                            {t("workflow.sourceVerified")}:{" "}
-                            {t(w.report.source_unchanged ? "ws.yes" : "ws.no")}
-                        </span>
-                    )}
+                    {/* A changed source is always reported; the routine
+                        confirmation is an Advanced detail. */}
+                    {w.report?.source_unchanged !== undefined &&
+                        (advanced || !w.report.source_unchanged) && (
+                            <span
+                                className={`source-check ${
+                                    w.report.source_unchanged
+                                        ? "success-text"
+                                        : "validation-note"
+                                }`}
+                            >
+                                <CheckCircle2 aria-hidden="true" />{" "}
+                                {t("workflow.sourceVerified")}:{" "}
+                                {t(
+                                    w.report.source_unchanged
+                                        ? "ws.yes"
+                                        : "ws.no",
+                                )}
+                            </span>
+                        )}
                 </div>
                 <ModeNotice w={w} />
                 {w.report?.rows?.length ? (
@@ -438,15 +455,18 @@ export function ExportWorkspace({ w }: { w: Workflow }) {
             <aside className="workspace-panel stage-sidebar">
                 <div className="panel-scroll summary-content">
                     <h2>{t("ws.downloads")}</h2>
-                    <label>
-                        {t("ws.filename")}
-                        <input
-                            value={w.downloadName}
-                            maxLength={160}
-                            onChange={(e) => w.setDownloadName(e.target.value)}
-                        />
-                    </label>
-                    <p className="muted">{t("ws.filenameHint")}</p>
+                    {advanced && (
+                        <label>
+                            {t("ws.filename")}
+                            <input
+                                value={w.downloadName}
+                                maxLength={160}
+                                onChange={(e) =>
+                                    w.setDownloadName(e.target.value)
+                                }
+                            />
+                        </label>
+                    )}
                     <Button
                         disabled={
                             w.busy ||
@@ -461,27 +481,29 @@ export function ExportWorkspace({ w }: { w: Workflow }) {
                         <Download />
                         {t("workflow.downloadXlsx")}
                     </Button>
-                    <Button
-                        variant="outline"
-                        disabled={
-                            w.busy ||
-                            !w.job ||
-                            !isTerminal(w.job.status) ||
-                            !w.job.artifacts.report
-                        }
-                        onClick={() =>
-                            void w.action(() => w.download("report"))
-                        }
-                    >
-                        {t("workflow.downloadReport")}
-                    </Button>
+                    {advanced && (
+                        <Button
+                            variant="outline"
+                            disabled={
+                                w.busy ||
+                                !w.job ||
+                                !isTerminal(w.job.status) ||
+                                !w.job.artifacts.report
+                            }
+                            onClick={() =>
+                                void w.action(() => w.download("report"))
+                            }
+                        >
+                            {t("workflow.downloadReport")}
+                        </Button>
+                    )}
                     <p className="muted">{t("ws.exportDetail")}</p>
                     {w.job?.status === "needs_review" && (
                         <p className="notice">{t("workflow.unresolved")}</p>
                     )}
                 </div>
                 <div className="workspace-actions">
-                    <Back w={w} to="review" />
+                    <Back w={w} to={reviewable ? "review" : "execution"} />
                 </div>
             </aside>
         </div>

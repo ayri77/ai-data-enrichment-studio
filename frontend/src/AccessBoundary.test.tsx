@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 import "./i18n";
@@ -7,6 +7,7 @@ import de from "./locales/de.json";
 import uk from "./locales/uk.json";
 import { AccessBoundary } from "./components/AccessBoundary";
 import { api, WorkspaceApiError } from "./api";
+import { useHosted } from "./mode";
 
 vi.mock("./api", async (original) => {
     const actual = await original<typeof import("./api")>();
@@ -131,4 +132,24 @@ it("does not hide the studio behind a failed check", async () => {
             "open",
         ),
     );
+});
+
+it("tells the studio whether it runs as a hosted demo", async () => {
+    const Probe = () => <p>{useHosted() ? "hosted" : "local"}</p>;
+    vi.mocked(api.access).mockResolvedValue({ required: true, granted: true });
+    render(
+        <AccessBoundary>
+            <Probe />
+        </AccessBoundary>,
+    );
+    expect(await screen.findByText("hosted")).toBeInTheDocument();
+    cleanup();
+    vi.mocked(api.access).mockResolvedValue({ required: false, granted: true });
+    render(
+        <AccessBoundary>
+            <Probe />
+        </AccessBoundary>,
+    );
+    await waitFor(() => expect(api.access).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("local")).toBeInTheDocument();
 });

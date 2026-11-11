@@ -1,6 +1,7 @@
 import { ArrowRight, CircleAlert, ExternalLink, Play } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ReviewCandidate, ReviewItem } from "../api";
+import { useAdvanced } from "../mode";
 import type { Workflow } from "../useWorkflow";
 import {
     candidateKey,
@@ -145,6 +146,7 @@ function Candidate({
 /** Second layer: identifiers, codes and evidence for audit and debugging. */
 function Technical({ item }: { item: ReviewItem }) {
     const { t } = useTranslation();
+    if (!useAdvanced()) return null;
     return (
         <details className="review-technical" data-advanced="true">
             <summary>{t("review.technical")}</summary>
@@ -196,8 +198,9 @@ function Technical({ item }: { item: ReviewItem }) {
 /** Matches the source did not confirm: kept for audit, out of the way of the choice. */
 function Blocked({ item, w }: { item: ReviewItem; w: Workflow }) {
     const { t } = useTranslation();
+    const advanced = useAdvanced();
     const blocked = item.candidates.filter((c) => !c.selectable);
-    if (!blocked.length) return null;
+    if (!advanced || !blocked.length) return null;
     return (
         <details className="review-technical" data-advanced="true">
             <summary>
@@ -319,8 +322,9 @@ function Informational({ items }: { items: ReviewItem[] }) {
 /** The earlier per-code summary, kept for audit; it is not needed to decide. */
 function ErrorCodes({ w }: { w: Workflow }) {
     const { t } = useTranslation();
+    const advanced = useAdvanced();
     const groups = issueGroups(w.report);
-    if (!groups.length) return null;
+    if (!advanced || !groups.length) return null;
     return (
         <details className="review-technical" data-advanced="true">
             <summary>{t("review.errorCodes")}</summary>

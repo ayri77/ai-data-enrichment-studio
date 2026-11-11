@@ -66,6 +66,8 @@ beforeEach(async () => {
         storage: "process_memory",
     });
     localStorage.clear();
+    // These suites exercise the complete interface; Basic has its own tests.
+    localStorage.setItem("enrichment.mode", "advanced");
     await i18n.changeLanguage("en");
     vi.mocked(api.upload).mockResolvedValue(metadata);
     vi.mocked(api.preview).mockResolvedValue(preview);

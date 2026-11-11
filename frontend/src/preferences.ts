@@ -22,3 +22,9 @@ export function initialLocale(): Locale {
 export function initialTheme(): Theme {
     return readPreference("theme") === "light" ? "light" : "dark";
 }
+// Basic hides everything a person filling a table does not need; Advanced
+// shows the plan internals, limits and diagnostics as well.
+export type Mode = "basic" | "advanced";
+export function initialMode(): Mode {
+    return readPreference("mode") === "advanced" ? "advanced" : "basic";
+}

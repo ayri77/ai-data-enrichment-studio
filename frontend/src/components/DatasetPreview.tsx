@@ -1,7 +1,8 @@
-import { useState, type CSSProperties } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Columns3, Info, LoaderCircle, Table2 } from "lucide-react";
 import type { Preview } from "../api";
+import { useAdvanced } from "../mode";
 import { columnLetter, parseRange } from "../range";
 
 export function DatasetPreview({
@@ -17,11 +18,14 @@ export function DatasetPreview({
 }) {
     const { t } = useTranslation();
     const [selectedColumn, setSelectedColumn] = useState("");
-    const [width, setWidth] = useState(300);
+    // Column types and the per-column inspector are Advanced tools.
+    const advanced = useAdvanced();
     const columns = preview?.profile.columns ?? [];
     const selected =
         columns.find((c) => c.name === selectedColumn) ?? columns[0];
     const bounds = preview ? parseRange(preview.range_ref).bounds : undefined;
+    // Without the inspector there is no selected column to point at.
+    const highlighted = advanced ? selected?.name : undefined;
     const selectedIndex = columns.findIndex((c) => c.name === selected?.name);
     const selectedLetter = bounds
         ? columnLetter(bounds.firstColumn + selectedIndex)
@@ -61,8 +65,9 @@ export function DatasetPreview({
             aria-busy={busy}
         >
             <div
-                className="dataset-split"
-                style={{ "--inspector-width": `${width}px` } as CSSProperties}
+                className={
+                    advanced ? "dataset-split" : "dataset-split no-inspector"
+                }
             >
                 <section className="source-grid">
                     <header className="section-head">
@@ -122,29 +127,9 @@ export function DatasetPreview({
                                             >
                                                 {t("sampleIndex")}
                                             </th>
-                                            {columns.map((column, index) => (
-                                                <th
-                                                    key={column.name}
-                                                    scope="col"
-                                                    className={
-                                                        selected?.name ===
-                                                        column.name
-                                                            ? "is-selected"
-                                                            : ""
-                                                    }
-                                                >
-                                                    <button
-                                                        type="button"
-                                                        aria-pressed={
-                                                            selected?.name ===
-                                                            column.name
-                                                        }
-                                                        onClick={() =>
-                                                            setSelectedColumn(
-                                                                column.name,
-                                                            )
-                                                        }
-                                                    >
+                                            {columns.map((column, index) => {
+                                                const head = (
+                                                    <>
                                                         <span className="column-address mono">
                                                             {bounds
                                                                 ? columnLetter(
@@ -156,14 +141,50 @@ export function DatasetPreview({
                                                         <span className="mono">
                                                             {column.name}
                                                         </span>
-                                                        <small>
-                                                            {typeLabel(
-                                                                column.inferred_type,
-                                                            )}
-                                                        </small>
-                                                    </button>
-                                                </th>
-                                            ))}
+                                                        {advanced && (
+                                                            <small>
+                                                                {typeLabel(
+                                                                    column.inferred_type,
+                                                                )}
+                                                            </small>
+                                                        )}
+                                                    </>
+                                                );
+                                                return (
+                                                    <th
+                                                        key={column.name}
+                                                        scope="col"
+                                                        className={
+                                                            highlighted ===
+                                                            column.name
+                                                                ? "is-selected"
+                                                                : ""
+                                                        }
+                                                    >
+                                                        {advanced ? (
+                                                            <button
+                                                                type="button"
+                                                                className="column-head"
+                                                                aria-pressed={
+                                                                    highlighted ===
+                                                                    column.name
+                                                                }
+                                                                onClick={() =>
+                                                                    setSelectedColumn(
+                                                                        column.name,
+                                                                    )
+                                                                }
+                                                            >
+                                                                {head}
+                                                            </button>
+                                                        ) : (
+                                                            <span className="column-head">
+                                                                {head}
+                                                            </span>
+                                                        )}
+                                                    </th>
+                                                );
+                                            })}
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -180,7 +201,7 @@ export function DatasetPreview({
                                                         <td
                                                             key={col.name}
                                                             className={
-                                                                selected?.name ===
+                                                                highlighted ===
                                                                 col.name
                                                                     ? "is-selected"
                                                                     : ""
@@ -245,50 +266,42 @@ export function DatasetPreview({
                         </div>
                     )}
                 </section>
-                <aside className="column-inspector" aria-label={t("inspector")}>
-                    <div className="inspector-label">
-                        <Columns3 aria-hidden="true" />
-                        {t("inspector")}
-                        {selected && (
-                            <span className="mono">/ {selectedLetter}</span>
+                {advanced && (
+                    <aside
+                        className="column-inspector"
+                        aria-label={t("inspector")}
+                    >
+                        <div className="inspector-label">
+                            <Columns3 aria-hidden="true" />
+                            {t("inspector")}
+                            {selected && (
+                                <span className="mono">/ {selectedLetter}</span>
+                            )}
+                        </div>
+                        {selected && preview ? (
+                            <>
+                                <h2 className="mono">{selected.name}</h2>
+                                <dl>
+                                    <dt>{t("inferredType")}</dt>
+                                    <dd>{typeLabel(selected.inferred_type)}</dd>
+                                    <dt>{t("rows")}</dt>
+                                    <dd>{preview.profile.row_count}</dd>
+                                    <dt>{t("empty")}</dt>
+                                    <dd>{selected.null_count}</dd>
+                                    <dt>{t("selectedCells")}</dt>
+                                    <dd className="mono">
+                                        {bounds
+                                            ? `${selectedLetter}${bounds.headerRow}:${selectedLetter}${bounds.lastRow}`
+                                            : "—"}
+                                    </dd>
+                                </dl>
+                                <p>{t("observed")}</p>
+                            </>
+                        ) : (
+                            <p>{t("selectColumn")}</p>
                         )}
-                    </div>
-                    {selected && preview ? (
-                        <>
-                            <h2 className="mono">{selected.name}</h2>
-                            <dl>
-                                <dt>{t("inferredType")}</dt>
-                                <dd>{typeLabel(selected.inferred_type)}</dd>
-                                <dt>{t("rows")}</dt>
-                                <dd>{preview.profile.row_count}</dd>
-                                <dt>{t("empty")}</dt>
-                                <dd>{selected.null_count}</dd>
-                                <dt>{t("selectedCells")}</dt>
-                                <dd className="mono">
-                                    {bounds
-                                        ? `${selectedLetter}${bounds.headerRow}:${selectedLetter}${bounds.lastRow}`
-                                        : "—"}
-                                </dd>
-                            </dl>
-                            <p>{t("observed")}</p>
-                            <label className="inspector-width">
-                                {t("width")} / {width}px
-                                <input
-                                    type="range"
-                                    min="260"
-                                    max="420"
-                                    step="10"
-                                    value={width}
-                                    onChange={(e) =>
-                                        setWidth(Number(e.target.value))
-                                    }
-                                />
-                            </label>
-                        </>
-                    ) : (
-                        <p>{t("selectColumn")}</p>
-                    )}
-                </aside>
+                    </aside>
+                )}
             </div>
             <section className="diagnostics" aria-label={t("diagnostics")}>
                 <h2>

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { ArrowRight, LoaderCircle } from "lucide-react";
 import { columnLetter, parseRange } from "../range";
 import type { Worksheet } from "../api";
+import { useAdvanced } from "../mode";
 import { Button } from "./ui/button";
 
 interface Props {
@@ -29,7 +30,10 @@ function boundaries(value: string) {
 }
 export function RangeSelection(props: Props) {
     const { t } = useTranslation();
-    const [mode, setMode] = useState<"guided" | "advanced">("guided");
+    const advanced = useAdvanced();
+    const [chosen, setMode] = useState<"guided" | "advanced">("guided");
+    // Typing an A1 range is an Advanced tool; Basic always shows the fields.
+    const mode = advanced ? chosen : "guided";
     const [guide, setGuide] = useState(
         () => boundaries(props.range) ?? defaults,
     );
@@ -61,34 +65,36 @@ export function RangeSelection(props: Props) {
         >
             <div className="toolbar-title">
                 <h2>{t("tableSelection")}</h2>
-                <div
-                    className="range-mode"
-                    role="group"
-                    aria-label={t("rangeMode")}
-                >
-                    <button
-                        type="button"
-                        aria-pressed={mode === "guided"}
-                        onClick={() => {
-                            if (mode === "advanced" && parsed.error)
-                                props.onRange(
-                                    `${guide.first}${guide.header}:${guide.last}${guide.end}`,
-                                );
-                            setMode("guided");
-                        }}
-                        disabled={props.disabled}
+                {advanced && (
+                    <div
+                        className="range-mode"
+                        role="group"
+                        aria-label={t("rangeMode")}
                     >
-                        {t("guided")}
-                    </button>
-                    <button
-                        type="button"
-                        aria-pressed={mode === "advanced"}
-                        onClick={() => setMode("advanced")}
-                        disabled={props.disabled}
-                    >
-                        {t("advanced")}
-                    </button>
-                </div>
+                        <button
+                            type="button"
+                            aria-pressed={mode === "guided"}
+                            onClick={() => {
+                                if (mode === "advanced" && parsed.error)
+                                    props.onRange(
+                                        `${guide.first}${guide.header}:${guide.last}${guide.end}`,
+                                    );
+                                setMode("guided");
+                            }}
+                            disabled={props.disabled}
+                        >
+                            {t("guided")}
+                        </button>
+                        <button
+                            type="button"
+                            aria-pressed={mode === "advanced"}
+                            onClick={() => setMode("advanced")}
+                            disabled={props.disabled}
+                        >
+                            {t("advanced")}
+                        </button>
+                    </div>
+                )}
             </div>
             <fieldset disabled={props.disabled} className="range-fields">
                 <label className="sheet-control">
@@ -205,14 +211,16 @@ export function RangeSelection(props: Props) {
                     {t(`error.${parsed.error}`)}
                 </p>
             )}
-            <div className="range-guidance" id="range-guidance">
-                <span className="range-reference mono">
-                    {parsed.canonical ?? (props.range || "A1:…")}
-                </span>
-                <p>
-                    {t("rangeHint")} <span>{t("suggestion")}</span>
-                </p>
-            </div>
+            {advanced && (
+                <div className="range-guidance" id="range-guidance">
+                    <span className="range-reference mono">
+                        {parsed.canonical ?? (props.range || "A1:…")}
+                    </span>
+                    <p>
+                        {t("rangeHint")} <span>{t("suggestion")}</span>
+                    </p>
+                </div>
+            )}
         </form>
     );
 }

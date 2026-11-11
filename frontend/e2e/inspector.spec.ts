@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { resolve } from "node:path";
 
-test("column inspector visibly resizes without document overflow; compact layouts hide the slider", async ({
+test("column inspector is an Advanced tool; neither mode overflows the document", async ({
     page,
 }) => {
     await page.goto("/");
@@ -13,9 +13,36 @@ test("column inspector visibly resizes without document overflow; compact layout
     const inspector = page.getByRole("complementary", {
         name: "Column inspector",
     });
-    const slider = inspector.locator('input[type="range"]');
     const grid = page.locator(".source-grid");
+    const fits = async (width: number, height?: number) => {
+        expect(
+            await page.evaluate(() => document.documentElement.scrollWidth),
+        ).toBeLessThanOrEqual(width);
+        if (height)
+            expect(
+                await page.evaluate(
+                    () => document.documentElement.scrollHeight,
+                ),
+            ).toBeLessThanOrEqual(height);
+    };
 
+    // Basic: the table takes the whole width, with no inspector beside it.
+    await expect(page.getByRole("columnheader").nth(1)).toBeVisible();
+    await expect(inspector).toHaveCount(0);
+    await expect(page.locator(".table-scroll th button")).toHaveCount(0);
+    for (const [width, height] of [
+        [1366, 768],
+        [1440, 900],
+        [3440, 1440],
+    ]) {
+        await page.setViewportSize({ width, height });
+        await fits(width, height);
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const basicWidth = (await grid.boundingBox())!.width;
+
+    await page.getByLabel("Mode").selectOption("advanced");
+    await expect(inspector).toBeVisible();
     // Include the intermediate breakpoint that previously forced a fixed width.
     for (const [width, height] of [
         [1366, 768],
@@ -24,44 +51,17 @@ test("column inspector visibly resizes without document overflow; compact layout
         [1100, 768],
     ]) {
         await page.setViewportSize({ width, height });
-        await expect(slider).toBeVisible();
-        await slider.focus();
-        await page.keyboard.press("Home");
-        await expect(slider).toHaveValue("260");
         await expect
             .poll(async () => (await inspector.boundingBox())?.width)
-            .toBeCloseTo(260, 0);
-        const originalGridWidth = (await grid.boundingBox())!.width;
-        await page.keyboard.press("End");
-        await expect(slider).toHaveValue("420");
-        await expect
-            .poll(async () => (await inspector.boundingBox())?.width)
-            .toBeCloseTo(420, 0);
-        await expect
-            .poll(
-                async () =>
-                    originalGridWidth - (await grid.boundingBox())!.width,
-            )
-            .toBeCloseTo(160, 0);
-        if (width === 1100) {
-            expect(
-                await page
-                    .locator(".table-scroll")
-                    .evaluate(
-                        (element) => element.scrollWidth > element.clientWidth,
-                    ),
-            ).toBe(true);
-        }
-        expect(
-            await page.evaluate(() => document.documentElement.scrollWidth),
-        ).toBeLessThanOrEqual(width);
-        expect(
-            await page.evaluate(() => document.documentElement.scrollHeight),
-        ).toBeLessThanOrEqual(height);
+            .toBeCloseTo(300, 0);
+        await fits(width, height);
     }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect
+        .poll(async () => basicWidth - (await grid.boundingBox())!.width)
+        .toBeCloseTo(300, 0);
 
-    // A fixed compact inspector / stacked mobile inspector must not expose an
-    // inactive resize control, including short viewports that use stacked panes.
+    // Compact and stacked layouts keep the inspector within the viewport.
     for (const [width, height] of [
         [900, 768],
         [390, 844],
@@ -69,14 +69,8 @@ test("column inspector visibly resizes without document overflow; compact layout
     ]) {
         await page.setViewportSize({ width, height });
         await expect(inspector).toBeVisible();
-        await expect(slider).toBeHidden();
         if (width === 900)
             expect((await inspector.boundingBox())!.width).toBeCloseTo(180, 0);
-        expect(
-            await page.evaluate(() => document.documentElement.scrollWidth),
-        ).toBeLessThanOrEqual(width);
+        await fits(width);
     }
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await expect(slider).toBeVisible();
-    expect((await inspector.boundingBox())!.width).toBeCloseTo(420, 0);
 });

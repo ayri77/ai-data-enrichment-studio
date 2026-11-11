@@ -173,6 +173,10 @@ select {
 .studio-documents button small {
     font-size: 11px;
 }
+.studio-documents button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
 .studio-documents button[aria-current="page"] {
     background: var(--studio-surface0);
     box-shadow: inset 0 2px var(--studio-accent);
@@ -432,7 +436,7 @@ select {
 }
 .dataset-split {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) var(--inspector-width, 300px);
+    grid-template-columns: minmax(0, 1fr) 300px;
     border-bottom: 1px solid var(--studio-border);
 }
 .source-grid {
@@ -486,7 +490,7 @@ select {
     top: 0;
     z-index: 1;
 }
-.table-scroll th button {
+.table-scroll th .column-head {
     width: 100%;
     min-height: 65px;
     text-align: left;
@@ -506,7 +510,7 @@ select {
     color: var(--studio-muted);
     font-size: 11px;
 }
-.table-scroll th button small {
+.table-scroll th .column-head small {
     grid-column: 2;
     color: var(--studio-muted);
     font-size: 11px;
@@ -595,19 +599,6 @@ select {
 .column-inspector p {
     color: var(--studio-muted);
     font-size: 11px;
-}
-.inspector-width {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    color: var(--studio-muted);
-    font-size: 11px;
-    margin-top: 26px;
-}
-.studio .inspector-width input {
-    accent-color: var(--studio-accent);
-    padding: 0;
-    border: 0;
 }
 .empty-preview {
     min-height: 220px;
@@ -824,9 +815,6 @@ select {
         border-left: 0;
         border-top: 1px solid var(--studio-border);
         padding: 20px 16px;
-    }
-    .inspector-width {
-        display: none;
     }
     .diagnostics,
     .studio-footer {
