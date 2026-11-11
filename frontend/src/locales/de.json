@@ -379,5 +379,6 @@
     "results.stats.filled": "{{filled}} von {{total}} ausgefüllt",
     "results.stats.min": "Min. {{value}}",
     "results.stats.max": "Max. {{value}}",
-    "results.stats.mean": "Durchschnitt {{value}}"
+    "results.stats.mean": "Durchschnitt {{value}}",
+    "review.blockedCount": "Weitere, nicht wählbare Treffer: {{count}}"
 }

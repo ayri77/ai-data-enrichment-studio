@@ -947,7 +947,21 @@ it("lets a person settle each ambiguous name once and resumes as a new job", asy
     ).toBeVisible();
     expect(berlin.getByText(i18n.t("review.recommended"))).toBeVisible();
     expect(berlin.getByText(/capital of the country/)).toBeVisible();
-    // Excluded candidates are shown with the reason, but cannot be chosen.
+    // Matches that cannot be chosen stay out of the choice, in a closed second layer.
+    const blocked = radio("2950200").closest("details")!;
+    expect(blocked).toHaveAttribute("data-advanced", "true");
+    expect(blocked).not.toHaveAttribute("open");
+    // The choice itself offers two candidates and "leave empty".
+    expect(
+        within(
+            berlin.getByRole("group", {
+                name: i18n.t("review.candidates", { name: "Berlin" }),
+            }),
+        ).getAllByRole("radio"),
+    ).toHaveLength(3);
+    await userEvent.click(
+        berlin.getByText(i18n.t("review.blockedCount", { count: 1 })),
+    );
     expect(radio("2950200")).toBeDisabled();
     expect(berlin.getByText(/the source ruled it out/)).toBeVisible();
     expect(
