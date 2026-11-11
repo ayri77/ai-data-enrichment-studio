@@ -11,7 +11,11 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ai_data_enrichment.resolution.models import ResolutionJobReport
+from ai_data_enrichment.resolution.models import (
+    ResolutionCandidate,
+    ResolutionJobReport,
+    ResolutionReport,
+)
 
 
 class ResolutionApproval(BaseModel):
@@ -68,6 +72,32 @@ def workbook_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+REVIEWABLE_STATUSES = frozenset({"needs_review", "incomplete_verification"})
+
+
+def approval_blocker(
+    candidate: ResolutionCandidate, source_report: ResolutionReport
+) -> Literal["unverified", "excluded", "type"] | None:
+    """Explain why a listed candidate cannot be approved; None means it can.
+
+    The review API and manifest validation share this rule, so the UI never
+    offers a choice that the resume would reject.
+    """
+    if candidate.verification != "verified":
+        return "unverified"
+    assessment = next(
+        (item for item in source_report.assessments if item.reference == candidate.reference),
+        None,
+    )
+    if assessment is not None:
+        # The decision layer already applied the hard constraints (type, country,
+        # region, role). A candidate it excluded cannot be approved back in.
+        return None if assessment.eligibility == "eligible" else "excluded"
+    if candidate.entity_type != source_report.candidate_set.query.entity_type:
+        return "type"
+    return None
+
+
 def validate_approval_manifest(
     manifest: ApprovalManifest,
     report: ResolutionJobReport,
@@ -97,7 +127,7 @@ def validate_approval_manifest(
             raise ValueError(f"Approval does not belong to record/step: {key}.")
 
         source_report = operation.report
-        if source_report.decision.status not in {"needs_review", "incomplete_verification"}:
+        if source_report.decision.status not in REVIEWABLE_STATUSES:
             raise ValueError(f"Approval is not required for record/step: {key}.")
 
         matches = [
@@ -110,16 +140,10 @@ def validate_approval_manifest(
         ]
         if len(matches) != 1 or matches[0].verification != "verified":
             raise ValueError(f"Approval candidate is not source-verified: {key}.")
-        assessment = next(
-            (item for item in source_report.assessments if item.reference == matches[0].reference),
-            None,
-        )
-        if assessment is not None:
-            # The decision layer already applied the hard constraints (type, country,
-            # region, role). A candidate it excluded cannot be approved back in.
-            if assessment.eligibility != "eligible":
-                raise ValueError(f"Approval candidate was excluded by the source decision: {key}.")
-        elif matches[0].entity_type != source_report.candidate_set.query.entity_type:
+        reason = approval_blocker(matches[0], source_report)
+        if reason == "excluded":
+            raise ValueError(f"Approval candidate was excluded by the source decision: {key}.")
+        if reason == "type":
             raise ValueError(f"Approval candidate does not match the requested type: {key}.")
 
         accepted[key] = approval

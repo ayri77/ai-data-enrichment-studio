@@ -11,7 +11,7 @@ from typing import Any
 
 from ai_data_enrichment.evaluation.smoke import OfflineWikidataTransport
 from ai_data_enrichment.execution.job_executor import JobExecutor
-from ai_data_enrichment.plan_run_worker import MountainPolicy, live_executor
+from ai_data_enrichment.plan_run_worker import MountainPolicy, ResumeSelections, live_executor
 from ai_data_enrichment.providers.open_meteo import GEOCODING_URL
 from ai_data_enrichment.providers.wikidata import WIKIDATA_API_URL
 
@@ -52,10 +52,20 @@ class APITransportFixture:
 
 
 def offline_executor(
-    capabilities: frozenset[str], policy: MountainPolicy, max_rows: int
+    capabilities: frozenset[str],
+    policy: MountainPolicy,
+    max_rows: int,
+    *,
+    resume_selections: ResumeSelections | None = None,
 ) -> JobExecutor:
     """Top-level and picklable on Windows: same registered, audited live stack."""
-    return live_executor(capabilities, policy, max_rows, transport=APITransportFixture())
+    return live_executor(
+        capabilities,
+        policy,
+        max_rows,
+        transport=APITransportFixture(),
+        resume_selections=resume_selections,
+    )
 
 
 class FixturePlanClient:

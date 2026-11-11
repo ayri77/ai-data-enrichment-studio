@@ -46,6 +46,9 @@ from ai_data_enrichment.planning.llm_planner import (
 )
 from ai_data_enrichment.planning.openai_client import OpenAIPlanClient
 from ai_data_enrichment.provider_settings import ProviderConfiguration
+from ai_data_enrichment.resolution.models import ResolutionJobReport
+from ai_data_enrichment.resolution.resume import build_resume_selections
+from ai_data_enrichment.review import ReviewDecision, approvals_from_decisions, review_payload
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy, PlanValidator
 from ai_data_enrichment.workspace_errors import WorkspaceError
 
@@ -134,6 +137,12 @@ class RunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     allow_network: bool = False
     timeout_seconds: int = Field(default=180, ge=1, le=300, strict=True)
+
+
+class ResumeRequest(RunRequest):
+    """Continue a job that needs review with explicit user choices."""
+
+    decisions: list[ReviewDecision] = Field(min_length=1, max_length=MAX_RUN_ROWS * MAX_PLAN_STEPS)
 
 
 class PlanRunService:
@@ -363,52 +372,7 @@ class PlanRunService:
         async def run(plan_id: str, body: RunRequest):
             async with self.lock:
                 draft = self.get_plan(plan_id)
-                if draft["status"] != "approved":
-                    raise WorkspaceError(
-                        "approval_required", "Explicitly approve this plan first.", 409
-                    )
-                source = self.source(draft)
-                if self.offline_executor_factory is None:
-                    self.network_gate(body.allow_network)
-                if len(self.jobs) >= MAX_JOBS:
-                    raise WorkspaceError("workspace_full", "Restart to clear retained jobs.", 409)
-                if any(job["status"] not in TERMINAL for job in self.jobs.values()):
-                    raise WorkspaceError("job_busy", "Wait for or cancel the current run.", 409)
-                job_id = uuid4().hex
-                directory = source.parent / job_id
-                directory.mkdir()
-                job = {
-                    "job_id": job_id,
-                    "plan_id": plan_id,
-                    "dataset_id": draft["dataset_id"],
-                    "fingerprint": draft["fingerprint"],
-                    "status": "queued",
-                    "created_at": timestamp(),
-                    "started_at": None,
-                    "finished_at": None,
-                    "error": None,
-                    "metrics": None,
-                    "artifacts": {},
-                    "execution_mode": "offline_fixture"
-                    if self.offline_executor_factory
-                    else "live",
-                    "timeout_seconds": body.timeout_seconds,
-                }
-                task = RunTask(
-                    job_id=job_id,
-                    dataset_id=draft["dataset_id"],
-                    source_path=source,
-                    source_sha256=draft["source_sha256"],
-                    directory=directory,
-                    selection=TableSelection(draft["sheet_name"], draft["range_ref"]),
-                    plan=EnrichmentPlan.model_validate(draft["plan"]),
-                    output_columns=dict(draft["output_columns"]),
-                    mountain_policy=draft["mountain_resolution_policy"],
-                )
-                self.jobs[job_id] = job
-                self.cancel_events[job_id] = asyncio.Event()
-                self.tasks[job_id] = asyncio.create_task(self.supervise(task, draft, job))
-                return dict(job)
+                return self.start_job(draft, body)
 
         @router.get("/jobs/{job_id}")
         async def status(job_id: str):
@@ -421,6 +385,54 @@ class PlanRunService:
                 self.cancel_events[job_id].set()
             return job
 
+        @router.get("/jobs/{job_id}/review")
+        async def review(job_id: str):
+            job = self.get_job(job_id)
+            report, draft = self.resolution_report(job)
+            return review_payload(job_id, report, EnrichmentPlan.model_validate(draft["plan"]))
+
+        @router.post("/jobs/{job_id}/resume", status_code=202)
+        async def resume(job_id: str, body: ResumeRequest):
+            async with self.lock:
+                job = self.get_job(job_id)
+                if job["status"] != "needs_review":
+                    raise WorkspaceError(
+                        "review_not_available", "This job has nothing left to review.", 409
+                    )
+                report, draft = self.resolution_report(job)
+                source = self.source(draft)
+                plan = EnrichmentPlan.model_validate(draft["plan"])
+                try:
+                    if report is None:
+                        raise ValueError("No audited resolution report.")
+                    manifest = approvals_from_decisions(
+                        body.decisions, report, workbook_sha256=draft["source_sha256"]
+                    )
+                    selections = (
+                        build_resume_selections(
+                            manifest=manifest, report=report, plan=plan, source_path=source
+                        )
+                        if manifest is not None
+                        else {}
+                    )
+                except ValueError:
+                    # Validation messages can name record IDs; keep the public error generic.
+                    raise WorkspaceError(
+                        "invalid_decision",
+                        "Choose listed, selectable candidates for operations that need review.",
+                    ) from None
+                if not selections:
+                    raise WorkspaceError(
+                        "no_decisions", "Choose a candidate for at least one item."
+                    )
+                return self.start_job(
+                    draft,
+                    body,
+                    resume_selections=selections,
+                    previous_job_id=job_id,
+                    decisions=[d.model_dump(mode="json") for d in body.decisions],
+                )
+
         @router.get("/jobs/{job_id}/artifacts/{artifact}")
         async def artifact(job_id: str, artifact: Literal["result", "report"]):
             job = self.get_job(job_id)
@@ -429,6 +441,76 @@ class PlanRunService:
             directory = self.datasets[job["dataset_id"]].parent / job_id
             name = "result.xlsx" if artifact == "result" else "report.json"
             return FileResponse(directory / name, filename=f"{job_id}-{name}")
+
+    def resolution_report(self, job: dict) -> tuple[ResolutionJobReport | None, dict]:
+        """Read the audited decisions of a finished job from its private report."""
+        if job["status"] not in {"completed", "needs_review"}:
+            raise WorkspaceError(
+                "review_not_available", "Review is available after a finished run.", 409
+            )
+        directory = self.datasets[job["dataset_id"]].parent / job["job_id"]
+        stored = json.loads((directory / "report.json").read_text("utf-8"))
+        payload = stored["execution"].get("resolution_report")
+        report = ResolutionJobReport.model_validate_json(json.dumps(payload)) if payload else None
+        return report, stored["approved_plan"]
+
+    def start_job(
+        self,
+        draft: dict,
+        body: RunRequest,
+        *,
+        resume_selections: dict | None = None,
+        previous_job_id: str | None = None,
+        decisions: list[dict] | None = None,
+    ) -> dict:
+        """Queue one run of an approved plan; a resume also carries user approvals."""
+        if draft["status"] != "approved":
+            raise WorkspaceError("approval_required", "Explicitly approve this plan first.", 409)
+        source = self.source(draft)
+        if self.offline_executor_factory is None:
+            self.network_gate(body.allow_network)
+        if len(self.jobs) >= MAX_JOBS:
+            raise WorkspaceError("workspace_full", "Restart to clear retained jobs.", 409)
+        if any(job["status"] not in TERMINAL for job in self.jobs.values()):
+            raise WorkspaceError("job_busy", "Wait for or cancel the current run.", 409)
+        job_id = uuid4().hex
+        directory = source.parent / job_id
+        directory.mkdir()
+        job = {
+            "job_id": job_id,
+            "plan_id": draft["plan_id"],
+            "dataset_id": draft["dataset_id"],
+            "fingerprint": draft["fingerprint"],
+            "status": "queued",
+            "created_at": timestamp(),
+            "started_at": None,
+            "finished_at": None,
+            "error": None,
+            "metrics": None,
+            "artifacts": {},
+            "execution_mode": "offline_fixture" if self.offline_executor_factory else "live",
+            "timeout_seconds": body.timeout_seconds,
+            # A resume is a new job; the earlier job and its report stay untouched.
+            "previous_job_id": previous_job_id,
+            "review_decisions": decisions,
+        }
+        task = RunTask(
+            job_id=job_id,
+            dataset_id=draft["dataset_id"],
+            source_path=source,
+            source_sha256=draft["source_sha256"],
+            directory=directory,
+            selection=TableSelection(draft["sheet_name"], draft["range_ref"]),
+            plan=EnrichmentPlan.model_validate(draft["plan"]),
+            output_columns=dict(draft["output_columns"]),
+            mountain_policy=draft["mountain_resolution_policy"],
+            resume_selections=resume_selections,
+            previous_job_id=previous_job_id,
+        )
+        self.jobs[job_id] = job
+        self.cancel_events[job_id] = asyncio.Event()
+        self.tasks[job_id] = asyncio.create_task(self.supervise(task, draft, job))
+        return dict(job)
 
     async def supervise(self, task: RunTask, draft: dict, job: dict) -> None:
         public_job = job

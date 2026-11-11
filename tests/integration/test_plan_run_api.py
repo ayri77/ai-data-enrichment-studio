@@ -1,6 +1,7 @@
 """Offline HTTP → real planner/validator/providers/executor → safe XLSX tests."""
 
 import json
+from collections.abc import Mapping
 from hashlib import sha256
 from io import BytesIO
 from math import acos, cos, radians, sin
@@ -18,13 +19,19 @@ from tests.support.planning import (
     invalid_unit_response,
     ready_response,
 )
+from tests.support.wikidata import entity_statement
 
 from ai_data_enrichment import plan_run
 from ai_data_enrichment.api import create_app
-from ai_data_enrichment.evaluation.plan_run_fixtures import FixturePlanClient, offline_executor
+from ai_data_enrichment.evaluation.plan_run_fixtures import (
+    APITransportFixture,
+    FixturePlanClient,
+    offline_executor,
+)
 from ai_data_enrichment.plan_run import TERMINAL, PlanRunSettings
-from ai_data_enrichment.plan_run_worker import MountainPolicy
+from ai_data_enrichment.plan_run_worker import MountainPolicy, ResumeSelections, live_executor
 from ai_data_enrichment.providers.http_transport import UrllibJsonTransport
+from ai_data_enrichment.providers.wikidata import WIKIDATA_API_URL
 
 
 def plan_payload(name="capitals") -> dict:
@@ -598,3 +605,198 @@ def test_supplied_plan_target_mismatch_is_reported_precisely(client):
     assert not validation["valid"] and not validation["contract_valid"]
     assert [e["code"] for e in validation["errors"]] == ["OUTPUT_TARGET_MISMATCH"]
     assert "Missing: ['Distance_km']" in validation["errors"][0]["message"]
+
+
+def reviewed_job(client, name="capitals"):
+    plan = approve(client, draft(client, name))
+    job = wait(client, start(client, plan))
+    assert job["status"] == "needs_review"
+    review = client.get(f"/api/jobs/{job['job_id']}/review")
+    assert review.status_code == 200
+    return plan, job, review.json()
+
+
+def test_review_groups_an_ambiguous_city_once_for_all_affected_rows(client):
+    _, job, review = reviewed_job(client)
+    assert review["job_id"] == job["job_id"] and review["previous_job_id"] is None
+    assert [item["query"]["name"] for item in review["items"]] == ["Kyiv"]
+    kyiv = review["items"][0]
+    assert kyiv["capability"] == "geocode" and kyiv["provider_id"] == "open-meteo"
+    assert kyiv["query"]["context"] == {"country_code": "UA"}
+    assert kyiv["status"] == "needs_review"
+    # One decision covers both rows that mention Kyiv, in either column.
+    assert sorted((link["row"], link["step_id"]) for link in kyiv["affected"]) == [
+        (2, "from_city"),
+        (6, "to_city"),
+    ]
+    assert review["affected_rows"] == 2
+    assert {c["entity_id"] for c in kyiv["candidates"]} == {"703448", "704213"}
+    assert all(c["selectable"] and c["blocker"] is None for c in kyiv["candidates"])
+    assert {"latitude", "longitude", "country_code"} <= set(kyiv["candidates"][0]["attributes"])
+    # Two equally ranked capitals: the API does not invent a preference.
+    assert not any(c["recommended"] for c in kyiv["candidates"])
+    # Cities the provider did not find are reported, but offer nothing to decide.
+    unresolved = {item["query"]["name"] for item in review["informational"]}
+    assert "Berlin" in unresolved and "Kyiv" not in unresolved
+    assert all(not item["candidates"] for item in review["informational"])
+
+
+def test_resume_fills_rows_from_a_user_choice_as_a_new_audited_job(client):
+    plan, first, review = reviewed_job(client)
+    kyiv = review["items"][0]
+    decision = {"operation_id": kyiv["operation_id"], "source": "open-meteo", "entity_id": "703448"}
+    response = client.post(f"/api/jobs/{first['job_id']}/resume", json={"decisions": [decision]})
+    assert response.status_code == 202, response.text
+    queued = response.json()
+    assert queued["job_id"] != first["job_id"]
+    assert queued["previous_job_id"] == first["job_id"]
+    assert queued["plan_id"] == plan["plan_id"]
+    second = wait(client, queued)
+    # Kyiv-Paris is now complete; Warsaw-Kyiv still lacks Warsaw.
+    assert second["status"] == "needs_review"
+    assert second["metrics"]["successful_rows"] == first["metrics"]["successful_rows"] + 1
+    report = client.get(second["artifacts"]["report"]).json()
+    assert report["previous_job_id"] == first["job_id"]
+    assert report["review_decisions"] == [decision]
+    audit = report["execution"]["resolution_report"]
+    assert audit["previous_job_id"] == first["job_id"]
+    chosen = [
+        operation["report"]["decision"]
+        for operation in audit["operations"]
+        if operation["report"]["candidate_set"]["query"]["name"] == "Kyiv"
+    ]
+    assert chosen and all(d["basis"] == "user_override" for d in chosen)
+    assert all(d["selected"]["entity_id"] == "703448" for d in chosen)
+    workbook = load_workbook(BytesIO(client.get(second["artifacts"]["result"]).content))
+    try:
+        assert isinstance(workbook["Sheet1"]["E2"].value, int | float)
+        assert workbook["Sheet1"]["E6"].value is None
+    finally:
+        workbook.close()
+    # The first job and its artifacts are untouched and can be resumed differently.
+    assert client.get(f"/api/jobs/{first['job_id']}").json() == first
+    assert client.get(first["artifacts"]["report"]).json()["previous_job_id"] is None
+    # Nothing about Kyiv is left to decide in the new job.
+    follow_up = client.get(f"/api/jobs/{second['job_id']}/review").json()
+    assert follow_up["previous_job_id"] == first["job_id"]
+    assert "Kyiv" not in {item["query"]["name"] for item in follow_up["items"]}
+
+
+@pytest.mark.parametrize(
+    "change,code",
+    [
+        ({"operation_id": "unknown"}, "invalid_decision"),
+        ({"entity_id": "999"}, "invalid_decision"),
+        ({"source": "wikidata", "entity_id": "Q1899"}, "invalid_decision"),
+        ({"source": None, "entity_id": None}, "no_decisions"),
+    ],
+)
+def test_resume_rejects_decisions_it_cannot_verify(client, change, code):
+    _, job, review = reviewed_job(client)
+    decision = {
+        "operation_id": review["items"][0]["operation_id"],
+        "source": "open-meteo",
+        "entity_id": "703448",
+        **change,
+    }
+    response = client.post(f"/api/jobs/{job['job_id']}/resume", json={"decisions": [decision]})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == code
+    assert "Sheet1" not in response.text  # No record identifiers in public errors.
+    assert len(client.get(f"/api/jobs/{job['job_id']}/review").json()["items"]) == 1
+
+
+def test_resume_request_shape_and_job_state_are_checked(client):
+    _, job, review = reviewed_job(client)
+    endpoint = f"/api/jobs/{job['job_id']}/resume"
+    operation_id = review["items"][0]["operation_id"]
+    chosen = {"operation_id": operation_id, "source": "open-meteo", "entity_id": "703448"}
+    for body in (
+        {},
+        {"decisions": []},
+        {"decisions": [{"operation_id": operation_id, "source": "open-meteo"}]},
+        {"decisions": [chosen], "unexpected": True},
+    ):
+        assert client.post(endpoint, json=body).status_code == 422
+    duplicate = client.post(endpoint, json={"decisions": [chosen, chosen]})
+    assert duplicate.json()["error"]["code"] == "invalid_decision"
+    assert client.get("/api/jobs/missing/review").status_code == 404
+    assert client.post("/api/jobs/missing/resume", json={"decisions": [chosen]}).status_code == 404
+
+
+class AnnapurnaTransport(APITransportFixture):
+    """Adds one verified summit and one unchecked namesake to the sparse fixture."""
+
+    def get_json(self, *, url: str, params: Mapping[str, str], timeout_seconds: float) -> object:
+        if url == WIKIDATA_API_URL and params["action"] == "wbsearchentities":
+            if params["search"] == "Annapurna":
+                return {"search": [{"id": qid, "label": "Annapurna"} for qid in ("Q9001", "Q9002")]}
+        if url == WIKIDATA_API_URL and params["action"] == "wbgetentities":
+            known = {
+                "Q9001": {
+                    "P31": [entity_statement("Q8502")],
+                    "P17": [entity_statement("Q837")],
+                    "P2044": [quantity_statement("+8091")],
+                },
+                "Q9002": {},  # Never positively verified: visible, not approvable.
+            }
+            ids = params["ids"].split("|")
+            if any(qid in known for qid in ids):
+                return {"entities": {q: {"id": q, "claims": known.get(q, {})} for q in ids}}
+        return super().get_json(url=url, params=params, timeout_seconds=timeout_seconds)
+
+
+def quantity_statement(amount: str) -> dict[str, object]:
+    return {
+        "rank": "normal",
+        "mainsnak": {
+            "snaktype": "value",
+            "datavalue": {
+                "type": "quantity",
+                "value": {"amount": amount, "unit": "http://www.wikidata.org/entity/Q11573"},
+            },
+        },
+    }
+
+
+def annapurna_executor(
+    capabilities: frozenset[str],
+    policy: MountainPolicy,
+    max_rows: int,
+    *,
+    resume_selections: ResumeSelections | None = None,
+):
+    return live_executor(
+        capabilities,
+        policy,
+        max_rows,
+        transport=AnnapurnaTransport(),
+        resume_selections=resume_selections,
+    )
+
+
+def test_mountains_use_the_same_review_and_resume_routes():
+    with TestClient(create_app(offline_executor_factory=annapurna_executor)) as client:
+        _, first, review = reviewed_job(client, "mountains")
+        assert [item["query"]["name"] for item in review["items"]] == ["Annapurna"]
+        item = review["items"][0]
+        assert item["capability"] == "resolve_entity" and item["provider_id"] == "wikidata"
+        assert item["status"] == "incomplete_verification"
+        assert [(link["row"], link["step_id"]) for link in item["affected"]] == [(11, "resolve")]
+        listed = {c["entity_id"]: c for c in item["candidates"]}
+        assert listed["Q9001"]["selectable"] and listed["Q9001"]["recommended"]
+        assert listed["Q9001"]["recommendation_reasons"] == ["only_selectable_candidate"]
+        assert not listed["Q9002"]["selectable"] and listed["Q9002"]["blocker"] == "unverified"
+        endpoint = f"/api/jobs/{first['job_id']}/resume"
+        unverified = {"operation_id": item["operation_id"], "source": "wikidata"}
+        rejected = client.post(endpoint, json={"decisions": [{**unverified, "entity_id": "Q9002"}]})
+        assert rejected.json()["error"]["code"] == "invalid_decision"
+        accepted = client.post(endpoint, json={"decisions": [{**unverified, "entity_id": "Q9001"}]})
+        assert accepted.status_code == 202, accepted.text
+        second = wait(client, accepted.json())
+        assert second["metrics"]["successful_rows"] == first["metrics"]["successful_rows"] + 1
+        workbook = load_workbook(BytesIO(client.get(second["artifacts"]["result"]).content))
+        try:
+            assert workbook["Sheet1"]["C11"].value == 8091
+        finally:
+            workbook.close()
