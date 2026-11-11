@@ -200,16 +200,97 @@ def test_completion_failures_stop_without_retry_or_secret_leak(after_invalid: bo
         ),
     ],
 )
-@pytest.mark.parametrize("after_invalid", [False, True])
-def test_abstention_is_final_even_with_composable_contracts(
-    instruction: str, reason: str, status: str, after_invalid: bool
+def test_first_attempt_abstention_is_final_even_with_composable_contracts(
+    instruction: str, reason: str, status: str
 ) -> None:
     """The observed refusal is context for prompt improvements, never a coerced ready plan."""
-    responses = [invalid_unit_response()] if after_invalid else []
-    client = ScriptedPlanClient(*responses, {"status": status, "plan": None, "reason": reason})
+    client = ScriptedPlanClient({"status": status, "plan": None, "reason": reason})
     result = LLMPlanner(client=client, registry=builtin_registry()).generate(
         instruction=instruction, dataset_profile=workbook_profile("capitals")
     )
     assert result.response.status == status and result.response.reason == reason
     assert result.response.plan is None and result.validation is None
-    assert len(client.calls) == (2 if after_invalid else 1)
+    assert len(client.calls) == 1
+    assert [(a.outcome, a.diagnostic_codes) for a in result.attempts] == [(status, ())]
+
+
+def misnamed_input_response() -> dict[str, Any]:
+    """Observed gpt-4o-mini proposal: the geocode input was named after the column header."""
+    response = ready_response()
+    for step in response["plan"]["steps"][:2]:
+        step["inputs"]["capital"] = step["inputs"].pop("city")
+    return response
+
+
+OBSERVED_REFUSAL = {
+    "status": "unsupported",
+    "plan": None,
+    "reason": "The geocode capability requires an input 'city' instead of 'capital', "
+    "which was used in the original plan.",
+}
+
+
+def test_abstention_answering_diagnostics_is_challenged_and_can_recover() -> None:
+    """Replay the observed failure: a fixable input name, then a refusal restating the fix."""
+    invalid = misnamed_input_response()
+    client = ScriptedPlanClient(invalid, OBSERVED_REFUSAL, ready_response())
+    result = LLMPlanner(client=client, registry=builtin_registry()).generate(
+        instruction=CAPITALS_INSTRUCTION, dataset_profile=workbook_profile("capitals")
+    )
+    assert result.response.status == "ready"
+    assert result.validation and result.validation.valid
+    assert [(a.outcome, a.diagnostic_codes) for a in result.attempts] == [
+        ("invalid", ("MISSING_REQUIRED_INPUT", "UNKNOWN_INPUT")),
+        ("unsupported", ("ABSTENTION_AFTER_FEEDBACK",)),
+        ("ready", ()),
+    ]
+    challenge = client.calls[2][0]
+    assert challenge[:2] == client.calls[0][0] and len(challenge) == 4
+    # The earlier proposal is replayed with its unchanged diagnostics, not the refusal.
+    assert json.loads(challenge[2]["content"]) == invalid
+    body = json.loads(challenge[3]["content"])
+    first_feedback = json.loads(client.calls[1][0][3]["content"])["validation_feedback"]
+    assert body["validation_feedback"] == {
+        "code": "ABSTENTION_AFTER_FEEDBACK",
+        "abstention_reason": OBSERVED_REFUSAL["reason"],
+        "errors": first_feedback["errors"],
+    }
+    assert "not accepted yet" in body["request"]
+    # An ordinary repair request no longer suggests abstaining.
+    assert "plan null" not in json.loads(client.calls[1][0][3]["content"])["request"]
+
+
+@pytest.mark.parametrize(
+    "reason,status",
+    [("Driving routes are not supported.", "unsupported"), ("Specify the type.", "ambiguous")],
+)
+def test_abstention_repeated_after_one_challenge_is_final(reason: str, status: str) -> None:
+    """The planner never overrides a confirmed abstention or coerces a plan."""
+    refusal = {"status": status, "plan": None, "reason": reason}
+    client = ScriptedPlanClient(invalid_unit_response(), refusal, refusal)
+    result = LLMPlanner(client=client, registry=builtin_registry()).generate(
+        instruction=CAPITALS_INSTRUCTION, dataset_profile=workbook_profile("capitals")
+    )
+    assert result.response.status == status and result.response.reason == reason
+    assert result.response.plan is None and result.validation is None
+    assert len(client.calls) == 3
+    assert [(a.outcome, a.diagnostic_codes) for a in result.attempts] == [
+        ("invalid", ("PARAMETER_TYPE_MISMATCH",)),
+        (status, ("ABSTENTION_AFTER_FEEDBACK",)),
+        (status, ()),
+    ]
+
+
+@pytest.mark.parametrize("budget", [1, 2])
+def test_unconfirmed_abstention_at_budget_keeps_last_invalid_plan(budget: int) -> None:
+    """Without budget for a challenge, the inspectable invalid DAG is retained."""
+    invalid = invalid_unit_response()
+    client = ScriptedPlanClient(*[invalid] * budget, OBSERVED_REFUSAL)
+    result = LLMPlanner(
+        client=client, registry=builtin_registry(), max_repair_attempts=budget
+    ).generate(instruction=CAPITALS_INSTRUCTION, dataset_profile=workbook_profile("capitals"))
+    assert len(client.calls) == budget + 1
+    assert result.response.plan == EnrichmentPlan.model_validate(invalid["plan"])
+    assert result.validation and not result.validation.valid
+    assert result.attempts[-1].outcome == "unsupported"
+    assert result.attempts[-1].diagnostic_codes == ("ABSTENTION_AFTER_FEEDBACK",)

@@ -21,8 +21,9 @@ an illustrative reference shape and `parameters={"unit":"km"}`, without a
 scenario DAG or workbook column names. Before abstaining, the model is asked
 to inventory compatible producers/consumers and identify the actual missing
 contract, source input or clarification. A valid unsupported/ambiguous decision
-is still final, including during repair. There is no deterministic override of
-a model's interpretation of free text.
+is final on the first attempt; one that answers repair diagnostics is challenged
+once (see "Abstention after repair feedback" below). There is no deterministic
+override of a model's interpretation of free text.
 
 `LLMPlanner` allows one generation and up to two feedback repairs. Callers may
 lower `max_repair_attempts` to 0 or 1; values outside 0–2 are rejected. Every
@@ -145,3 +146,32 @@ execution-time provider evidence. Offline regressions do not establish improved 
 quality. After review and merge, repeat the original natural-language task above from
 the main Cursor folder, without internal parameter hints. No live-model acceptance
 claim is made by these tests.
+
+
+## Abstention after repair feedback
+
+A recorded `gpt-4o-mini` run on the Capitals task (1 of 10, 2026-11-11) proposed a
+correct DAG but named the geocode input `capital` after the column header. The
+validator returned `MISSING_REQUIRED_INPUT`/`UNKNOWN_INPUT`; the model then returned
+`unsupported` with a reason that restated the correction ("requires an input 'city'
+instead of 'capital'"), and the planner accepted it as final. The earlier
+`required_role` refusal recorded under #119 has the same shape.
+
+The planner now distinguishes two situations:
+
+- An abstention on the **first attempt**, or one **repeated after a challenge**, is
+  final. Task support still cannot be proven from free text, and no plan is coerced.
+- An abstention that **answers validation diagnostics** is challenged once. The
+  earlier invalid proposal is replayed with its unchanged diagnostics, the model's
+  abstention reason and a request to apply the corrections; it may abstain again
+  only by naming the missing capability, source input or conflict.
+
+The challenged attempt consumes budget and is recorded with the model's status and
+the code `ABSTENTION_AFTER_FEEDBACK`. If no budget remains for the challenge, the
+last parseable invalid DAG is returned with `validation.valid=false`, as for any
+exhausted repair; it cannot be approved or run. The ordinary repair request no
+longer suggests returning `plan: null`. Validation rules, the repair budget (at
+most three completions) and the `PlanningResponse` schema are unchanged.
+
+Offline regressions replay the recorded proposal and refusal; they prove the loop,
+not model quality. Measure the effect with repeated live runs per model.

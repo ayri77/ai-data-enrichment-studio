@@ -13,6 +13,22 @@ from ai_data_enrichment.planning.models import PlanningResponse
 from ai_data_enrichment.validation.models import ValidationResult
 from ai_data_enrichment.validation.plan_validator import PlanValidator
 
+_REPAIR_REQUEST = (
+    "Repair the previous proposal using the deterministic diagnostics. "
+    "Return a complete planning decision matching the same schema. "
+    "Preserve user intent and valid structure. The diagnostics describe corrections "
+    "to the proposal; they are not evidence that the request is unsupported."
+)
+
+_ABSTENTION_CHALLENGE_REQUEST = (
+    "Your abstention was not accepted yet. The diagnostics for the earlier proposal "
+    "are corrections such as input names, types or parameter values. Apply them and "
+    "return the corrected complete planning decision. Abstain again only if no chain "
+    "of registered capabilities can produce the requested output from the dataset "
+    "columns or explicit task constants, or if the user's requirements conflict; "
+    "then name the missing capability, source input or conflict in the reason."
+)
+
 
 class PlanCompletionClient(Protocol):
     """Contract for a model adapter that returns a JSON response."""
@@ -75,7 +91,11 @@ class LLMPlanner:
         instruction: str,
         dataset_profile: DatasetProfile,
     ) -> PlanGenerationResult:
-        """Generate with at most two feedback repairs and independent revalidation."""
+        """Generate with at most two feedback repairs and independent revalidation.
+
+        An abstention is final on the first attempt or when repeated after one
+        challenge; an abstention that answers repair diagnostics is challenged once.
+        """
         # The model sees declared capabilities and a bounded profile, not executable code.
         context = {
             "instruction": instruction,
@@ -113,6 +133,8 @@ class LLMPlanner:
         )
         attempts: list[PlanGenerationAttempt] = []
         last_invalid: PlanGenerationResult | None = None
+        last_invalid_response: str | None = None
+        abstention_challenged = False
         candidate_messages = messages
         failure_message = "Invalid planning response schema from LLM"
 
@@ -134,6 +156,10 @@ class LLMPlanner:
                 break
 
             feedback: dict[str, Any]
+            outcome: Literal["ready", "unsupported", "ambiguous", "invalid"] = "invalid"
+            request = _REPAIR_REQUEST
+            # The proposal replayed to the model alongside the feedback.
+            proposal = response
             try:
                 payload = json.loads(response)
             except json.JSONDecodeError as exc:
@@ -152,45 +178,59 @@ class LLMPlanner:
                         ],
                     }
                 else:
-                    validation = (
-                        validator.validate(decision.plan, instruction=instruction)
-                        if decision.plan
-                        else None
-                    )
-                    if validation is None or validation.valid:
-                        # A well-formed abstention is final, even during repair. We cannot
-                        # independently prove task support from a free-text instruction.
-                        attempts.append(PlanGenerationAttempt(number, decision.status))
-                        return PlanGenerationResult(decision, validation, tuple(attempts))
-                    last_invalid = PlanGenerationResult(decision, validation)
-                    feedback = {
-                        "code": "INVALID_PLAN",
-                        "errors": [error.model_dump(mode="json") for error in validation.errors],
-                    }
+                    if decision.plan is None:
+                        pending = (
+                            last_invalid.validation
+                            if last_invalid is not None and not abstention_challenged
+                            else None
+                        )
+                        if pending is None or last_invalid_response is None:
+                            # A first-attempt abstention, or one repeated after a challenge,
+                            # is final: task support cannot be proven from free text.
+                            attempts.append(PlanGenerationAttempt(number, decision.status))
+                            return PlanGenerationResult(decision, None, tuple(attempts))
+                        # An abstention that answers repair diagnostics is the cheapest way
+                        # to satisfy "repair this" and was observed for a fixable input name.
+                        # Challenge it once: replay the earlier proposal with its unchanged
+                        # diagnostics. No plan is coerced, and nothing invalid is accepted.
+                        abstention_challenged = True
+                        outcome = decision.status
+                        request = _ABSTENTION_CHALLENGE_REQUEST
+                        proposal = last_invalid_response
+                        feedback = {
+                            "code": "ABSTENTION_AFTER_FEEDBACK",
+                            "abstention_reason": decision.reason,
+                            "errors": [error.model_dump(mode="json") for error in pending.errors],
+                        }
+                    else:
+                        validation = validator.validate(decision.plan, instruction=instruction)
+                        if validation.valid:
+                            attempts.append(PlanGenerationAttempt(number, decision.status))
+                            return PlanGenerationResult(decision, validation, tuple(attempts))
+                        last_invalid = PlanGenerationResult(decision, validation)
+                        last_invalid_response = response
+                        feedback = {
+                            "code": "INVALID_PLAN",
+                            "errors": [
+                                error.model_dump(mode="json") for error in validation.errors
+                            ],
+                        }
 
             codes = (
                 tuple(dict.fromkeys(error.code for error in last_invalid.validation.errors))
                 if feedback["code"] == "INVALID_PLAN" and last_invalid and last_invalid.validation
                 else (feedback["code"],)
             )
-            attempts.append(PlanGenerationAttempt(number, "invalid", codes))
-            # Replace feedback instead of accumulating conversation history. Only the
-            # latest bounded model output is sent back; no raw response is logged/saved.
+            attempts.append(PlanGenerationAttempt(number, outcome, codes))
+            # Replace feedback instead of accumulating conversation history. Only one
+            # bounded model proposal is sent back; no raw response is logged/saved.
             candidate_messages = [
                 *messages,
-                {"role": "assistant", "content": response},
+                {"role": "assistant", "content": proposal},
                 {
                     "role": "user",
                     "content": json.dumps(
-                        {
-                            "request": (
-                                "Repair the previous proposal using the deterministic diagnostics. "
-                                "Return a complete planning decision matching the same schema. "
-                                "Preserve user intent and valid structure. If unsupported or "
-                                "ambiguous, return plan null and explain why."
-                            ),
-                            "validation_feedback": feedback,
-                        },
+                        {"request": request, "validation_feedback": feedback},
                         ensure_ascii=False,
                     ),
                 },
@@ -198,7 +238,8 @@ class LLMPlanner:
 
         if last_invalid is not None:
             # Preserve the last inspectable DAG and its errors if a later repair is
-            # malformed/unavailable. Its ready label never overrides invalid validation.
+            # malformed/unavailable or an abstention could not be challenged within the
+            # budget. Its ready label never overrides invalid validation.
             return PlanGenerationResult(
                 last_invalid.response, last_invalid.validation, tuple(attempts)
             )
