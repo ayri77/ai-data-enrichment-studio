@@ -446,6 +446,24 @@ Run it as a module (`-m`) from the repository root; `python scripts/experiment_p
 fails with `No module named 'tests'`. `uv run` does not read `.env` unless
 `--env-file .env` is passed.
 
+### Live resolution diagnostics (developer tool)
+
+`scripts/experiment_resolution.py` shows why each mountain name resolved, or
+did not, against live Wikidata. It runs the production resolution service once
+per name and then prints, for every candidate the source left unconfirmed, its
+recorded type (`instance of`) and whether it has a country. No OpenAI key is
+needed.
+
+```powershell
+uv run python -m scripts.experiment_resolution
+uv run python -m scripts.experiment_resolution --policy verified_only
+uv run python -m scripts.experiment_resolution --names "Annapurna/Nepal" "Annapurna I/Nepal"
+```
+
+The JSON report is written to the ignored `artifacts/resolution-experiments/`.
+`--offline` uses the injected offline responses and only checks that the script
+itself works. Results depend on live data and can change between runs.
+
 - `--case` selects the standard `capitals` or `mountains` instruction and sample
   workbook; `--prompt-file` overrides the instruction, for example with a
   free-form or non-English request.
