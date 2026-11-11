@@ -6,7 +6,6 @@ import {
     CircleAlert,
     Download,
     GitBranch,
-    LockKeyhole,
     Play,
     X,
 } from "lucide-react";
@@ -14,11 +13,7 @@ import { useTranslation } from "react-i18next";
 import { isTerminal, type Preview } from "../api";
 import type { Workflow, Workspace } from "../useWorkflow";
 import { columnLetter, parseRange } from "../range";
-import {
-    issueGroups,
-    normalizeColumn,
-    type OutputTarget,
-} from "../workflowModel";
+import { normalizeColumn, type OutputTarget } from "../workflowModel";
 import { Button } from "./ui/button";
 import { ProviderSettings } from "./ProviderSettings";
 import { PlanGraph } from "./PlanGraph";
@@ -446,7 +441,7 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
     );
 }
 
-function QualitySummary({ w }: { w: Workflow }) {
+export function QualitySummary({ w }: { w: Workflow }) {
     const { t } = useTranslation();
     const keys = [
         "total_rows",
@@ -470,7 +465,7 @@ function QualitySummary({ w }: { w: Workflow }) {
     );
 }
 
-function ModeNotice({ w }: { w: Workflow }) {
+export function ModeNotice({ w }: { w: Workflow }) {
     const { t } = useTranslation();
     return w.job?.execution_mode === "offline_fixture" ? (
         <p className="notice fixture-notice">{t("workflow.fixture")}</p>
@@ -480,6 +475,7 @@ function ModeNotice({ w }: { w: Workflow }) {
 export function ExecutionWorkspace({ w }: { w: Workflow }) {
     const { t } = useTranslation();
     const terminal = !!w.job && isTerminal(w.job.status);
+    const toReview = w.job?.status === "needs_review";
     return (
         <div className="stage-layout">
             <section className="workspace-panel execution-stage">
@@ -498,6 +494,9 @@ export function ExecutionWorkspace({ w }: { w: Workflow }) {
                             : t("ws.readyToRun")}
                     </p>
                     <ModeNotice w={w} />
+                    {w.job?.previous_job_id && (
+                        <p className="muted">{t("review.continued")}</p>
+                    )}
                     <QualitySummary w={w} />
                     {w.job?.error && (
                         <p className="validation-note" role="alert">
@@ -580,91 +579,10 @@ export function ExecutionWorkspace({ w }: { w: Workflow }) {
                     <Button
                         disabled={!terminal}
                         onClick={() =>
-                            w.navigate(
-                                w.job?.status === "needs_review"
-                                    ? "review"
-                                    : "export",
-                            )
+                            w.navigate(toReview ? "review" : "export")
                         }
                     >
-                        {t(
-                            w.job?.status === "needs_review"
-                                ? "ws.reviewIssues"
-                                : "ws.viewOutput",
-                        )}
-                        <ArrowRight />
-                    </Button>
-                </div>
-            </aside>
-        </div>
-    );
-}
-
-export function ReviewWorkspace({ w }: { w: Workflow }) {
-    const { t } = useTranslation();
-    const groups = issueGroups(w.report);
-    return (
-        <div className="stage-layout">
-            <section className="workspace-panel panel-scroll summary-content">
-                <div className="panel-title">
-                    <CircleAlert aria-hidden="true" />
-                    <h2>{t("ws.issueSummary")}</h2>
-                </div>
-                <ModeNotice w={w} />
-                <QualitySummary w={w} />
-                {!w.report ? (
-                    <EmptyState text={t("ws.reviewPending")} />
-                ) : groups.length ? (
-                    <>
-                        <p className="muted">{t("ws.groupingHint")}</p>
-                        {groups.map((group) => (
-                            <article className="issue-group" key={group.code}>
-                                <div className="panel-title">
-                                    <CircleAlert aria-hidden="true" />
-                                    <h3>{group.code}</h3>
-                                    <span className="status-label">
-                                        {t(
-                                            group.derived
-                                                ? "ws.derivedIssue"
-                                                : "ws.rootIssue",
-                                        )}
-                                    </span>
-                                </div>
-                                <p>
-                                    {t("ws.affectedRecords", {
-                                        count: group.records.size,
-                                        operations: group.operations,
-                                    })}
-                                </p>
-                                <p className="mono muted">
-                                    {[...group.records].join(" · ")}
-                                </p>
-                            </article>
-                        ))}
-                    </>
-                ) : (
-                    <p className="notice">
-                        {t(
-                            w.report.status === "completed"
-                                ? "ws.noIssues"
-                                : "ws.noRowDetails",
-                        )}
-                    </p>
-                )}
-            </section>
-            <aside className="workspace-panel stage-sidebar">
-                <div className="panel-scroll summary-content">
-                    <LockKeyhole aria-hidden="true" />
-                    <h2>{t("ws.reviewSupport")}</h2>
-                    <p>{t("ws.reviewUnavailable")}</p>
-                    <Button disabled>{t("ws.approveCandidates")}</Button>
-                    <Button disabled>{t("ws.resume")}</Button>
-                    <p className="muted">{t("ws.reviewNext")}</p>
-                </div>
-                <div className="workspace-actions">
-                    <Back w={w} to="execution" />
-                    <Button onClick={() => w.navigate("export")}>
-                        {t("ws.toExport")}
+                        {t(toReview ? "ws.reviewIssues" : "ws.viewOutput")}
                         <ArrowRight />
                     </Button>
                 </div>
@@ -835,7 +753,7 @@ export function ExportWorkspace({ w }: { w: Workflow }) {
     );
 }
 
-function Back({ w, to }: { w: Workflow; to: Workspace }) {
+export function Back({ w, to }: { w: Workflow; to: Workspace }) {
     const { t } = useTranslation();
     return (
         <Button variant="outline" onClick={() => w.navigate(to)}>
@@ -844,7 +762,7 @@ function Back({ w, to }: { w: Workflow; to: Workspace }) {
         </Button>
     );
 }
-function EmptyState({ text, icon }: { text: string; icon?: "plan" }) {
+export function EmptyState({ text, icon }: { text: string; icon?: "plan" }) {
     return (
         <div className="workspace-empty">
             {icon === "plan" ? (

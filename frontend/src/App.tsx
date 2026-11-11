@@ -9,8 +9,8 @@ import {
     ExecutionWorkspace,
     ExportWorkspace,
     PlanWorkspace,
-    ReviewWorkspace,
 } from "./components/WorkspaceViews";
+import { ReviewWorkspace } from "./components/ReviewWorkspace";
 import { Button } from "./components/ui/button";
 import { initialTheme, savePreference } from "./preferences";
 import { useDataset } from "./useDataset";

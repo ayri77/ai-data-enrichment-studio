@@ -9,9 +9,18 @@ import {
     type PlanDraft,
     type Preview,
     type ProviderReadiness,
+    type Review,
 } from "./api";
 import { parseRange } from "./range";
 import { validMappings, type OutputTarget } from "./workflowModel";
+import {
+    decisions,
+    hasCandidateChoice,
+    validChoices,
+    withRecommendations,
+    type Choice,
+    type Choices,
+} from "./reviewModel";
 
 export type Workspace = "dataset" | "plan" | "execution" | "review" | "export";
 export function useWorkflow(
@@ -60,6 +69,9 @@ export function useWorkflow(
     const [plan, setPlan] = useState<PlanDraft | null>(null);
     const [job, setJob] = useState<Job | null>(null);
     const [report, setReport] = useState<AuditReport | null>(null);
+    // Candidates a person can choose between, and the choices made so far.
+    const [review, setReview] = useState<Review | null>(null);
+    const [choices, setChoices] = useState<Choices>({});
     const [history, setHistory] = useState<
         { job: Job; report: AuditReport | null; plan: PlanDraft | null }[]
     >([]);
@@ -123,6 +135,8 @@ export function useWorkflow(
         setPlan(null);
         setJob(null);
         setReport(null);
+        setReview(null);
+        setChoices({});
         setError("");
         setPollError("");
     }
@@ -233,6 +247,8 @@ export function useWorkflow(
         if (mounted.current) {
             archive();
             setReport(null);
+            setReview(null);
+            setChoices({});
             setPollError("");
             setJob(started);
             setWorkspace("execution");
@@ -256,6 +272,15 @@ export function useWorkflow(
                         );
                         if (!controller.signal.aborted) setReport(audit);
                     }
+                    if (next.status === "needs_review") {
+                        const found =
+                            (await api.getReview(jobId!, controller.signal)) ??
+                            null;
+                        if (!controller.signal.aborted) {
+                            setReview(found);
+                            setChoices((old) => validChoices(found, old));
+                        }
+                    }
                 } else timer = window.setTimeout(() => void poll(), 1000);
             } catch (err) {
                 if (!controller.signal.aborted) setPollError(code(err));
@@ -268,6 +293,39 @@ export function useWorkflow(
             window.clearTimeout(timer);
         };
     }, [jobId, retry]);
+    const canResume =
+        job?.status === "needs_review" &&
+        review?.job_id === job.job_id &&
+        hasCandidateChoice(review, choices) &&
+        network &&
+        timeoutValid &&
+        !locked;
+    function choose(operationId: string, choice: Choice) {
+        if (!locked) setChoices((old) => ({ ...old, [operationId]: choice }));
+    }
+    function acceptRecommendations() {
+        if (review && !locked)
+            setChoices((old) => withRecommendations(review, old));
+    }
+    // A resume is a new job on the same approved plan; the earlier one stays in history.
+    async function resume() {
+        if (!canResume || !job || !review) return;
+        const started = await api.resumeJob(
+            job.job_id,
+            decisions(review, choices),
+            network,
+            Number(timeout),
+        );
+        if (mounted.current) {
+            archive();
+            setReport(null);
+            setReview(null);
+            setChoices({});
+            setPollError("");
+            setJob(started);
+            setWorkspace("execution");
+        }
+    }
     async function cancel() {
         if (!job || !active) return;
         await api.cancelJob(job.job_id);
@@ -313,6 +371,12 @@ export function useWorkflow(
         plan,
         job,
         report,
+        review,
+        choices,
+        choose,
+        acceptRecommendations,
+        canResume,
+        resume,
         history,
         busy,
         error,

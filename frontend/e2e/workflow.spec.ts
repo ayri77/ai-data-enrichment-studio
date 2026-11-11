@@ -175,14 +175,28 @@ for (const name of ["capitals", "mountains"]) {
         ).toHaveCount(0);
         await screenshotWorkspace(page, testInfo, name, "execution");
         await page.getByRole("button", { name: "Review issues" }).click();
-        await expect(
-            page.getByRole("button", {
-                name: "Resume unresolved (not available)",
-            }),
-        ).toBeDisabled();
-        await expect(
-            page.getByText("Derived dependency issue").first(),
-        ).toBeVisible();
+        if (name === "capitals") {
+            // Kyiv is ambiguous in the offline responses: one card for two rows.
+            await expect(page.getByTestId("review-Kyiv")).toContainText(
+                "Rows: 2, 6",
+            );
+            await expect(
+                page.getByRole("button", { name: "Fill in remaining rows" }),
+            ).toBeDisabled();
+            await expect(page.getByTestId("unresolved-Berlin")).toBeAttached();
+        } else {
+            await expect(
+                page.getByText("There is nothing to choose in this run.", {
+                    exact: false,
+                }),
+            ).toBeVisible();
+            await expect(
+                page.getByTestId("unresolved-Annapurna"),
+            ).toBeAttached();
+            await expect(
+                page.getByRole("button", { name: "Fill in remaining rows" }),
+            ).toHaveCount(0);
+        }
         await screenshotWorkspace(page, testInfo, name, "review");
         await page.getByRole("button", { name: "Continue to Export" }).click();
         await expect(page.getByTestId("row-outcome")).toHaveCount(10);
@@ -269,6 +283,118 @@ for (const name of ["capitals", "mountains"]) {
         ).toBeDisabled();
     });
 }
+
+test("capitals: a chosen candidate resumes as a new audited job and fills the row", async ({
+    page,
+}, testInfo) => {
+    await page.goto("/");
+    await page
+        .getByLabel("Upload Excel workbook")
+        .setInputFiles(resolve("../samples/capitals.xlsx"));
+    await expect(page.getByLabel("Worksheet")).toHaveValue("Sheet1");
+    await page.getByRole("button", { name: "Preview selection" }).click();
+    await page
+        .getByLabel("Enrichment instruction")
+        .fill("Calculate distances in km between the city pairs.");
+    await page.getByLabel("Output column 1", { exact: true }).selectOption("E");
+    await page
+        .getByLabel(
+            "Allow external network requests for planning and execution",
+        )
+        .check();
+    await page.getByRole("button", { name: "Build Plan", exact: true }).click();
+    await page
+        .getByRole("button", { name: "Approve / Continue to Execution" })
+        .click();
+    const firstRun = page.waitForResponse(
+        (r) => r.url().endsWith("/runs") && r.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Start bounded run" }).click();
+    const first = await (await firstRun).json();
+    await expect(page.getByTestId("metric-successful_rows")).toHaveText("1", {
+        timeout: 30_000,
+    });
+    await page.getByRole("button", { name: "Review issues" }).click();
+    const kyiv = page.getByTestId("review-Kyiv");
+    await expect(kyiv.getByRole("radio")).toHaveCount(3);
+    await expect(page.getByTestId("review-progress")).toHaveText(
+        "Decided: 0 of 1",
+    );
+    // The two offline candidates are equal, so nothing is recommended.
+    await expect(
+        page.getByRole("button", { name: "Accept recommendations" }),
+    ).toBeDisabled();
+    await page
+        .getByTestId("candidate-open-meteo:703448")
+        .getByRole("radio")
+        .check();
+    await expect(page.getByTestId("review-progress")).toHaveText(
+        "Decided: 1 of 1",
+    );
+    // Choices are kept across languages; identifiers stay in the second layer.
+    for (const [locale, label] of [
+        ["uk", "Заповнити решту рядків"],
+        ["de", "Übrige Zeilen ausfüllen"],
+        ["en", "Fill in remaining rows"],
+    ]) {
+        await page
+            .locator(".studio-preferences select")
+            .nth(1)
+            .selectOption(locale);
+        await expect(page.getByRole("button", { name: label })).toBeEnabled();
+    }
+    await expect(kyiv.getByText("geonames:703448")).toBeHidden();
+    await kyiv.getByText("Technical details").click();
+    await expect(kyiv.getByText("geonames:703448")).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("review-choice.png") });
+    const resumeRequest = page.waitForRequest((r) =>
+        r.url().endsWith(`/api/jobs/${first.job_id}/resume`),
+    );
+    await page.getByRole("button", { name: "Fill in remaining rows" }).click();
+    const sent = (await resumeRequest).postDataJSON();
+    expect(sent.decisions).toHaveLength(1);
+    expect(sent.decisions[0]).toMatchObject({
+        source: "open-meteo",
+        entity_id: "703448",
+    });
+    // Kyiv–Paris is now complete; Warsaw–Kyiv still lacks Warsaw.
+    await expect(page.getByTestId("metric-successful_rows")).toHaveText("2", {
+        timeout: 30_000,
+    });
+    await expect(
+        page.getByText("This run continues an earlier one after review."),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Review issues" }).click();
+    await expect(page.getByTestId("review-Kyiv")).toHaveCount(0);
+    await expect(
+        page.getByText("There is nothing to choose in this run.", {
+            exact: false,
+        }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Continue to Export" }).click();
+    const reportDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download JSON audit" }).click();
+    const reportPath = testInfo.outputPath("resumed-report.json");
+    await (await reportDownload).saveAs(reportPath);
+    const audit = JSON.parse(await readFile(reportPath, "utf8"));
+    expect(audit.previous_job_id).toBe(first.job_id);
+    expect(audit.review_decisions).toEqual(sent.decisions);
+    expect(audit.metrics.successful_rows).toBe(2);
+    const decisions = audit.execution.resolution_report.operations
+        .map((operation: any) => operation.report)
+        .filter((report: any) => report.candidate_set.query.name === "Kyiv")
+        .map((report: any) => report.decision);
+    expect(decisions.length).toBeGreaterThan(0);
+    for (const decision of decisions) {
+        expect(decision.basis).toBe("user_override");
+        expect(decision.selected.entity_id).toBe("703448");
+    }
+    // The first job is untouched and still downloadable.
+    const earlier = await page.request.get(
+        `/api/jobs/${first.job_id}/artifacts/report`,
+    );
+    expect((await earlier.json()).metrics.successful_rows).toBe(1);
+});
 
 test("invalid saved plan cannot be approved; source selection clears its draft", async ({
     page,

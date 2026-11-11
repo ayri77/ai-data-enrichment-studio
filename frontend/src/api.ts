@@ -137,6 +137,8 @@ export interface Job {
     artifacts: { result?: string; report?: string };
     execution_mode: "live" | "offline_fixture";
     timeout_seconds: number;
+    /** Set when this job continues an earlier one after review. */
+    previous_job_id?: string | null;
 }
 export interface AuditReport extends Job {
     source_sha256: string;
@@ -162,6 +164,54 @@ export interface AuditReport extends Job {
             };
         }[];
     };
+}
+export type ReviewValue = string | number | boolean | null;
+export interface ReviewCandidate {
+    source: string;
+    entity_id: string;
+    label: string;
+    entity_type: string | null;
+    verification: "verified" | "rejected" | "unchecked";
+    attributes: Record<string, ReviewValue>;
+    evidence: { source: string; reference: string }[];
+    /** False when the backend would reject this candidate; `blocker` says why. */
+    selectable: boolean;
+    blocker: "unverified" | "excluded" | "type" | null;
+    /** Advisory only. Nothing is applied until the user sends a decision. */
+    recommended: boolean;
+    recommendation_reasons: string[];
+    reason_codes: string[];
+}
+/** One source query. A decision covers every row and step listed in `affected`. */
+export interface ReviewItem {
+    operation_id: string;
+    capability: string | null;
+    provider_id: string;
+    query: {
+        name: string;
+        entity_type: string | null;
+        context: Record<string, ReviewValue>;
+    };
+    status: string;
+    reason_codes: string[];
+    search_complete: boolean;
+    affected: { record_id: string; row: number | null; step_id: string }[];
+    candidates: ReviewCandidate[];
+}
+export interface Review {
+    job_id: string;
+    previous_job_id: string | null;
+    /** Queries the user can decide. */
+    items: ReviewItem[];
+    /** Unresolved queries with nothing to choose from. */
+    informational: ReviewItem[];
+    affected_rows: number;
+}
+/** Without `source` and `entity_id` the query is left empty on purpose. */
+export interface ReviewDecision {
+    operation_id: string;
+    source?: string;
+    entity_id?: string;
 }
 export interface ProviderReadiness {
     provider: "openai";
@@ -226,6 +276,19 @@ export const api = {
     getJob: (id: string, signal?: AbortSignal) =>
         response<Job>(fetch(`/api/jobs/${id}`, { signal })),
     cancelJob: (id: string) => post<Job>(`/api/jobs/${id}/cancel`),
+    getReview: (id: string, signal?: AbortSignal) =>
+        response<Review>(fetch(`/api/jobs/${id}/review`, { signal })),
+    resumeJob: (
+        id: string,
+        decisions: ReviewDecision[],
+        allow_network: boolean,
+        timeout_seconds: number,
+    ) =>
+        post<Job>(`/api/jobs/${id}/resume`, {
+            decisions,
+            allow_network,
+            timeout_seconds,
+        }),
     getReport: (id: string, signal?: AbortSignal) =>
         response<AuditReport>(
             fetch(`/api/jobs/${id}/artifacts/report`, { signal }),
