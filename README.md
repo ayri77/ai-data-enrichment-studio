@@ -430,6 +430,34 @@ CLI exit codes:
 - `1`: invalid plan or failed scenario evaluation.
 - `2`: invalid input or technical failure.
 
+### Repeated live planning experiments (developer tool)
+
+Offline tests use scripted model responses, so they prove the planning loop but
+not model quality. To measure how often a real model returns a valid plan, repeat
+the planner on a sample task. This calls the OpenAI API with your key (up to three
+completions per run), executes no providers and writes no workbook:
+
+```powershell
+uv run --env-file .env python -m scripts.experiment_planner --case capitals --model gpt-4.1-mini --repeat 10
+uv run --env-file .env python -m scripts.experiment_planner --case mountains --model gpt-4o-mini --repeat 10 --capture-raw
+```
+
+Run it as a module (`-m`) from the repository root; `python scripts/experiment_planner.py`
+fails with `No module named 'tests'`. `uv run` does not read `.env` unless
+`--env-file .env` is passed.
+
+- `--case` selects the standard `capitals` or `mountains` instruction and sample
+  workbook; `--prompt-file` overrides the instruction, for example with a
+  free-form or non-English request.
+- `--repeat` accepts 1 to 10 runs per call; `--repairs` sets the repair budget (0 to 2).
+- `--capture-raw` also saves the prompts and raw model responses per run. Use it
+  only with the public samples and do not commit or share the files unreviewed.
+
+Each call writes `summary.json` (model, git revision, attempts, diagnostic codes
+and the final plan per run) to the ignored `artifacts/planner-experiments/`.
+Compare models or code changes by the share of valid `ready` plans, not by a
+single run.
+
 ### Execute an Excel enrichment job (M3)
 
 The `enrichment run` command executes a saved, validated plan
