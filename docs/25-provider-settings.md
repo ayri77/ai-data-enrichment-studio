@@ -4,7 +4,7 @@ The existing Studio dialog now configures OpenAI planning end to end. The backen
 holds the model and API key in process memory. There is no secret file, browser
 persistence, task preset, key-return API, OS keychain, or credential export.
 Only OpenAI is supported. The bounded model picker currently allows
-`gpt-4.1-mini`, `gpt-4.1`, and `gpt-4o-mini`, using the existing
+`gpt-4.1-mini` (the default when `OPENAI_MODEL` is unset) and `gpt-4.1`, using the existing
 [Responses JSON adapter](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses).
 Configuration readiness does not verify billing, credentials, model access, or
 connectivity: those are checked by the actual planning request.

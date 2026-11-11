@@ -15,7 +15,11 @@ from ai_data_enrichment.workspace_errors import WorkspaceError
 if TYPE_CHECKING:
     from ai_data_enrichment.plan_run import PlanRunSettings
 
-SUPPORTED_MODELS = ("gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini")
+# gpt-4o-mini was removed after repeated live runs on 2026-11-11: it produced 1 valid
+# Mountains plan in 20 (false "unsupported" on the first attempt) against 10 of 10 for
+# gpt-4.1-mini. See docs/26-live-planning-reliability.md before extending this list.
+SUPPORTED_MODELS = ("gpt-4.1-mini", "gpt-4.1")
+DEFAULT_MODEL = "gpt-4.1-mini"
 LOCAL_ORIGINS = (
     "http://127.0.0.1:5173",
     "http://localhost:5173",
@@ -38,7 +42,10 @@ class ProviderConfiguration:
     @classmethod
     def from_environment(cls, model: str | None) -> "ProviderConfiguration":
         key = os.getenv("OPENAI_API_KEY")
-        return cls(model if model in SUPPORTED_MODELS else None, SecretStr(key) if key else None)
+        # No configured model selects the measured default. An explicitly configured
+        # but unsupported model stays unset, so the mismatch is reported, not hidden.
+        selected = DEFAULT_MODEL if model is None else model if model in SUPPORTED_MODELS else None
+        return cls(selected, SecretStr(key) if key else None)
 
     @property
     def key_present(self) -> bool:
