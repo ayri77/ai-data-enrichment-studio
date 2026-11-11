@@ -5,6 +5,7 @@ import {
     renderHook,
     screen,
     waitFor,
+    within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
@@ -17,6 +18,8 @@ import {
     type Job,
     type PlanDraft,
     type Preview,
+    type Review,
+    type ReviewCandidate,
 } from "./api";
 import i18n, { messages } from "./i18n";
 
@@ -37,6 +40,8 @@ vi.mock("./api", async (original) => ({
         getJob: vi.fn(),
         getReport: vi.fn(),
         cancelJob: vi.fn(),
+        getReview: vi.fn(),
+        resumeJob: vi.fn(),
         artifact: vi.fn(),
     },
 }));
@@ -151,6 +156,104 @@ const report: AuditReport = {
         ],
     },
 };
+const place = (
+    entity_id: string,
+    extra: Partial<ReviewCandidate> = {},
+): ReviewCandidate => ({
+    source: "open-meteo",
+    entity_id,
+    label: "Berlin",
+    entity_type: "city",
+    verification: "verified",
+    attributes: { country_code: "DE", latitude: 52.52, longitude: 13.4 },
+    evidence: [{ source: "open-meteo", reference: `geonames:${entity_id}` }],
+    selectable: true,
+    blocker: null,
+    recommended: false,
+    recommendation_reasons: [],
+    reason_codes: ["verified_context_match"],
+    ...extra,
+});
+const review: Review = {
+    job_id: "job",
+    previous_job_id: null,
+    affected_rows: 3,
+    items: [
+        {
+            operation_id: "op-berlin",
+            capability: "geocode",
+            provider_id: "open-meteo",
+            query: {
+                name: "Berlin",
+                entity_type: "city",
+                context: { country_code: "DE" },
+            },
+            status: "needs_review",
+            reason_codes: ["ambiguous_or_unverified"],
+            search_complete: true,
+            affected: [
+                { record_id: "Sheet1!4", row: 4, step_id: "to_city" },
+                { record_id: "Sheet1!5", row: 5, step_id: "from_city" },
+            ],
+            candidates: [
+                place("2950159", {
+                    recommended: true,
+                    recommendation_reasons: ["country_capital_role"],
+                    attributes: {
+                        country_code: "DE",
+                        latitude: 52.52,
+                        longitude: 13.4,
+                        administrative_role: "country_capital",
+                        population: 3426354,
+                    },
+                }),
+                place("2950157"),
+                place("2950200", {
+                    entity_type: "district",
+                    selectable: false,
+                    blocker: "excluded",
+                }),
+            ],
+        },
+        {
+            operation_id: "op-kyiv",
+            capability: "geocode",
+            provider_id: "open-meteo",
+            query: {
+                name: "Kyiv",
+                entity_type: "city",
+                context: { country_code: "UA" },
+            },
+            status: "needs_review",
+            reason_codes: ["ambiguous_or_unverified"],
+            search_complete: true,
+            affected: [{ record_id: "Sheet1!2", row: 2, step_id: "from_city" }],
+            candidates: [
+                place("703448", { label: "Kyiv" }),
+                place("704213", { label: "Kyiv" }),
+            ],
+        },
+    ],
+    informational: [
+        {
+            operation_id: "op-oslo",
+            capability: "geocode",
+            provider_id: "open-meteo",
+            query: {
+                name: "Oslo",
+                entity_type: "city",
+                context: { country_code: "NO" },
+            },
+            status: "unresolved",
+            reason_codes: ["no_eligible_candidate"],
+            search_complete: true,
+            affected: [{ record_id: "Sheet1!10", row: 10, step_id: "to_city" }],
+            candidates: [],
+        },
+    ],
+};
+const radio = (id: string) =>
+    within(screen.getByTestId(`candidate-open-meteo:${id}`)).getByRole("radio");
 
 beforeEach(async () => {
     vi.resetAllMocks();
@@ -188,6 +291,7 @@ beforeEach(async () => {
     vi.mocked(api.startRun).mockResolvedValue(queued);
     vi.mocked(api.getJob).mockResolvedValue(finished);
     vi.mocked(api.getReport).mockResolvedValue(report);
+    vi.mocked(api.getReview).mockResolvedValue(review);
 });
 const button = (key: string) =>
     screen.getByRole("button", { name: i18n.t(key) });
@@ -370,8 +474,12 @@ it("shows only compact actual metrics, groups issues honestly and keeps technica
         screen.queryByText("Actual provider request counters"),
     ).not.toBeInTheDocument();
     await navigate("review");
-    expect(screen.getByText("ambiguous")).toBeInTheDocument();
-    expect(button("ws.resume")).toBeDisabled();
+    // The per-code summary stays available as a second layer for audit.
+    expect(screen.getByText("ambiguous").closest("details")).toHaveAttribute(
+        "data-advanced",
+        "true",
+    );
+    expect(button("review.resume")).toBeDisabled();
     await navigate("export");
     expect(button("workflow.downloadXlsx")).toBeEnabled();
     expect(screen.getByLabelText("Workbook filename")).toHaveValue(
@@ -824,4 +932,137 @@ it("distinguishes passing contracts from intent conflicts and blocks approval", 
     expect(api.approvePlan).not.toHaveBeenCalled();
     await navigate("execution");
     expect(button("workflow.run")).toBeDisabled();
+});
+
+it("lets a person settle each ambiguous name once and resumes as a new job", async () => {
+    render(<App />);
+    await start();
+    await waitFor(() =>
+        expect(api.getReview).toHaveBeenCalledWith("job", expect.anything()),
+    );
+    await navigate("review");
+    const berlin = within(await screen.findByTestId("review-Berlin"));
+    expect(
+        berlin.getByText(i18n.t("review.rows", { rows: "4, 5" })),
+    ).toBeVisible();
+    expect(berlin.getByText(i18n.t("review.recommended"))).toBeVisible();
+    expect(berlin.getByText(/capital of the country/)).toBeVisible();
+    // Excluded candidates are shown with the reason, but cannot be chosen.
+    expect(radio("2950200")).toBeDisabled();
+    expect(berlin.getByText(/the source ruled it out/)).toBeVisible();
+    expect(
+        berlin.getAllByRole("link", { name: /Map/ })[0].getAttribute("href"),
+    ).toContain("openstreetmap.org");
+    // Names without any match are listed, with nothing to choose.
+    expect(
+        within(screen.getByTestId("unresolved-Oslo")).queryByRole("radio"),
+    ).toBeNull();
+    expect(screen.getByTestId("review-progress")).toHaveTextContent("0 of 2");
+    expect(button("review.resume")).toBeDisabled();
+
+    // "Leave empty" alone changes nothing, so it does not enable a resume.
+    await userEvent.click(
+        within(screen.getByTestId("review-Kyiv")).getByRole("radio", {
+            name: new RegExp(i18n.t("review.leaveEmpty")),
+        }),
+    );
+    expect(screen.getByTestId("review-progress")).toHaveTextContent("1 of 2");
+    expect(button("review.resume")).toBeDisabled();
+
+    // A recommendation is applied only when the person accepts it.
+    expect(radio("2950159")).not.toBeChecked();
+    await userEvent.click(button("review.accept"));
+    expect(radio("2950159")).toBeChecked();
+    expect(button("review.accept")).toBeDisabled();
+    await userEvent.click(radio("2950157"));
+    expect(radio("2950159")).not.toBeChecked();
+
+    // Choices survive navigation and language changes.
+    await navigate("execution");
+    await navigate("review");
+    for (const locale of ["uk", "de", "en"] as const) {
+        await act(() => i18n.changeLanguage(locale));
+        expect(radio("2950157")).toBeChecked();
+        expect(
+            screen.getByRole("button", {
+                name: messages[locale]["review.resume"],
+            }),
+        ).toBeEnabled();
+        expect(
+            within(screen.getByTestId("review-Berlin")).getByText(
+                new RegExp(`^${messages[locale]["review.type.city"]} · `),
+            ),
+        ).toBeInTheDocument();
+    }
+
+    const resumed: Job = { ...queued, job_id: "job-2", previous_job_id: "job" };
+    vi.mocked(api.resumeJob).mockResolvedValue(resumed);
+    vi.mocked(api.getJob).mockResolvedValue({
+        ...finished,
+        job_id: "job-2",
+        previous_job_id: "job",
+        status: "completed",
+        metrics: { ...finished.metrics!, successful_rows: 3 },
+    });
+    await userEvent.click(button("review.resume"));
+    expect(api.resumeJob).toHaveBeenCalledWith(
+        "job",
+        [
+            {
+                operation_id: "op-berlin",
+                source: "open-meteo",
+                entity_id: "2950157",
+            },
+            { operation_id: "op-kyiv" },
+        ],
+        true,
+        180,
+    );
+    expect(api.startRun).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+        expect(screen.getByTestId("metric-successful_rows")).toHaveTextContent(
+            "3",
+        ),
+    );
+    expect(screen.getByText(i18n.t("review.continued"))).toBeVisible();
+    // The earlier run is kept for inspection, not overwritten.
+    await userEvent.click(button("ws.diagnostics"));
+    expect(screen.getByText(/job · Needs review/)).toBeInTheDocument();
+});
+
+it("reports a rejected resume with a localized message and keeps the choices", async () => {
+    vi.mocked(api.resumeJob).mockRejectedValue(
+        new WorkspaceApiError("invalid_decision", "sanitized"),
+    );
+    render(<App />);
+    await start();
+    await navigate("review");
+    await screen.findByTestId("review-Kyiv");
+    await userEvent.click(radio("703448"));
+    await userEvent.click(button("review.resume"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+        i18n.t("error.invalid_decision"),
+    );
+    // Still on Review, with the choice intact, and no second job was started.
+    expect(radio("703448")).toBeChecked();
+    expect(api.getJob).toHaveBeenCalledTimes(1);
+});
+
+it("offers nothing to decide when a run only has names without a match", async () => {
+    vi.mocked(api.getReview).mockResolvedValue({
+        ...review,
+        items: [],
+        affected_rows: 0,
+    });
+    render(<App />);
+    await start();
+    await navigate("review");
+    expect(
+        await screen.findByText(i18n.t("review.nothingToChoose")),
+    ).toBeVisible();
+    expect(screen.getByTestId("unresolved-Oslo")).toBeInTheDocument();
+    expect(
+        screen.queryByRole("button", { name: i18n.t("review.resume") }),
+    ).toBeNull();
+    expect(button("ws.toExport")).toBeEnabled();
 });
