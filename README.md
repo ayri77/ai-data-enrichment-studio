@@ -446,6 +446,21 @@ Run it as a module (`-m`) from the repository root; `python scripts/experiment_p
 fails with `No module named 'tests'`. `uv run` does not read `.env` unless
 `--env-file .env` is passed.
 
+- `--case` selects the standard `capitals` or `mountains` instruction and sample
+  workbook; `--prompt-file` overrides the instruction, for example with a
+  free-form or non-English request.
+- `--output-targets distance` passes the target column names the way the UI does
+  (they are shown to the model and enforced by validation). Without it the plan
+  may name its targets freely, as in `enrichment plan generate`.
+- `--repeat` accepts 1 to 10 runs per call; `--repairs` sets the repair budget (0 to 2).
+- `--capture-raw` also saves the prompts and raw model responses per run. Use it
+  only with the public samples and do not commit or share the files unreviewed.
+
+Each call writes `summary.json` (model, git revision, attempts, diagnostic codes
+and the final plan per run) to the ignored `artifacts/planner-experiments/`.
+Compare models or code changes by the share of valid `ready` plans, not by a
+single run.
+
 ### Live resolution diagnostics (developer tool)
 
 `scripts/experiment_resolution.py` shows why each mountain name resolved, or
@@ -463,21 +478,6 @@ uv run python -m scripts.experiment_resolution --names "Annapurna/Nepal" "Annapu
 The JSON report is written to the ignored `artifacts/resolution-experiments/`.
 `--offline` uses the injected offline responses and only checks that the script
 itself works. Results depend on live data and can change between runs.
-
-- `--case` selects the standard `capitals` or `mountains` instruction and sample
-  workbook; `--prompt-file` overrides the instruction, for example with a
-  free-form or non-English request.
-- `--output-targets distance` passes the target column names the way the UI does
-  (they are shown to the model and enforced by validation). Without it the plan
-  may name its targets freely, as in `enrichment plan generate`.
-- `--repeat` accepts 1 to 10 runs per call; `--repairs` sets the repair budget (0 to 2).
-- `--capture-raw` also saves the prompts and raw model responses per run. Use it
-  only with the public samples and do not commit or share the files unreviewed.
-
-Each call writes `summary.json` (model, git revision, attempts, diagnostic codes
-and the final plan per run) to the ignored `artifacts/planner-experiments/`.
-Compare models or code changes by the share of valid `ready` plans, not by a
-single run.
 
 ### Execute an Excel enrichment job (M3)
 
