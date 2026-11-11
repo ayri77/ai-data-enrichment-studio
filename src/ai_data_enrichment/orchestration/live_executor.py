@@ -9,6 +9,7 @@ from ai_data_enrichment.execution.job_models import JobExecutionPolicy
 from ai_data_enrichment.providers.geodesic import GeodesicDistanceHandler
 from ai_data_enrichment.providers.http_transport import JsonTransport, UrllibJsonTransport
 from ai_data_enrichment.providers.open_meteo import OpenMeteoGeocodingHandler
+from ai_data_enrichment.providers.open_meteo_approved import ApprovedOpenMeteoResolutionService
 from ai_data_enrichment.providers.open_meteo_resolution import OpenMeteoResolutionService
 from ai_data_enrichment.providers.registry import ProviderRegistry
 from ai_data_enrichment.providers.request_policy import (
@@ -41,8 +42,13 @@ def build_live_executor(
 ) -> JobExecutor:
     """Bind built-in capabilities to explicitly approved providers."""
 
-    if resume_selections and not audit_mountains:
+    approved_sources = {item.approval.source for item in (resume_selections or {}).values()}
+    if approved_sources - {"wikidata", "open-meteo"}:
+        raise ValueError("Resume selection uses an unsupported source.")
+    if "wikidata" in approved_sources and not audit_mountains:
         raise ValueError("Resume requires audited mountain resolution.")
+    if "open-meteo" in approved_sources and not audit_capitals:
+        raise ValueError("Resume requires audited city resolution.")
     if mountain_resolution_policy not in {"strict", "verified_only"}:
         raise ValueError("Unsupported mountain resolution policy.")
     if mountain_resolution_policy != "strict" and not audit_mountains:
@@ -157,11 +163,20 @@ def build_live_executor(
                 else {}
             ),
         },
+        # Each approval is re-verified against the source that produced it.
         approved_resolution_services={
-            key: ApprovedWikidataMountainResolutionService(
-                mountain_transport,
-                approval=selection.approval,
-                source_report=selection.source_report,
+            key: (
+                ApprovedWikidataMountainResolutionService(
+                    mountain_transport,
+                    approval=selection.approval,
+                    source_report=selection.source_report,
+                )
+                if selection.approval.source == "wikidata"
+                else ApprovedOpenMeteoResolutionService(
+                    city_transport,
+                    approval=selection.approval,
+                    source_report=selection.source_report,
+                )
             )
             for key, selection in (resume_selections or {}).items()
         },

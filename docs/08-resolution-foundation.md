@@ -102,3 +102,33 @@ Use [Resolution delivery roadmap](09-resolution-rollout.md) and issues #61–#68
 ## 9. First concrete contract (review candidate)
 
 The schema and user-readable examples are specified in [Resolution Report Contract v1](10-resolution-report-contract.md). This is a separate resolution/result/audit format from `OperationResult` and introduces no automatic ranking or pause/resume behavior until later implementation issues. Confirm the report contract, including ranked opt-in, incomplete-search abstention, user-confirmed decisions, partial-run envelope, and record links, before integrating the adapters (#62–#65).
+
+
+## 10. User-approved city resolution
+
+Review and resume originally worked only for Wikidata mountains. The same contract
+now covers `geocode` through `ApprovedOpenMeteoResolutionService`
+(`providers/open_meteo_approved.py`):
+
+- An approval names one Open-Meteo location ID for one record and step, bound to the
+  source job and workbook hash by the existing `ApprovalManifest`.
+- Only a verified candidate that the source decision assessed as **eligible** can be
+  approved. A candidate excluded by a hard constraint (type, country, region, role)
+  cannot be approved back in.
+- On resume the adapter repeats the same search and accepts the approved location
+  only if it is again a verified, eligible candidate. Otherwise the step fails with
+  `APPROVAL_NOT_REVERIFIED` and the row stays empty; provider failures are reported
+  as provider failures.
+- A successful resume records `basis: user_override` with the complete fresh
+  candidate set, so the audit shows what the user chose among.
+- The row's city, country, optional region and step parameters must match the
+  source query; a changed plan or workbook rejects the resume before any request.
+
+`resolution/resume.py` exposes `build_resume_selections` for in-memory use (the HTTP
+API) next to the file-based `load_resume_selections` (the CLI). `build_live_executor`
+routes each approval to the adapter of the source that produced it.
+
+Approved results are not memoized or cached: each approved record/step repeats its
+search. That is fine for the current row limit; a larger limit needs a deliberate
+reuse rule for approved decisions.
+

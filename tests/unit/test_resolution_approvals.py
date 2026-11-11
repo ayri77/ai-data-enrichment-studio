@@ -136,3 +136,22 @@ def test_duplicate_and_malformed_approvals_fail_validation(tmp_path: Path) -> No
             source="wikidata",
             entity_id="not-a-QID",
         )
+
+
+@pytest.mark.parametrize("entity_id", ["Q64", "0", "-5", "12a", ""])
+def test_open_meteo_approvals_require_a_positive_numeric_location_id(entity_id: str) -> None:
+    with pytest.raises(ValidationError):
+        ResolutionApproval(
+            record_id="Sheet1!2",
+            step_id="geocode_to",
+            operation_id="operation-abc",
+            source="open-meteo",
+            entity_id=entity_id,
+        )
+    assert ResolutionApproval(
+        record_id="Sheet1!2",
+        step_id="geocode_to",
+        operation_id="operation-abc",
+        source="open-meteo",
+        entity_id="2950159",
+    )
