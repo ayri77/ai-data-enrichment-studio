@@ -36,6 +36,8 @@ class ResolutionApproval(BaseModel):
     def source_specific_id(self) -> Self:
         if self.source == "wikidata" and re.fullmatch(r"Q[1-9]\d*", self.entity_id) is None:
             raise ValueError("Wikidata approvals require a valid QID.")
+        if self.source == "open-meteo" and re.fullmatch(r"[1-9]\d*", self.entity_id) is None:
+            raise ValueError("Open-Meteo approvals require a positive numeric location ID.")
         return self
 
 
@@ -108,7 +110,16 @@ def validate_approval_manifest(
         ]
         if len(matches) != 1 or matches[0].verification != "verified":
             raise ValueError(f"Approval candidate is not source-verified: {key}.")
-        if matches[0].entity_type != source_report.candidate_set.query.entity_type:
+        assessment = next(
+            (item for item in source_report.assessments if item.reference == matches[0].reference),
+            None,
+        )
+        if assessment is not None:
+            # The decision layer already applied the hard constraints (type, country,
+            # region, role). A candidate it excluded cannot be approved back in.
+            if assessment.eligibility != "eligible":
+                raise ValueError(f"Approval candidate was excluded by the source decision: {key}.")
+        elif matches[0].entity_type != source_report.candidate_set.query.entity_type:
             raise ValueError(f"Approval candidate does not match the requested type: {key}.")
 
         accepted[key] = approval
