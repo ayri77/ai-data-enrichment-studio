@@ -50,6 +50,9 @@ class PlanValidationPolicy:
 
     protected_columns: frozenset[str] = field(default_factory=frozenset)
     max_steps: int | None = None
+    # Destination names the caller has already bound (for example to Excel columns).
+    # None means the plan may name its output targets freely.
+    output_targets: frozenset[str] | None = None
 
     def __post_init__(self) -> None:
         """Reject negative limits before plan validation begins."""
@@ -380,6 +383,25 @@ class PlanValidator:
         errors: list[ValidationDiagnostic] = []
         steps_by_id = {step.id: step for step in plan.steps}
         seen_targets: set[str] = set()
+
+        requested = self._policy.output_targets
+        if requested is not None and plan.outputs:
+            proposed = {output.target_column for output in plan.outputs}
+            if proposed != requested:
+                # The caller writes by target name, so a differently named or missing
+                # target cannot be delivered even when the DAG itself is valid.
+                errors.append(
+                    ValidationDiagnostic(
+                        code="OUTPUT_TARGET_MISMATCH",
+                        message=(
+                            "Output mappings must write exactly the requested target "
+                            f"columns {sorted(requested)}. Missing: "
+                            f"{sorted(requested - proposed)}. Unexpected: "
+                            f"{sorted(proposed - requested)}."
+                        ),
+                        field="outputs",
+                    )
+                )
 
         # Output mappings represent proposed writes; check targets before inspecting sources.
         for index, output in enumerate(plan.outputs):

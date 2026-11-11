@@ -195,3 +195,27 @@ and the guidance no longer states that all parameters are optional.
 There is no `default` field: no handler substitutes a value, so an omitted optional
 parameter simply means the restriction is not applied. A unit test checks that every
 parameter declared required is in fact rejected by its handler when omitted.
+
+
+## Requested output targets
+
+In the UI the user binds output names to Excel columns (`output_columns`, for example
+`{"distance": "E"}`) before planning. The planner did not receive these names, and
+the name check ran only after the repair loop, in the API. A plan that called the
+target `Distance_km` was therefore reported as `invalid_output_mapping` with no
+attempt to repair it. The standard sample instructions hid this because they name
+the column literally.
+
+`PlanValidationPolicy` now carries `output_targets`. The API builds one policy
+(step limit plus the requested target names) and uses it both for planning and for
+the final draft validation:
+
+- the names are added to the model context as `output_targets`, with one rule in the
+  system message: write each one exactly once and use no other target name;
+- the validator reports `OUTPUT_TARGET_MISMATCH` with the missing and unexpected
+  names, as a contract error that enters the repair loop;
+- the step limit is likewise enforced inside the loop, not only afterwards.
+
+Workbook-specific checks (column letters, overlap with the selected table, the A:CV
+envelope) stay in the API as `invalid_output_mapping`: the model cannot repair them.
+CLI planning passes no targets and is unchanged.

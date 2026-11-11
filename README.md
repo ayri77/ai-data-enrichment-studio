@@ -449,6 +449,9 @@ fails with `No module named 'tests'`. `uv run` does not read `.env` unless
 - `--case` selects the standard `capitals` or `mountains` instruction and sample
   workbook; `--prompt-file` overrides the instruction, for example with a
   free-form or non-English request.
+- `--output-targets distance` passes the target column names the way the UI does
+  (they are shown to the model and enforced by validation). Without it the plan
+  may name its targets freely, as in `enrichment plan generate`.
 - `--repeat` accepts 1 to 10 runs per call; `--repairs` sets the repair budget (0 to 2).
 - `--capture-raw` also saves the prompts and raw model responses per run. Use it
   only with the public samples and do not commit or share the files unreviewed.

@@ -570,3 +570,31 @@ def test_explicit_capital_role_can_be_approved(client):
     plan = response.json()
     assert plan["validation"]["valid"]
     assert approve(client, plan)["status"] == "approved"
+
+
+def test_generated_plan_with_a_differently_named_target_is_repaired():
+    """The planner sees the bound target names and their mismatch is fed back."""
+    renamed = ready_response()
+    renamed["plan"]["outputs"][0]["target_column"] = "Distance_km"
+    llm = ScriptedPlanClient(renamed, ready_response())
+    with TestClient(create_app(offline_plan_client=llm)) as client:
+        plan = draft(client, generate=True)
+        assert plan["validation"]["valid"]
+        assert [a["diagnostic_codes"] for a in plan["planning_attempts"]] == [
+            ["OUTPUT_TARGET_MISMATCH"],
+            [],
+        ]
+        context = json.loads(llm.calls[0][0][1]["content"])
+        assert context["output_targets"] == ["distance"]
+        assert approve(client, plan)["status"] == "approved"
+
+
+def test_supplied_plan_target_mismatch_is_reported_precisely(client):
+    body = request_body(upload(client))
+    body["output_columns"] = {"Distance_km": "F"}
+    response = client.post("/api/plans", json=body)
+    assert response.status_code == 201
+    validation = response.json()["validation"]
+    assert not validation["valid"] and not validation["contract_valid"]
+    assert [e["code"] for e in validation["errors"]] == ["OUTPUT_TARGET_MISMATCH"]
+    assert "Missing: ['Distance_km']" in validation["errors"][0]["message"]
