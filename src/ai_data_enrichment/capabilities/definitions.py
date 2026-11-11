@@ -77,6 +77,7 @@ def get_resolve_entity_spec() -> CapabilitySpec:
         parameters={
             "entity_type": ParameterSpec(
                 type=DataType.TEXT,
+                required=True,
                 allowed_values=["mountain"],
                 description="Entity type",
             ),
@@ -103,6 +104,7 @@ def get_lookup_property_spec() -> CapabilitySpec:
         parameters={
             "property": ParameterSpec(
                 type=DataType.TEXT,
+                required=True,
                 allowed_values=["elevation"],
                 description="Property",
             ),
@@ -149,6 +151,7 @@ def get_geodesic_distance_spec() -> CapabilitySpec:
         parameters={
             "unit": ParameterSpec(
                 type=DataType.TEXT,
+                required=True,
                 allowed_values=["km"],
                 description="Distance unit",
             ),

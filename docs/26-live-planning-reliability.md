@@ -113,10 +113,11 @@ factual correctness of later provider results.
 
 ## Optional parameters and explicit intent (#119)
 
-Capability parameters may be omitted entirely: `allowed_values` constrains supplied
-values, not presence. Ordinary literal-city geocoding uses `parameters: {}`; a
+An optional capability parameter may be omitted entirely: `allowed_values` constrains
+supplied values, not presence. Ordinary literal-city geocoding uses `parameters: {}`; a
 supplied `required_role: null` or an unsupported disable value remains invalid.
-Country-capital queries still support `required_role: "country_capital"`.
+Country-capital queries still support `required_role: "country_capital"`. Parameters
+that handlers demand are declared required (see "Required parameters" below).
 
 Contract validation is unchanged. An additional deterministic intent policy checks
 all matching capability steps using only the original user instruction. It recognizes
@@ -175,3 +176,22 @@ most three completions) and the `PlanningResponse` schema are unchanged.
 
 Offline regressions replay the recorded proposal and refusal; they prove the loop,
 not model quality. Measure the effect with repeated live runs per model.
+
+
+## Required parameters
+
+The contract used to describe every parameter as optional, while three handlers
+reject a step without their parameter: `geodesic_distance.unit`,
+`resolve_entity.entity_type` and `lookup_property.property`. A plan with
+`parameters: {}` for such a step passed validation, could be approved, and then
+failed with `INVALID_PARAMETER` on every row.
+
+`ParameterSpec` now carries `required` (default `false`). The three parameters above
+are declared `required: true`; `geocode.required_role` stays optional. The validator
+reports `MISSING_REQUIRED_PARAMETER` with the allowed values, as a contract error that
+enters the ordinary repair loop. The planner sees the flag in the capability contracts
+and the guidance no longer states that all parameters are optional.
+
+There is no `default` field: no handler substitutes a value, so an omitted optional
+parameter simply means the restriction is not applied. A unit test checks that every
+parameter declared required is in fact rejected by its handler when omitted.
