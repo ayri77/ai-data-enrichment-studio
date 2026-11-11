@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, WorkspaceApiError } from "../api";
+import { useHosted } from "../mode";
 import type { Workflow } from "../useWorkflow";
 import { Button } from "./ui/button";
 
 export function ProviderSettings({ w }: { w: Workflow }) {
     const { t } = useTranslation();
+    const hosted = useHosted();
     const keyInput = useRef<HTMLInputElement>(null);
     const [model, setModel] = useState(w.provider?.model ?? "");
     const [busy, setBusy] = useState(false);
@@ -146,7 +148,11 @@ export function ProviderSettings({ w }: { w: Workflow }) {
                     </Button>
                 </fieldset>
             </form>
-            {p && !p.configuration_enabled && <p>{t("provider.localOnly")}</p>}
+            {p && !p.configuration_enabled && (
+                <p>
+                    {t(hosted ? "provider.hostedOnly" : "provider.localOnly")}
+                </p>
+            )}
             {message && <p role={error ? "alert" : "status"}>{t(message)}</p>}
             <Button
                 variant="outline"

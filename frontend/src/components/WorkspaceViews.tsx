@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { isTerminal, type Preview } from "../api";
+import { Advanced, useAdvanced, useHosted } from "../mode";
 import type { Workflow, Workspace } from "../useWorkflow";
 import { columnLetter, parseRange } from "../range";
 import { normalizeColumn, type OutputTarget } from "../workflowModel";
@@ -25,6 +26,7 @@ function BuildChecklist({
     onOpenSettings?: () => void;
 }) {
     const { t } = useTranslation();
+    const hosted = useHosted();
     if (!w.missing.length) return null;
     const text: Record<(typeof w.missing)[number], string> = {
         preview: t("ws.need.preview"),
@@ -38,6 +40,9 @@ function BuildChecklist({
         w.planningReadiness === "modelMissing" ||
         w.planningReadiness === "keyMissing" ||
         w.planningReadiness === "unavailable";
+    // A hosted demo is configured on the server; a visitor cannot fix it.
+    if (hosted && w.planningReadiness !== "loading")
+        text.provider = t("ws.need.hostedProvider");
     return (
         <div className="build-checklist" role="status">
             <strong>{t("ws.need.title")}</strong>
@@ -45,18 +50,21 @@ function BuildChecklist({
                 {w.missing.map((key) => (
                     <li key={key} data-requirement={key}>
                         {text[key]}
-                        {key === "provider" && settings && onOpenSettings && (
-                            <>
-                                {" "}
-                                <button
-                                    type="button"
-                                    className="inline-link"
-                                    onClick={onOpenSettings}
-                                >
-                                    {t("ws.need.openSettings")}
-                                </button>
-                            </>
-                        )}
+                        {key === "provider" &&
+                            settings &&
+                            !hosted &&
+                            onOpenSettings && (
+                                <>
+                                    {" "}
+                                    <button
+                                        type="button"
+                                        className="inline-link"
+                                        onClick={onOpenSettings}
+                                    >
+                                        {t("ws.need.openSettings")}
+                                    </button>
+                                </>
+                            )}
                     </li>
                 ))}
             </ul>
@@ -74,6 +82,7 @@ export function DatasetConfiguration({
     onOpenSettings?: () => void;
 }) {
     const { t } = useTranslation();
+    const advanced = useAdvanced();
     const first = preview
         ? (parseRange(preview.range_ref).bounds?.firstColumn ?? 1)
         : 1;
@@ -95,7 +104,6 @@ export function DatasetConfiguration({
                 {(w.plan || w.job) && (
                     <p className="notice">{t("ws.invalidateWarning")}</p>
                 )}
-                {!preview && <p className="notice">{t("ws.previewFirst")}</p>}
                 <fieldset disabled={!preview || w.locked}>
                     <label>
                         {t("workflow.instruction")}
@@ -244,27 +252,29 @@ export function DatasetConfiguration({
                     >
                         {t("workflow.addMapping")}
                     </Button>
-                    <label>
-                        {t("workflow.policy")}
-                        <select
-                            value={w.policy}
-                            onChange={(e) =>
-                                w.edit(() =>
-                                    w.setPolicy(
-                                        e.target.value as typeof w.policy,
-                                    ),
-                                )
-                            }
-                        >
-                            <option value="verified_only">
-                                {t("workflow.verifiedOnly")}
-                            </option>
-                            <option value="strict">
-                                {t("workflow.strict")}
-                            </option>
-                        </select>
-                    </label>
-                    <p className="muted">{t("workflow.policyHint")}</p>
+                    <Advanced>
+                        <label>
+                            {t("workflow.policy")}
+                            <select
+                                value={w.policy}
+                                onChange={(e) =>
+                                    w.edit(() =>
+                                        w.setPolicy(
+                                            e.target.value as typeof w.policy,
+                                        ),
+                                    )
+                                }
+                            >
+                                <option value="verified_only">
+                                    {t("workflow.verifiedOnly")}
+                                </option>
+                                <option value="strict">
+                                    {t("workflow.strict")}
+                                </option>
+                            </select>
+                        </label>
+                        <p className="muted">{t("workflow.policyHint")}</p>
+                    </Advanced>
                     <label className="network-opt-in">
                         <input
                             type="checkbox"
@@ -275,33 +285,39 @@ export function DatasetConfiguration({
                         />
                         {t("workflow.network")}
                     </label>
-                    <details data-advanced="true">
-                        <summary>{t("workflow.savedPlan")}</summary>
-                        <label>
-                            {t("workflow.planJson")}
-                            <textarea
-                                className="mono"
-                                value={w.savedPlan}
-                                onChange={(e) =>
-                                    w.edit(() => w.setSavedPlan(e.target.value))
-                                }
-                            />
-                        </label>
-                    </details>
-                    <AdvancedControls w={w} />
+                    <Advanced>
+                        <details data-advanced="true">
+                            <summary>{t("workflow.savedPlan")}</summary>
+                            <label>
+                                {t("workflow.planJson")}
+                                <textarea
+                                    className="mono"
+                                    value={w.savedPlan}
+                                    onChange={(e) =>
+                                        w.edit(() =>
+                                            w.setSavedPlan(e.target.value),
+                                        )
+                                    }
+                                />
+                            </label>
+                        </details>
+                        <AdvancedControls w={w} />
+                    </Advanced>
                 </fieldset>
-                {!w.savedPlan.trim() &&
-                    (w.planningReadiness === "ready" ||
-                        w.planningReadiness === "offline") && (
-                        <p role="status">
-                            {t(`provider.${w.planningReadiness}`)}
-                        </p>
-                    )}
-                <p className="muted">
-                    {w.savedPlan.trim()
-                        ? t("ws.offlineValidation")
-                        : t("ws.aiRequirements")}
-                </p>
+                <Advanced>
+                    {!w.savedPlan.trim() &&
+                        (w.planningReadiness === "ready" ||
+                            w.planningReadiness === "offline") && (
+                            <p role="status">
+                                {t(`provider.${w.planningReadiness}`)}
+                            </p>
+                        )}
+                    <p className="muted">
+                        {w.savedPlan.trim()
+                            ? t("ws.offlineValidation")
+                            : t("ws.aiRequirements")}
+                    </p>
+                </Advanced>
             </div>
             <div className="workspace-actions">
                 {w.sample?.has_plan && !w.savedPlan.trim() && (
@@ -314,6 +330,19 @@ export function DatasetConfiguration({
                             onClick={() => void w.action(w.loadPreparedPlan)}
                         >
                             {t("sample.usePlan")}
+                        </button>
+                    </p>
+                )}
+                {!advanced && !!w.savedPlan.trim() && (
+                    <p className="sample-plan muted">
+                        {t("sample.planLoaded")}{" "}
+                        <button
+                            type="button"
+                            className="inline-link"
+                            disabled={w.locked}
+                            onClick={() => w.edit(() => w.setSavedPlan(""))}
+                        >
+                            {t("sample.clearPlan")}
                         </button>
                     </p>
                 )}
@@ -366,7 +395,6 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
                 <div className="panel-title">
                     <GitBranch aria-hidden="true" />
                     <h2>{t("ws.graph")}</h2>
-                    <span className="muted">{t("ws.staticGraph")}</span>
                 </div>
                 {w.plan?.plan ? (
                     <PlanGraph key={w.plan.fingerprint} draft={w.plan} />
@@ -380,9 +408,11 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
                     {w.plan && (
                         <>
                             <p>{w.plan.instruction}</p>
-                            <p className="mono">
-                                {w.plan.sheet_name} · {w.plan.range_ref}
-                            </p>
+                            <Advanced>
+                                <p className="mono">
+                                    {w.plan.sheet_name} · {w.plan.range_ref}
+                                </p>
+                            </Advanced>
                             <p
                                 className={
                                     w.plan.validation.valid
@@ -412,19 +442,18 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
                             ))}
                             {w.plan.plan && (
                                 <>
-                                    <div className="plan-counts">
-                                        <strong>
-                                            {w.plan.plan.steps.length}
-                                        </strong>{" "}
-                                        {t("ws.steps")} ·{" "}
-                                        <strong>
-                                            {w.plan.plan.outputs.length}
-                                        </strong>{" "}
-                                        {t("ws.outputs")}
-                                    </div>
-                                    <p className="notice">
-                                        {t("workflow.parameterHint")}
-                                    </p>
+                                    <Advanced>
+                                        <div className="plan-counts">
+                                            <strong>
+                                                {w.plan.plan.steps.length}
+                                            </strong>{" "}
+                                            {t("ws.steps")} ·{" "}
+                                            <strong>
+                                                {w.plan.plan.outputs.length}
+                                            </strong>{" "}
+                                            {t("ws.outputs")}
+                                        </div>
+                                    </Advanced>
                                     <h3>{t("ws.outputs")}</h3>
                                     {w.plan.plan.outputs.map((o) => (
                                         <p key={o.target_column}>
@@ -461,16 +490,17 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
                                         : "ws.approvalHint",
                                 )}
                             </p>
-                            <Button
-                                variant="outline"
-                                disabled={w.locked || !!w.job}
-                                onClick={() => void w.action(w.validate)}
-                            >
-                                {t("workflow.validate")}
-                            </Button>
+                            <Advanced>
+                                <Button
+                                    variant="outline"
+                                    disabled={w.locked || !!w.job}
+                                    onClick={() => void w.action(w.validate)}
+                                >
+                                    {t("workflow.validate")}
+                                </Button>
+                            </Advanced>
                         </>
                     )}
-                    <AdvancedControls w={w} />
                     {!w.plan && w.canBuild && (
                         <Button onClick={() => void w.action(w.create)}>
                             {t("ws.buildPlan")}
@@ -511,8 +541,7 @@ export function QualitySummary({ w }: { w: Workflow }) {
         "partial_rows",
         "failed_rows",
     ];
-    if (!w.job?.metrics)
-        return <p className="muted">{t("ws.metricsPending")}</p>;
+    if (!w.job?.metrics) return null;
     return (
         <dl className="quality-summary">
             {keys.map((key, i) => (
@@ -536,8 +565,11 @@ export function ModeNotice({ w }: { w: Workflow }) {
 
 export function ExecutionWorkspace({ w }: { w: Workflow }) {
     const { t } = useTranslation();
+    const advanced = useAdvanced();
     const terminal = !!w.job && isTerminal(w.job.status);
     const toReview = w.job?.status === "needs_review";
+    // Basic has nothing left to control once a run exists and is not running.
+    const controls = advanced || !w.job || w.active;
     return (
         <div className="stage-layout">
             <section className="workspace-panel execution-stage">
@@ -578,18 +610,21 @@ export function ExecutionWorkspace({ w }: { w: Workflow }) {
                               : t("ws.startHint")}
                     </p>
                 </div>
-                {w.plan?.plan && <PlanGraph draft={w.plan} />}
+                <Advanced>
+                    {w.plan?.plan && <PlanGraph draft={w.plan} />}
+                </Advanced>
             </section>
             <aside className="workspace-panel stage-sidebar">
                 <div className="panel-scroll summary-content">
-                    <h2>{t("ws.runControls")}</h2>
-                    <p>{w.plan?.instruction ?? t("ws.noPlan")}</p>
-                    <p className="notice">{t("ws.staticGraph")}</p>
-                    <AdvancedControls w={w} />
+                    <h2>{t(controls ? "ws.runControls" : "ws.nextStep")}</h2>
+                    {!w.plan && <p>{t("ws.noPlan")}</p>}
+                    {!controls && terminal && (
+                        <p>{t(toReview ? "ws.reviewHint" : "ws.exportHint")}</p>
+                    )}
                     {!w.network && (
                         <p className="muted">{t("ws.executionNetwork")}</p>
                     )}
-                    {w.job && (
+                    {advanced && w.job && (
                         <dl className="run-times">
                             {(["created", "started", "finished"] as const).map(
                                 (key) => {
@@ -626,15 +661,20 @@ export function ExecutionWorkspace({ w }: { w: Workflow }) {
                             {t("workflow.cancel")}
                         </Button>
                     ) : (
-                        <Button
-                            disabled={!w.canRun}
-                            onClick={() => void w.action(w.run)}
-                        >
-                            <Play />
-                            {t(w.job ? "ws.retryPlan" : "workflow.run")}
-                        </Button>
+                        // Repeating an unchanged run is a tool for inspection.
+                        (advanced || !w.job) && (
+                            <Button
+                                disabled={!w.canRun}
+                                onClick={() => void w.action(w.run)}
+                            >
+                                <Play />
+                                {t(w.job ? "ws.retryPlan" : "workflow.run")}
+                            </Button>
+                        )
                     )}
-                    {terminal && <p className="muted">{t("ws.retryHint")}</p>}
+                    {advanced && terminal && (
+                        <p className="muted">{t("ws.retryHint")}</p>
+                    )}
                 </div>
                 <div className="workspace-actions">
                     <Back w={w} to="plan" />
@@ -687,8 +727,11 @@ export function Diagnostics({
     onClose: () => void;
 }) {
     const { t } = useTranslation();
+    const advanced = useAdvanced();
     const ref = useRef<HTMLDialogElement>(null);
-    const [tab, setTab] = useState(section);
+    const [chosen, setTab] = useState(section);
+    // Basic reaches this dialog only for the provider settings.
+    const tab = advanced ? chosen : "settings";
     useLayoutEffect(() => {
         const previous = document.activeElement as HTMLElement | null;
         const dialog = ref.current;
@@ -727,7 +770,13 @@ export function Diagnostics({
             }}
         >
             <div className="dialog-heading">
-                <h2 id="diagnostics-title">{t("ws.diagnostics")}</h2>
+                <h2 id="diagnostics-title">
+                    {t(
+                        tab === "settings"
+                            ? "ws.providerSettings"
+                            : "ws.diagnostics",
+                    )}
+                </h2>
                 <button
                     className="icon-button"
                     aria-label={t("ws.close")}
@@ -736,22 +785,24 @@ export function Diagnostics({
                     <X />
                 </button>
             </div>
-            <div className="dialog-tabs">
-                <Button
-                    variant="outline"
-                    aria-pressed={tab === "details"}
-                    onClick={() => setTab("details")}
-                >
-                    {t("ws.diagnostics")}
-                </Button>
-                <Button
-                    variant="outline"
-                    aria-pressed={tab === "settings"}
-                    onClick={() => setTab("settings")}
-                >
-                    {t("ws.providerSettings")}
-                </Button>
-            </div>
+            {advanced && (
+                <div className="dialog-tabs">
+                    <Button
+                        variant="outline"
+                        aria-pressed={tab === "details"}
+                        onClick={() => setTab("details")}
+                    >
+                        {t("ws.diagnostics")}
+                    </Button>
+                    <Button
+                        variant="outline"
+                        aria-pressed={tab === "settings"}
+                        onClick={() => setTab("settings")}
+                    >
+                        {t("ws.providerSettings")}
+                    </Button>
+                </div>
+            )}
             <div className="panel-scroll diagnostics-content" tabIndex={0}>
                 {tab === "settings" ? (
                     <ProviderSettings w={w} />

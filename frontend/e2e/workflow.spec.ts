@@ -4,6 +4,13 @@ import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
+// The full-interface scenarios run in Advanced. The example scenario stays in
+// Basic, the mode a visitor starts in.
+async function advanced(page: Page) {
+    await page.addInitScript(() =>
+        localStorage.setItem("enrichment.mode", "advanced"),
+    );
+}
 async function navigate(page: Page, name: string) {
     await page
         .getByRole("navigation")
@@ -58,6 +65,7 @@ for (const name of ["capitals", "mountains"]) {
                     body: request.postDataJSON(),
                 });
         });
+        await advanced(page);
         await page.goto("/");
         await page
             .getByLabel("Upload Excel workbook")
@@ -198,7 +206,7 @@ for (const name of ["capitals", "mountains"]) {
             ).toHaveCount(0);
         }
         await screenshotWorkspace(page, testInfo, name, "review");
-        await page.getByRole("button", { name: "Continue to Export" }).click();
+        await page.getByRole("button", { name: "Continue to results" }).click();
         await expect(page.getByTestId("row-outcome")).toHaveCount(10);
         // Rows show their source values and a readable result, not record IDs.
         await expect(page.getByTestId("row-outcome").nth(1)).toContainText(
@@ -290,7 +298,7 @@ for (const name of ["capitals", "mountains"]) {
         await page.getByLabel("Enrichment instruction").fill("Changed binding");
         await navigate(page, "Plan");
         await expect(page.getByTestId("fingerprint")).toHaveCount(0);
-        await navigate(page, "Export");
+        await navigate(page, "Results");
         await expect(
             page.getByRole("button", { name: "Download enriched XLSX" }),
         ).toBeDisabled();
@@ -300,6 +308,7 @@ for (const name of ["capitals", "mountains"]) {
 test("capitals: a chosen candidate resumes as a new audited job and fills the row", async ({
     page,
 }, testInfo) => {
+    await advanced(page);
     await page.goto("/");
     await page
         .getByLabel("Upload Excel workbook")
@@ -384,7 +393,7 @@ test("capitals: a chosen candidate resumes as a new audited job and fills the ro
             exact: false,
         }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Continue to Export" }).click();
+    await page.getByRole("button", { name: "Continue to results" }).click();
     // The value that exists only because of the choice is marked as such.
     const chosen = page.locator(
         '[data-testid="row-outcome"][data-chosen="true"]',
@@ -432,6 +441,10 @@ test("example: one click fills the task; the prepared plan runs without an AI re
             planning.push(r.postData() ?? "");
     });
     await page.goto("/");
+    await expect(page.getByLabel("Mode")).toHaveValue("basic");
+    await expect(page.getByRole("button", { name: "Diagnostics" })).toHaveCount(
+        0,
+    );
     await page.getByRole("button", { name: "Mountains: heights" }).click();
     // Uploaded, previewed and filled in without touching a file dialog.
     await expect(page.getByLabel("Enrichment instruction")).toHaveValue(
@@ -477,6 +490,7 @@ test("example: one click fills the task; the prepared plan runs without an AI re
 test("invalid saved plan cannot be approved; source selection clears its draft", async ({
     page,
 }) => {
+    await advanced(page);
     await page.goto("/");
     await page
         .getByLabel("Upload Excel workbook")
@@ -523,6 +537,7 @@ test("invalid saved plan cannot be approved; source selection clears its draft",
 test("new column outside selection: collision protection, offline validation, real output and keyboard/mobile access", async ({
     page,
 }, testInfo) => {
+    await advanced(page);
     await page.goto("/");
     await page
         .getByLabel("Upload Excel workbook")
@@ -593,7 +608,7 @@ test("new column outside selection: collision protection, offline validation, re
     await expect(page.getByTestId("job-status")).toContainText("Needs review", {
         timeout: 30_000,
     });
-    await navigate(page, "Export");
+    await navigate(page, "Results");
     const downloadPromise = page.waitForEvent("download");
     await page.getByRole("button", { name: "Download enriched XLSX" }).click();
     const workbook = testInfo.outputPath("new-column.xlsx");
@@ -655,7 +670,7 @@ assert result['F2'].value is None
         "Plan",
         "Execution",
         "Review",
-        "Export",
+        "Results",
     ]) {
         await navigate(page, workspace);
         await expect(

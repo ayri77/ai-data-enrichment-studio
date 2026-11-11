@@ -2,11 +2,15 @@ import type { ReactNode } from "react";
 import { Database, Download, GitBranch, Play, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Workspace } from "../useWorkflow";
-import type { Theme } from "../preferences";
+import { Advanced, useHosted } from "../mode";
+import type { Mode, Theme } from "../preferences";
 
 export function StudioShell({
     theme,
     onThemeChange,
+    mode,
+    onModeChange,
+    unavailable,
     children,
     workspace,
     onNavigate,
@@ -14,12 +18,16 @@ export function StudioShell({
 }: {
     theme: Theme;
     onThemeChange: (theme: Theme) => void;
+    mode: Mode;
+    onModeChange: (mode: Mode) => void;
+    unavailable: Workspace[];
     children: ReactNode;
     workspace: Workspace;
     onNavigate: (workspace: Workspace) => void;
     completed: Workspace[];
 }) {
     const { t, i18n } = useTranslation();
+    const hosted = useHosted();
     const workspaces = [
         { id: "dataset", icon: Database },
         { id: "plan", icon: GitBranch },
@@ -66,6 +74,20 @@ export function StudioShell({
                             <option value="de">Deutsch</option>
                         </select>
                     </label>
+                    <label>
+                        {t("mode.label")}
+                        <select
+                            value={mode}
+                            onChange={(e) =>
+                                onModeChange(e.target.value as Mode)
+                            }
+                        >
+                            <option value="basic">{t("mode.basic")}</option>
+                            <option value="advanced">
+                                {t("mode.advanced")}
+                            </option>
+                        </select>
+                    </label>
                 </div>
             </header>
             <nav className="studio-documents" aria-label={t("workspaceNav")}>
@@ -79,6 +101,12 @@ export function StudioShell({
                                 : undefined
                         }
                         type="button"
+                        disabled={unavailable.includes(id as Workspace)}
+                        title={
+                            unavailable.includes(id as Workspace)
+                                ? t(`ws.${id}Unavailable`)
+                                : undefined
+                        }
                         onClick={() => onNavigate(id as Workspace)}
                         aria-current={id === workspace ? "page" : undefined}
                     >
@@ -90,11 +118,15 @@ export function StudioShell({
                     </button>
                 ))}
             </nav>
-            <div className="studio-connection">
-                <span className="source-indicator" />
-                {t("localApi")}
-                <span className="connection-note">{t("sourceUnchanged")}</span>
-            </div>
+            <Advanced>
+                <div className="studio-connection">
+                    <span className="source-indicator" />
+                    {t(hosted ? "hostedApi" : "localApi")}
+                    <span className="connection-note">
+                        {t("sourceUnchanged")}
+                    </span>
+                </div>
+            </Advanced>
             <main id="workspace" tabIndex={-1}>
                 {children}
             </main>
@@ -103,7 +135,7 @@ export function StudioShell({
                     <ShieldCheck aria-hidden="true" />
                     {t("sourceUnchanged")}
                 </span>
-                <span>{t("sessionOnly")}</span>
+                <span>{t(hosted ? "hostedSession" : "sessionOnly")}</span>
             </footer>
         </div>
     );

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { LockKeyhole } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, setAccessCode, WorkspaceApiError } from "../api";
+import { HostedContext } from "../mode";
 import { initialTheme } from "../preferences";
 import { Button } from "./ui/button";
 
@@ -109,12 +110,14 @@ export function AccessBoundary({ children }: { children: ReactNode }) {
         setAccessCode(stored());
         return "checking";
     });
+    const [hosted, setHosted] = useState(false);
     useEffect(() => {
         let active = true;
         Promise.resolve()
             .then(() => api.access())
             .then((access) => {
                 if (!active) return;
+                setHosted(!!access?.required);
                 const locked = !!access?.required && !access.granted;
                 if (locked) setAccessCode("");
                 setState(locked ? "locked" : "open");
@@ -131,8 +134,10 @@ export function AccessBoundary({ children }: { children: ReactNode }) {
     // Rendered while checking so a local start has no delay; hidden by CSS so a
     // hosted visitor does not see the studio flash before the gate.
     return (
-        <div className="access-boundary" data-access={state}>
-            {children}
-        </div>
+        <HostedContext.Provider value={hosted}>
+            <div className="access-boundary" data-access={state}>
+                {children}
+            </div>
+        </HostedContext.Provider>
     );
 }

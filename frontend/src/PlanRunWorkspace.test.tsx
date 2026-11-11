@@ -273,6 +273,8 @@ beforeEach(async () => {
         storage: "process_memory",
     });
     localStorage.clear();
+    // These suites exercise the complete interface; Basic has its own tests.
+    localStorage.setItem("enrichment.mode", "advanced");
     await i18n.changeLanguage("en");
     vi.mocked(api.upload).mockResolvedValue({
         dataset_id: "source",
@@ -358,10 +360,13 @@ it("uses exact source/mapping, validates and explicitly approves before a separa
     expect(api.approvePlan).toHaveBeenCalledWith("plan", draft.fingerprint);
     expect(button("workflow.run")).toBeEnabled();
     expect(api.startRun).not.toHaveBeenCalled();
+    // The limit is set in one place, with the task; it does not invalidate the plan.
+    await navigate("dataset");
     await userEvent.click(screen.getByText("Advanced policy and limits"));
     fireEvent.change(screen.getByLabelText(i18n.t("workflow.timeout")), {
         target: { value: "301" },
     });
+    await navigate("execution");
     expect(button("workflow.run")).toBeDisabled();
 });
 
@@ -930,7 +935,6 @@ it("distinguishes passing contracts from intent conflicts and blocks approval", 
     await generate();
     expect(screen.getByText(i18n.t("workflow.intentConflict"))).toBeVisible();
     expect(screen.getByText(i18n.t("workflow.assumptions"))).toBeVisible();
-    expect(screen.getByText(i18n.t("workflow.parameterHint"))).toBeVisible();
     expect(button("ws.approveContinue")).toBeDisabled();
     expect(api.approvePlan).not.toHaveBeenCalled();
     await navigate("execution");
@@ -1369,4 +1373,143 @@ it("offers no examples when the server has none, and forgets one after a manual 
         "",
     );
     expect(screen.queryByText(i18n.t("sample.planHint"))).toBeNull();
+});
+
+const absent = (key: string) =>
+    expect(
+        screen.queryByRole("button", { name: i18n.t(key) }),
+    ).not.toBeInTheDocument();
+
+it("starts in Basic without technical tools; the switch reveals them and is remembered", async () => {
+    localStorage.removeItem("enrichment.mode");
+    render(<App />);
+    const mode = screen.getByLabelText(i18n.t("mode.label"));
+    expect(mode).toHaveValue("basic");
+    absent("ws.diagnostics");
+    absent("ws.providerSettings");
+    expect(screen.queryByText(i18n.t("localApi"))).not.toBeInTheDocument();
+    expect(
+        screen.queryByText(i18n.t("ws.advancedControls")),
+    ).not.toBeInTheDocument();
+    expect(
+        screen.queryByText(i18n.t("workflow.savedPlan")),
+    ).not.toBeInTheDocument();
+    expect(
+        screen.queryByLabelText(i18n.t("workflow.policy")),
+    ).not.toBeInTheDocument();
+    await userEvent.selectOptions(mode, "advanced");
+    expect(button("ws.diagnostics")).toBeVisible();
+    expect(screen.getByText(i18n.t("localApi"))).toBeVisible();
+    expect(screen.getByLabelText(i18n.t("workflow.policy"))).toBeVisible();
+    expect(localStorage.getItem("enrichment.mode")).toBe("advanced");
+});
+
+it("Basic runs the whole scenario with the second layer out of sight", async () => {
+    localStorage.removeItem("enrichment.mode");
+    render(<App />);
+    await generate();
+    // Column types and the column inspector belong to Advanced.
+    await navigate("dataset");
+    expect(
+        screen.queryByRole("complementary", { name: i18n.t("inspector") }),
+    ).not.toBeInTheDocument();
+    await navigate("plan");
+    absent("workflow.validate");
+    expect(screen.queryByText("Sheet1 · A1:E11")).not.toBeInTheDocument();
+    await userEvent.click(button("ws.approveContinue"));
+    await userEvent.click(button("workflow.run"));
+    await waitFor(() => expect(api.getReport).toHaveBeenCalled());
+    // A finished run offers the way forward, not a repeat of the same run.
+    absent("ws.retryPlan");
+    expect(
+        screen.queryByText(i18n.t("workflow.created")),
+    ).not.toBeInTheDocument();
+    await userEvent.click(button("ws.reviewIssues"));
+    expect(screen.getByTestId("review-Berlin")).toBeVisible();
+    expect(
+        screen.queryByText(i18n.t("review.technical")),
+    ).not.toBeInTheDocument();
+    expect(
+        screen.queryByText(i18n.t("review.errorCodes")),
+    ).not.toBeInTheDocument();
+    expect(
+        screen.queryByText(i18n.t("review.blockedCount", { count: 1 })),
+    ).not.toBeInTheDocument();
+    await navigate("export");
+    expect(button("workflow.downloadXlsx")).toBeEnabled();
+    absent("workflow.downloadReport");
+    expect(
+        screen.queryByLabelText("Workbook filename"),
+    ).not.toBeInTheDocument();
+    expect(
+        screen.queryByRole("button", { name: /Details for row/ }),
+    ).not.toBeInTheDocument();
+});
+
+it("Basic offers the review step only when there is something to settle", async () => {
+    localStorage.removeItem("enrichment.mode");
+    vi.mocked(api.getJob).mockResolvedValue({
+        ...finished,
+        status: "completed",
+    });
+    render(<App />);
+    const reviewTab = () =>
+        screen.getByRole("navigation").querySelectorAll("button")[3];
+    expect(reviewTab()).toBeDisabled();
+    await start();
+    await waitFor(() => expect(api.getReport).toHaveBeenCalled());
+    expect(reviewTab()).toBeDisabled();
+    // The run leads straight to the results, and back from there to the run.
+    await userEvent.click(button("ws.viewOutput"));
+    expect(button("workflow.downloadXlsx")).toBeEnabled();
+    await userEvent.click(
+        within(
+            document.querySelector<HTMLElement>(".workspace-actions")!,
+        ).getByRole("button", { name: i18n.t("execution") }),
+    );
+    expect(screen.getByTestId("job-status")).toBeVisible();
+    // Advanced keeps every step reachable.
+    await userEvent.selectOptions(
+        screen.getByLabelText(i18n.t("mode.label")),
+        "advanced",
+    );
+    expect(reviewTab()).toBeEnabled();
+    // Back in Basic, a step it does not offer gives way to the run.
+    await navigate("review");
+    await userEvent.selectOptions(
+        screen.getByLabelText(i18n.t("mode.label")),
+        "basic",
+    );
+    expect(await screen.findByTestId("job-status")).toBeVisible();
+});
+
+it("Basic says a prepared plan is in use and lets the user drop it", async () => {
+    localStorage.removeItem("enrichment.mode");
+    vi.mocked(api.samples).mockResolvedValue({
+        samples: [
+            {
+                sample_id: "capitals",
+                filename: "capitals.xlsx",
+                instruction: "Distance between the cities",
+                output: { name: "distance", column: "E" },
+                has_plan: true,
+            },
+        ],
+    });
+    vi.mocked(api.sampleWorkbook).mockResolvedValue(new Blob(["x"]));
+    vi.mocked(api.samplePlan).mockResolvedValue(draft.plan!);
+    render(<App />);
+    await userEvent.click(
+        await screen.findByRole("button", { name: i18n.t("sample.capitals") }),
+    );
+    await userEvent.click(
+        await screen.findByRole("button", { name: i18n.t("sample.usePlan") }),
+    );
+    expect(await screen.findByText(i18n.t("sample.planLoaded"))).toBeVisible();
+    expect(button("workflow.submitPlan")).toBeEnabled();
+    await userEvent.click(button("sample.clearPlan"));
+    expect(
+        screen.queryByText(i18n.t("sample.planLoaded")),
+    ).not.toBeInTheDocument();
+    expect(button("ws.buildPlan")).toBeVisible();
 });
