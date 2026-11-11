@@ -10,8 +10,9 @@ from typing import Literal
 
 from ai_data_enrichment.capabilities.definitions import get_builtin_capabilities
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
-from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan
+from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan, required_input_columns
 from ai_data_enrichment.execution.job_executor import JobExecutor
+from ai_data_enrichment.ingestion.excel_records import read_input_batch
 from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.orchestration.excel_runner import ExcelEnrichmentRunner
 from ai_data_enrichment.orchestration.live_executor import build_live_executor
@@ -119,8 +120,23 @@ def execute_workbook(task: RunTask, factory: ExecutorFactory) -> None:
         )
         if sha256(task.source_path.read_bytes()).hexdigest() != task.source_sha256:
             raise ValueError("Source changed")
+        # The values each row was computed from, so a result can be read without
+        # opening the workbook. Only columns the plan actually uses are included.
+        batch = read_input_batch(
+            task.source_path,
+            selection=task.selection,
+            input_columns=required_input_columns(task.plan),
+            max_rows=MAX_RUN_ROWS,
+        )
         payload = {
             "execution": result.job_result.model_dump(mode="json"),
+            "source_rows": {
+                record.record_id: {
+                    "row": batch.row_by_record_id[record.record_id],
+                    "inputs": record.model_dump(mode="json")["values"],
+                }
+                for record in batch.records
+            },
             "source_unchanged": True,
             "preserved_cells": result.preserved_cells,
             "result_sha256": sha256(result.output_path.read_bytes()).hexdigest(),

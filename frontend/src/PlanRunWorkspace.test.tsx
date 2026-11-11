@@ -1066,3 +1066,158 @@ it("offers nothing to decide when a run only has names without a match", async (
     ).toBeNull();
     expect(button("ws.toExport")).toBeEnabled();
 });
+
+it("shows results with source values, readable numbers, reasons, filters and details", async () => {
+    const step = (step_id: string, value: unknown, error_code?: string) => ({
+        step_id,
+        result: {
+            status: error_code ? ("failure" as const) : ("success" as const),
+            value,
+            error_code: error_code ?? null,
+            message: null,
+            evidence: error_code
+                ? []
+                : [{ source: "open-meteo", reference: `geonames:${step_id}` }],
+        },
+    });
+    const line = (row: number, city: string, chosen: string[] = []) => ({
+        record_id: `Sheet1!${row}`,
+        status: "success" as const,
+        row,
+        inputs: { city, country: "Ukraine" },
+        user_chosen_steps: chosen,
+    });
+    vi.mocked(api.createPlan).mockResolvedValue({
+        ...draft,
+        plan: {
+            ...draft.plan!,
+            steps: [
+                {
+                    id: "place",
+                    capability: "geocode",
+                    inputs: { city: { kind: "column", name: "city" } },
+                    parameters: {},
+                },
+                ...draft.plan!.steps,
+            ],
+        },
+    });
+    vi.mocked(api.approvePlan).mockImplementation(async () => ({
+        ...(await api.createPlan({} as never)),
+        status: "approved",
+        approved_at: "2026-11-10T09:00:00Z",
+    }));
+    vi.mocked(api.getReport).mockResolvedValue({
+        ...report,
+        rows: [
+            line(2, "Kyiv", ["place"]),
+            line(3, "Lviv"),
+            { ...line(4, "Odesa"), status: "failure" },
+            { ...line(5, "Xyz"), status: "failure" },
+        ],
+        execution: {
+            provider_requests: {},
+            records: [
+                [2, 2023.7941796667708],
+                [3, 470.5],
+            ]
+                .map(([row, value]) => ({
+                    record_id: `Sheet1!${row}`,
+                    row_result: {
+                        steps: [
+                            step("place", {
+                                latitude: 50.45,
+                                longitude: 30.52,
+                            }),
+                            step("distance", { value, unit: "km" }),
+                        ],
+                    },
+                }))
+                .concat(
+                    [
+                        [4, "AMBIGUOUS"],
+                        [5, "NOT_FOUND"],
+                    ].map(([row, code]) => ({
+                        record_id: `Sheet1!${row}`,
+                        row_result: {
+                            steps: [
+                                step("place", null, String(code)),
+                                step("distance", null, "DEPENDENCY_FAILED"),
+                            ],
+                        },
+                    })),
+                ),
+        },
+    });
+    render(<App />);
+    await start();
+    await waitFor(() => expect(api.getReport).toHaveBeenCalled());
+    await navigate("export");
+    const cells = () =>
+        screen
+            .getAllByTestId("row-outcome")
+            .map((row) => within(row).getAllByRole("cell")[1].textContent);
+    expect(cells()).toEqual(["Kyiv", "Lviv", "Odesa", "Xyz"]);
+    const kyiv = screen.getAllByTestId("row-outcome")[0];
+    // Rounded for reading; the exact value stays available.
+    expect(within(kyiv).getByText("2,023.79 km")).toHaveAttribute(
+        "title",
+        "2023.7941796667708",
+    );
+    expect(kyiv).toHaveAttribute("data-chosen", "true");
+    expect(
+        within(kyiv).getByText(i18n.t("results.chosen", { names: "Kyiv" })),
+    ).toBeVisible();
+    // An empty cell says why, and offers the way to settle an ambiguous name.
+    const odesa = screen.getAllByTestId("row-outcome")[2];
+    expect(
+        within(odesa).getByText(/Several matches for “Odesa”/),
+    ).toBeVisible();
+    await userEvent.click(
+        within(odesa).getByRole("button", { name: i18n.t("results.toReview") }),
+    );
+    expect(await screen.findByTestId("review-Berlin")).toBeInTheDocument();
+    await navigate("export");
+    expect(
+        within(screen.getAllByTestId("row-outcome")[3]).getByText(
+            /did not find “Xyz”/,
+        ),
+    ).toBeVisible();
+    expect(screen.getByTestId("result-stats")).toHaveTextContent(
+        /filled 2 of 4.*min 470\.5 km.*max 2,023\.79 km.*average 1,247\.15 km/,
+    );
+
+    // Filters and sorting change only what is shown.
+    await userEvent.click(screen.getByRole("button", { name: "Empty (2)" }));
+    expect(cells()).toEqual(["Odesa", "Xyz"]);
+    await userEvent.click(
+        screen.getByRole("button", { name: "After your choice (1)" }),
+    );
+    expect(cells()).toEqual(["Kyiv"]);
+    await userEvent.click(screen.getByRole("button", { name: "All (4)" }));
+    const distance = screen.getByRole("button", { name: "distance" });
+    await userEvent.click(distance);
+    expect(cells()).toEqual(["Lviv", "Kyiv", "Odesa", "Xyz"]);
+    expect(distance.closest("th")).toHaveAttribute("aria-sort", "ascending");
+    await userEvent.click(distance);
+    expect(cells()).toEqual(["Kyiv", "Lviv", "Odesa", "Xyz"]);
+
+    // Second layer: steps and source records, only on demand.
+    expect(screen.queryByText(/geonames:place/)).toBeNull();
+    await userEvent.click(
+        screen.getByRole("button", {
+            name: i18n.t("results.detailsFor", { row: 2 }),
+        }),
+    );
+    expect(screen.getByText("open-meteo geonames:place")).toBeVisible();
+    expect(screen.getByText("place · geocode")).toBeVisible();
+    for (const locale of ["uk", "de", "en"] as const) {
+        await act(() => i18n.changeLanguage(locale));
+        expect(
+            screen.getByRole("columnheader", {
+                name: new RegExp(messages[locale]["results.result"]),
+            }),
+        ).toBeInTheDocument();
+        expect(cells()).toEqual(["Kyiv", "Lviv", "Odesa", "Xyz"]);
+    }
+});

@@ -48,7 +48,12 @@ from ai_data_enrichment.planning.openai_client import OpenAIPlanClient
 from ai_data_enrichment.provider_settings import ProviderConfiguration
 from ai_data_enrichment.resolution.models import ResolutionJobReport
 from ai_data_enrichment.resolution.resume import build_resume_selections
-from ai_data_enrichment.review import ReviewDecision, approvals_from_decisions, review_payload
+from ai_data_enrichment.review import (
+    ReviewDecision,
+    approvals_from_decisions,
+    review_payload,
+    user_chosen_steps,
+)
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy, PlanValidator
 from ai_data_enrichment.workspace_errors import WorkspaceError
 
@@ -552,10 +557,17 @@ class PlanRunService:
                     if result.metrics.successful_rows < result.metrics.total_rows
                     else "completed"
                 )
+                source_rows = execution.pop("source_rows", {})
+                chosen = user_chosen_steps(execution["execution"].get("resolution_report"))
                 execution["rows"] = [
                     {
                         "record_id": record.record_id,
                         "status": classify_row_outcome(record.row_result),
+                        # Excel row number and the source values the plan used.
+                        "row": source_rows.get(record.record_id, {}).get("row"),
+                        "inputs": source_rows.get(record.record_id, {}).get("inputs", {}),
+                        # Steps whose entity was chosen by the user during review.
+                        "user_chosen_steps": sorted(chosen.get(record.record_id, ())),
                     }
                     for record in result.records
                 ]

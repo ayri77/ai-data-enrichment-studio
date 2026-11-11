@@ -200,6 +200,19 @@ for (const name of ["capitals", "mountains"]) {
         await screenshotWorkspace(page, testInfo, name, "review");
         await page.getByRole("button", { name: "Continue to Export" }).click();
         await expect(page.getByTestId("row-outcome")).toHaveCount(10);
+        // Rows show their source values and a readable result, not record IDs.
+        await expect(page.getByTestId("row-outcome").nth(1)).toContainText(
+            name === "capitals"
+                ? /London.*Rome.*1,435\.48\skm/
+                : /K2.*did not find “K2”/,
+        );
+        await expect(page.getByTestId("result-stats")).toContainText(
+            name === "capitals" ? "filled 1 of 10" : "max 8,848.86",
+        );
+        await page.getByRole("button", { name: "Empty (9)" }).click();
+        await expect(page.getByTestId("row-outcome")).toHaveCount(9);
+        await page.getByRole("button", { name: "All (10)" }).click();
+        await expect(page.getByTestId("row-outcome")).toHaveCount(10);
         await screenshotWorkspace(page, testInfo, name, "export");
         await page
             .getByLabel("Workbook filename")
@@ -372,6 +385,20 @@ test("capitals: a chosen candidate resumes as a new audited job and fills the ro
         }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Continue to Export" }).click();
+    // The value that exists only because of the choice is marked as such.
+    const chosen = page.locator(
+        '[data-testid="row-outcome"][data-chosen="true"]',
+    );
+    await expect(chosen).toHaveCount(2);
+    await expect(chosen.first()).toContainText(/Kyiv.*Paris.*2,023\.79\skm/);
+    await expect(chosen.first()).toContainText("After your choice: Kyiv");
+    // Warsaw–Kyiv used the choice too, but still lacks Warsaw.
+    await expect(chosen.nth(1)).toContainText("did not find “Warsaw”");
+    await page.getByRole("button", { name: "After your choice (2)" }).click();
+    await expect(page.getByTestId("row-outcome")).toHaveCount(2);
+    await page.getByRole("button", { name: "Details for row 2" }).click();
+    await expect(page.getByText("open-meteo geonames:703448")).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("results.png") });
     const reportDownload = page.waitForEvent("download");
     await page.getByRole("button", { name: "Download JSON audit" }).click();
     const reportPath = testInfo.outputPath("resumed-report.json");
@@ -546,8 +573,11 @@ assert result['F2'].value is None
     );
     expect(check.status, check.stdout + check.stderr).toBe(0);
     await expect(
-        page.getByRole("columnheader", { name: "distance_km (km)" }),
+        page.getByRole("columnheader", { name: "distance_km" }),
     ).toBeVisible();
+    await expect(page.getByTestId("row-outcome").nth(1)).toContainText(
+        /1,435\.48\skm/,
+    );
 
     const trigger = page.getByRole("button", {
         name: "Diagnostics",

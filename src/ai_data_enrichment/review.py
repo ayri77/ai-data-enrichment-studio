@@ -204,3 +204,18 @@ def approvals_from_decisions(
         workbook_sha256=workbook_sha256,
         approvals=tuple(approvals),
     )
+
+
+def user_chosen_steps(resolution_report: dict[str, Any] | None) -> dict[str, set[str]]:
+    """Map each record to the steps whose entity the user chose during review.
+
+    Reads the serialized job report, so the public report can mark values that
+    exist only because of a user decision.
+    """
+    chosen: dict[str, set[str]] = {}
+    for operation in (resolution_report or {}).get("operations", ()):
+        if operation["report"]["decision"].get("basis") != "user_override":
+            continue
+        for link in operation.get("record_links", ()):
+            chosen.setdefault(link["record_id"], set()).add(link["step_id"])
+    return chosen
