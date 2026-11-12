@@ -512,7 +512,8 @@ a larger run first. `--offline` uses fixture answers and only checks the script.
 Capitals rows are pairs, so `--distinct` sets how many different places are
 looked up; mountains rows are one name each (about 140 in the list; `--repeat`
 cycles it). Entries whose country name the application does not recognize are
-left out unless `--keep-unrecognized` is given.
+left out unless `--keep-unrecognized` is given; with it, those rows stay empty
+with the reason "country not recognized".
 
 To look at a large table in the interface, build the workbook and start the
 local server with raised bounds:

@@ -7,6 +7,8 @@ export type Cause =
     | "unverified"
     | "provider"
     | "missing_input"
+    | "country"
+    | "too_long"
     | "not_reverified"
     | "other";
 const CAUSES: Record<string, Cause> = {
@@ -23,6 +25,8 @@ const CAUSES: Record<string, Cause> = {
     RETRY_EXHAUSTED: "provider",
     PROVIDER_OPERATION_BUDGET_EXCEEDED: "provider",
     MISSING_VALUE: "missing_input",
+    UNRECOGNIZED_COUNTRY: "country",
+    NAME_TOO_LONG: "too_long",
     APPROVAL_NOT_REVERIFIED: "not_reverified",
 };
 export interface ResultStep {

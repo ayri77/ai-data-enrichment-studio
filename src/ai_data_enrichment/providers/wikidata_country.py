@@ -18,19 +18,21 @@ from ai_data_enrichment.providers.wikidata_parsing import (
     _wikidata_identity_drift,
 )
 from ai_data_enrichment.resolution.geography import normalize_country_code
+from ai_data_enrichment.resolution.input_errors import unrecognized_country
 
 
 def parse_country_codes(country: str) -> tuple[str, ...]:
     """Normalize one or more slash-separated countries to ISO codes."""
     parts = [part.strip() for part in country.split("/")]
 
+    # Both are data problems of one row, not defects of the plan or the run.
     if not parts or any(not part for part in parts):
-        raise ValueError("Mountain country contains an empty component.")
+        raise unrecognized_country()
 
     try:
         codes = {normalize_country_code(part) for part in parts}
     except LookupError as exc:
-        raise ValueError("Resolution requires recognized countries.") from exc
+        raise unrecognized_country() from exc
 
     return tuple(sorted(codes))
 

@@ -16,6 +16,7 @@ from ai_data_enrichment.execution.job_models import JobExecutionPolicy
 from ai_data_enrichment.execution.memoization import MemoCapacity
 from ai_data_enrichment.execution.models import OperationResult, RuntimeValue
 from ai_data_enrichment.execution.operation_keys import persistent_key_digest
+from ai_data_enrichment.resolution.input_errors import MAX_NAME_LENGTH, UnusableInput
 from ai_data_enrichment.resolution.models import (
     CandidateSet,
     ResolutionAttribute,
@@ -115,6 +116,7 @@ class _ResolutionInvoker:
         self.policy = policy
         self.capability_id = capability_id
         self.latest: ResolutionCacheHit | None = None
+        self.rejected: UnusableInput | None = None
 
     def execute(
         self,
@@ -123,18 +125,29 @@ class _ResolutionInvoker:
         parameters: Mapping[str, str],
     ) -> OperationResult:
         self.latest = None
+        self.rejected = None
 
-        if self.capability_id == "geocode":
-            service = cast(ParameterizedResolutionService, self.service)
-            result = service.resolve(
-                inputs=inputs,
-                policy=self.policy,
-                parameters=parameters,
-            )
-        else:
-            result = self.service.resolve(
-                inputs=inputs,
-                policy=self.policy,
+        try:
+            if self.capability_id == "geocode":
+                service = cast(ParameterizedResolutionService, self.service)
+                result = service.resolve(
+                    inputs=inputs,
+                    policy=self.policy,
+                    parameters=parameters,
+                )
+            else:
+                result = self.service.resolve(
+                    inputs=inputs,
+                    policy=self.policy,
+                )
+        except UnusableInput as rejection:
+            # One unusable cell costs its row, not the run. The audited handler
+            # writes the audit entry for it.
+            self.rejected = rejection
+            return OperationResult(
+                status="failure",
+                error_code=rejection.error_code,
+                message=rejection.message,
             )
 
         self.latest = ResolutionCacheHit(
@@ -276,12 +289,13 @@ class AuditedResolutionHandler:
         if pair is None:
             pair = ResolutionCacheHit(
                 operation=result,
-                report=_blocked_operation_report(
+                report=_unreached_source_report(
                     inputs=inputs,
                     capability_id=self.capability_id,
                     provider_id=self.provider_id,
                     policy=self.policy,
                     failure=result,
+                    rejected=self._invoker.rejected,
                 ),
             )
         if pair.operation != result:
@@ -335,15 +349,20 @@ class ProviderWrapper(Protocol):
     def __call__(self, handler: CapabilityHandler) -> CapabilityHandler: ...
 
 
-def _blocked_operation_report(
+def _unreached_source_report(
     *,
     inputs: Mapping[str, RuntimeValue],
     capability_id: str,
     provider_id: str,
     policy: ResolutionPolicy,
     failure: OperationResult,
+    rejected: UnusableInput | None,
 ) -> ResolutionReport:
-    """Report budget admission failures without inventing a selected entity."""
+    """Audit entry for an operation that made no source request.
+
+    Either the request budget refused it, or the row's own values could not be
+    used. Neither invents a selected entity.
+    """
     if failure.status != "failure" or failure.error_code is None:
         raise ValueError("Provider blocked execution without a typed failure.")
     label = inputs.get("city" if capability_id == "geocode" else "name")
@@ -355,13 +374,35 @@ def _blocked_operation_report(
         if isinstance(country, str) and country.strip()
         else ()
     )
+    query = ResolutionQuery(
+        # An over-long name is shown shortened; the reason says it was not used.
+        name=label if len(label) <= MAX_NAME_LENGTH else label[: MAX_NAME_LENGTH - 1] + "…",
+        entity_type="city" if capability_id == "geocode" else "mountain",
+        context=context,
+    )
+    if rejected is not None:
+        # The source was not at fault and was not asked, so this is no provider
+        # error; and nothing was searched, so it is no "no match" either. The
+        # report model's status for "nothing could be confirmed" fits, with the
+        # reason saying why.
+        return ResolutionReport(
+            candidate_set=CandidateSet(
+                query=query,
+                provider_id=provider_id,
+                search_complete=False,
+                verification_complete=False,
+                incomplete_reason=rejected.reason_code,
+            ),
+            policy=policy,
+            decision=ResolutionDecision(
+                status="incomplete_verification",
+                reason_codes=(rejected.reason_code,),
+                explanation=rejected.message,
+            ),
+        )
     return ResolutionReport(
         candidate_set=CandidateSet(
-            query=ResolutionQuery(
-                name=label,
-                entity_type="city" if capability_id == "geocode" else "mountain",
-                context=context,
-            ),
+            query=query,
             provider_id=provider_id,
             search_complete=False,
             verification_complete=False,

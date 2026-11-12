@@ -24,6 +24,7 @@ from ai_data_enrichment.providers.wikidata_verification import (
     verify_wikidata_mountain_candidate,
 )
 from ai_data_enrichment.resolution.engine import ResolutionEngine
+from ai_data_enrichment.resolution.input_errors import check_name_length
 from ai_data_enrichment.resolution.models import (
     CandidateSet,
     ResolutionAttribute,
@@ -81,6 +82,7 @@ class WikidataMountainResolutionService:
             raise ValueError("Resolution requires a nonblank mountain name.")
         if not isinstance(country, str) or not country.strip():
             raise ValueError("Resolution requires a nonblank country.")
+        check_name_length(name)
         country_codes = parse_country_codes(country)
         country_code = country_codes[0]
 

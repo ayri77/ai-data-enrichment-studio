@@ -196,3 +196,36 @@ it("summarizes numeric columns and formats values for reading", () => {
         "8,848.86 m",
     );
 });
+
+it("names a row's own unusable value as the cause", () => {
+    const own = [
+        record(
+            2,
+            "London",
+            failed("UNRECOGNIZED_COUNTRY"),
+            failed("DEPENDENCY_FAILED"),
+        ),
+        record(
+            3,
+            "L".repeat(600),
+            failed("NAME_TOO_LONG"),
+            failed("DEPENDENCY_FAILED"),
+        ),
+    ];
+    const made = resultRows(
+        {
+            rows: own.map((d) => d.row),
+            execution: {
+                provider_requests: {},
+                records: own.map((d) => d.execution),
+            },
+        } as unknown as AuditReport,
+        plan,
+    );
+    expect(made[0].cause).toEqual({
+        kind: "country",
+        code: "UNRECOGNIZED_COUNTRY",
+        subject: "London",
+    });
+    expect(made[1].cause).toMatchObject({ kind: "too_long" });
+});

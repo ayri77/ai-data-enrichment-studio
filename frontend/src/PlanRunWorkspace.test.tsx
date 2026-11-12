@@ -1622,3 +1622,40 @@ it("takes the bounds of one run from the server", async () => {
     await navigate("execution");
     expect(button("workflow.run")).toBeDisabled();
 });
+
+it("says in Review that a row's country was not recognized, as it was written", async () => {
+    vi.mocked(api.getReview).mockResolvedValue({
+        ...review,
+        items: [],
+        affected_rows: 0,
+        informational: [
+            ...review.informational,
+            {
+                ...review.informational[0],
+                operation_id: "op-london",
+                query: {
+                    name: "London",
+                    entity_type: "city",
+                    context: { country: "UK" },
+                },
+                status: "incomplete_verification",
+                reason_codes: ["country_not_recognized"],
+                search_complete: false,
+            },
+        ],
+    });
+    render(<App />);
+    await start();
+    await navigate("review");
+    const london = within(await screen.findByTestId("unresolved-London"));
+    expect(london.getByText(/UK/)).toBeVisible();
+    expect(
+        london.getByText(i18n.t("review.input.country_not_recognized")),
+    ).toBeVisible();
+    // Another reason keeps the wording of its status.
+    expect(
+        within(screen.getByTestId("unresolved-Oslo")).getByText(
+            i18n.t("review.status.unresolved"),
+        ),
+    ).toBeVisible();
+});
