@@ -21,6 +21,15 @@ The shared controller stays mounted above workspace bodies. This persistence cov
 
 The shell, navigation and workspace actions stay inside the desktop viewport. Source configuration, table, column inspector, graph, node inspector, summaries and Diagnostics scroll within bounded panels. At narrow widths or short heights, the page can scroll so controls remain reachable. Navigation uses ordinary keyboard-accessible buttons with current/completed semantics and focuses the workspace heading after a change. The native Diagnostics dialog traps focus, closes with Escape and restores focus to its trigger. Status labels accompany semantic colors. EN/UK/DE and both existing themes share the same workflow state.
 
+## Waiting
+
+Whenever the studio waits, one line under the heading of every step says what for, in plain words: reading the workbook or the selection, building or checking a plan, approving, starting a run, the run itself, preparing a download. Beside it runs the time elapsed since the wait began (browser clock). A moving stripe signals activity only: the API reports no partial progress, so nothing claims a percentage. For a run the line also gives the row count and the time limit after which the server stops it.
+
+- A **short request** (everything except the run itself) keeps the user on its step: the other steps are disabled with the tooltip "Wait for the current operation to finish", because the request ends by opening its own step anyway. The pressed button shows a spinner.
+- A **running job** does not hold the user in place. On any other step the line adds that the data and the task cannot be changed until the run finishes, and links back to the run. Input locking itself is unchanged.
+
+`ActivityBar` (`frontend/src/components/ActivityBar.tsx`) reads the operation from the workflow controller (`operation`, `jobSince`) and the dataset hook (`busy`, `busySince`). The status text is a live region; the clock is a `timer`, which screen readers do not announce on every tick. With reduced motion the stripe and spinner stand still.
+
 ## Basic and Advanced modes
 
 The header has a **Mode** switch next to theme and language. The choice is kept in the browser (`enrichment.mode`); a first visit starts in **Basic**. Both modes use the same controller, routes and validation: the mode changes what is shown, never what the server accepts.

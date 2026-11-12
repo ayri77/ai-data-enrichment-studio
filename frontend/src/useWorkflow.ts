@@ -31,6 +31,17 @@ export type Requirement =
     | "consent"
     | "provider";
 export type Workspace = "dataset" | "plan" | "execution" | "review" | "export";
+/** A request the interface waits for; each has its own wording. */
+export type Operation =
+    | "plan"
+    | "check"
+    | "prepared"
+    | "validate"
+    | "approve"
+    | "start"
+    | "resume"
+    | "cancel"
+    | "download";
 export function useWorkflow(
     preview: Preview | null,
     sourceKey: string,
@@ -89,6 +100,12 @@ export function useWorkflow(
         { job: Job; report: AuditReport | null; plan: PlanDraft | null }[]
     >([]);
     const [busy, setBusy] = useState(false);
+    // What the interface is waiting for, and since when (browser clock).
+    const [operation, setOperation] = useState<{
+        kind: Operation;
+        since: number;
+    } | null>(null);
+    const [jobSince, setJobSince] = useState<number | null>(null);
     const [error, setError] = useState("");
     const [pollError, setPollError] = useState("");
     const [retry, setRetry] = useState(0);
@@ -127,10 +144,11 @@ export function useWorkflow(
     }, [filename]);
     const code = (err: unknown) =>
         err instanceof WorkspaceApiError ? err.code : "request_failed";
-    async function action(work: () => Promise<void>) {
+    async function action(work: () => Promise<void>, kind: Operation) {
         if (pending.current) return;
         pending.current = true;
         setBusy(true);
+        setOperation({ kind, since: Date.now() });
         setError("");
         try {
             await work();
@@ -138,7 +156,10 @@ export function useWorkflow(
             if (mounted.current) setError(code(err));
         } finally {
             pending.current = false;
-            if (mounted.current) setBusy(false);
+            if (mounted.current) {
+                setBusy(false);
+                setOperation(null);
+            }
         }
     }
     function archive() {
@@ -293,6 +314,7 @@ export function useWorkflow(
             setChoices({});
             setPollError("");
             setJob(started);
+            setJobSince(Date.now());
             setWorkspace("execution");
         }
     }
@@ -365,6 +387,7 @@ export function useWorkflow(
             setChoices({});
             setPollError("");
             setJob(started);
+            setJobSince(Date.now());
             setWorkspace("execution");
         }
     }
@@ -423,6 +446,8 @@ export function useWorkflow(
         resume,
         history,
         busy,
+        operation,
+        jobSince,
         error,
         pollError,
         active,
