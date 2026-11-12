@@ -1,4 +1,10 @@
-import { ArrowRight, CircleAlert, ExternalLink, Play } from "lucide-react";
+import {
+    ArrowRight,
+    CircleAlert,
+    ExternalLink,
+    LoaderCircle,
+    Play,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ReviewCandidate, ReviewItem } from "../api";
 import { useAdvanced } from "../mode";
@@ -434,9 +440,18 @@ export function ReviewWorkspace({ w }: { w: Workflow }) {
                             </Button>
                             <Button
                                 disabled={!w.canResume}
-                                onClick={() => void w.action(w.resume)}
+                                onClick={() =>
+                                    void w.action(w.resume, "resume")
+                                }
                             >
-                                <Play aria-hidden="true" />
+                                {w.operation?.kind === "resume" ? (
+                                    <LoaderCircle
+                                        className="spin"
+                                        aria-hidden="true"
+                                    />
+                                ) : (
+                                    <Play aria-hidden="true" />
+                                )}
                                 {t("review.resume")}
                             </Button>
                             <p className="muted">{t("review.resumeHint")}</p>

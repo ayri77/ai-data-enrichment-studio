@@ -13,7 +13,13 @@ export function useDataset() {
     const [sheet, setSheet] = useState("");
     const [range, setRange] = useState("");
     const [preview, setPreview] = useState<Preview | null>(null);
-    const [busy, setBusy] = useState<"upload" | "preview" | null>(null);
+    const [busy, setBusyKind] = useState<"upload" | "preview" | null>(null);
+    // When the current wait began (browser clock), for the elapsed time shown.
+    const [busySince, setBusySince] = useState<number | null>(null);
+    function setBusy(kind: "upload" | "preview" | null) {
+        setBusyKind(kind);
+        setBusySince((since) => (kind ? (since ?? Date.now()) : null));
+    }
     const [error, setError] = useState("");
     const pending = useRef(false);
     // Examples offered when there is no workbook yet, and the one in use (if any).
@@ -142,6 +148,7 @@ export function useDataset() {
         range,
         preview,
         busy,
+        busySince,
         error,
         samples,
         sample,

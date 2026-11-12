@@ -464,12 +464,29 @@ test("example: one click fills the task; the prepared plan runs without an AI re
     await page
         .getByRole("button", { name: "Use it instead of asking the AI" })
         .click();
+    // Hold the answer back so the wait itself can be observed.
+    await page.route("**/api/plans", async (route) => {
+        await new Promise((done) => setTimeout(done, 1500));
+        await route.continue();
+    });
     await page
         .getByRole("button", { name: "Submit and validate plan" })
         .click();
+    const activity = page.locator(".activity-bar");
+    await expect(activity.getByRole("status")).toContainText(
+        "Checking the plan",
+    );
+    await expect(activity.getByRole("timer")).toHaveText("0:01");
+    const steps = page.getByRole("navigation").getByRole("button");
+    await expect(steps.nth(2)).toBeDisabled();
+    await expect(steps.nth(2)).toHaveAttribute(
+        "title",
+        "Wait for the current operation to finish.",
+    );
     await page
         .getByRole("button", { name: "Approve / Continue to Execution" })
         .click();
+    await expect(activity).toHaveCount(0);
     // The submitted request carried the prepared plan itself.
     expect(planning).toHaveLength(1);
     expect(JSON.parse(planning[0]).plan.steps.length).toBeGreaterThan(0);

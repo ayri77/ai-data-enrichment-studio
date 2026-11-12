@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { SlidersHorizontal, Activity } from "lucide-react";
+import { SlidersHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import "./i18n";
 import { AccessBoundary } from "./components/AccessBoundary";
+import { ActivityBar } from "./components/ActivityBar";
 import { StudioShell } from "./components/StudioShell";
 import { DatasetWorkspace } from "./components/DatasetWorkspace";
 import {
@@ -65,9 +66,22 @@ function Studio() {
     if (w.job?.status === "completed" || w.job?.status === "needs_review")
         completed.push("execution");
     // In Basic the review step is offered only when there is something to settle.
-    const unavailable: Workspace[] =
-        mode === "basic" && w.job?.status !== "needs_review" ? ["review"] : [];
-    const stranded = unavailable.includes(w.workspace);
+    const unavailable: Partial<Record<Workspace, string>> =
+        mode === "basic" && w.job?.status !== "needs_review"
+            ? { review: t("ws.reviewUnavailable") }
+            : {};
+    const stranded = w.workspace in unavailable;
+    // A short request ends by opening its own step; leaving meanwhile would
+    // only be undone. A running job does not hold the user in place.
+    if (w.busy || d.busy)
+        for (const id of [
+            "dataset",
+            "plan",
+            "execution",
+            "review",
+            "export",
+        ] as const)
+            if (id !== w.workspace) unavailable[id] = t("activity.wait");
     useEffect(() => {
         // Switching to Basic on a step it does not offer leads back to the run.
         if (stranded) w.navigate(w.job ? "execution" : "dataset");
@@ -92,15 +106,6 @@ function Studio() {
                         <p>{t(`ws.${w.workspace}Hint`)}</p>
                     </div>
                     <div className="workspace-tools">
-                        {w.active && (
-                            <button
-                                className="active-job"
-                                onClick={() => w.navigate("execution")}
-                            >
-                                <Activity aria-hidden="true" />
-                                {t(`workflow.status.${w.job!.status}`)}
-                            </button>
-                        )}
                         <Advanced>
                             <Button
                                 variant="outline"
@@ -134,12 +139,8 @@ function Studio() {
                         )}
                     </div>
                 )}
-                {w.busy && (
-                    <p className="request-status" role="status">
-                        {t("workflow.requesting")}
-                    </p>
-                )}
-                <div className="workspace-body" aria-busy={w.busy}>
+                <ActivityBar w={w} d={d} />
+                <div className="workspace-body" aria-busy={w.busy || !!d.busy}>
                     {w.workspace === "dataset" && (
                         <DatasetWorkspace
                             d={d}

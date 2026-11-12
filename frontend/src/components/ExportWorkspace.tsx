@@ -475,7 +475,10 @@ export function ExportWorkspace({ w }: { w: Workflow }) {
                             !w.job.artifacts.result
                         }
                         onClick={() =>
-                            void w.action(() => w.download("result"))
+                            void w.action(
+                                () => w.download("result"),
+                                "download",
+                            )
                         }
                     >
                         <Download />
@@ -491,7 +494,10 @@ export function ExportWorkspace({ w }: { w: Workflow }) {
                                 !w.job.artifacts.report
                             }
                             onClick={() =>
-                                void w.action(() => w.download("report"))
+                                void w.action(
+                                    () => w.download("report"),
+                                    "download",
+                                )
                             }
                         >
                             {t("workflow.downloadReport")}
