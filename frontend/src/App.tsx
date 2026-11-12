@@ -106,7 +106,13 @@ function Studio() {
                         <h1 ref={heading} tabIndex={-1}>
                             {t(w.workspace)}
                         </h1>
-                        <p>{t(`ws.${w.workspace}Hint`)}</p>
+                        <p>
+                            {t(
+                                mode === "basic" && w.workspace === "plan"
+                                    ? "ws.planHintBasic"
+                                    : `ws.${w.workspace}Hint`,
+                            )}
+                        </p>
                     </div>
                     <div className="workspace-tools">
                         <Advanced>
