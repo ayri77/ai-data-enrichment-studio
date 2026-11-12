@@ -8,7 +8,11 @@ import {
 } from "./api";
 import { columnLetter, parseRange } from "./range";
 
-export function useDataset() {
+export function useDataset(
+    // Basic mode previews a table as soon as it is known, taking no more rows
+    // than one run accepts; Advanced leaves the selection to the user.
+    options: { auto: boolean; maxRows: number } = { auto: false, maxRows: 20 },
+) {
     const [dataset, setDataset] = useState<Dataset | null>(null);
     const [sheet, setSheet] = useState("");
     const [range, setRange] = useState("");
@@ -44,16 +48,33 @@ export function useDataset() {
     }
     const fullRange = (source: Dataset | null, name: string) => {
         const selected = source?.worksheets.find((ws) => ws.name === name);
-        return selected
-            ? `A1:${columnLetter(Math.max(1, selected.columns.length))}${Math.max(1, selected.row_count + 1)}`
-            : "";
+        if (!selected) return "";
+        const rows = options.auto
+            ? Math.min(selected.row_count, options.maxRows)
+            : selected.row_count;
+        return `A1:${columnLetter(Math.max(1, selected.columns.length))}${Math.max(1, rows + 1)}`;
     };
+    // The caller holds `pending`; a failure leaves the error and no preview.
+    async function show(source: Dataset, name: string, selection: string) {
+        setBusy("preview");
+        setPreview(await api.preview(source.dataset_id, name, selection));
+    }
     function selectSheet(name: string, source = dataset) {
         setSheet(name);
         clearPreview();
-        setRange(fullRange(source, name));
+        const selection = fullRange(source, name);
+        setRange(selection);
+        if (source !== dataset) return;
         // A selection changed by hand is no longer the prepared example.
-        if (source === dataset) setSample(null);
+        setSample(null);
+        if (!options.auto || !source || !selection || pending.current) return;
+        pending.current = true;
+        void show(source, name, selection)
+            .catch((err) => setError(errorCode(err)))
+            .finally(() => {
+                pending.current = false;
+                setBusy(null);
+            });
     }
     async function upload(file?: File) {
         if (!file || pending.current) return;
@@ -73,7 +94,10 @@ export function useDataset() {
             if (dataset) void api.remove(dataset.dataset_id);
             setSample(null);
             setDataset(next);
-            selectSheet(next.worksheets[0]?.name ?? "", next);
+            const name = next.worksheets[0]?.name ?? "";
+            selectSheet(name, next);
+            if (options.auto && name)
+                await show(next, name, fullRange(next, name));
         } catch (err) {
             setError(errorCode(err));
         } finally {
@@ -120,8 +144,7 @@ export function useDataset() {
             setSheet(name);
             setRange(selection);
             setPreview(null);
-            setBusy("preview");
-            setPreview(await api.preview(next.dataset_id, name, selection));
+            await show(next, name, selection);
         } catch (err) {
             setError(errorCode(err));
         } finally {

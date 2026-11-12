@@ -12,7 +12,8 @@ import {
     type Review,
     type Sample,
 } from "./api";
-import { parseRange } from "./range";
+import { columnLetter, parseRange } from "./range";
+import { DEMO_LIMITS, type Limits } from "./useLimits";
 import { validMappings, type OutputTarget } from "./workflowModel";
 import {
     decisions,
@@ -49,6 +50,11 @@ export function useWorkflow(
     sheetColumns: string[] = [],
     sourceBusy = false,
     sample: Sample | null = null,
+    options: {
+        limits?: Limits;
+        /** Basic mode: pressing the button is the consent, with no checkbox. */
+        implicitConsent?: boolean;
+    } = {},
 ) {
     const [provider, setProviderState] = useState<ProviderReadiness | null>(
         null,
@@ -77,21 +83,7 @@ export function useWorkflow(
             }
         }
     }
-    // The server's bounds for one run; the demo's unless it says otherwise.
-    const [maxTimeout, setMaxTimeout] = useState(300);
-    const [maxRows, setMaxRows] = useState(20);
-    useEffect(() => {
-        void (async () => {
-            try {
-                const limits = await api.limits();
-                if (!mounted.current || !limits) return;
-                setMaxTimeout(limits.max_timeout_seconds);
-                setMaxRows(limits.max_run_rows);
-            } catch {
-                // The default bound stays; the server still checks the value.
-            }
-        })();
-    }, []);
+    const { maxRows, maxTimeout } = options.limits ?? DEMO_LIMITS;
     const [workspace, setWorkspace] = useState<Workspace>("dataset");
     const [instruction, setInstruction] = useState("");
     const [mapping, setMapping] = useState<OutputTarget[]>([
@@ -99,6 +91,8 @@ export function useWorkflow(
     ]);
     const [savedPlan, setSavedPlan] = useState("");
     const [network, setNetwork] = useState(false);
+    // Whether external requests are agreed to: ticked, or implied by the mode.
+    const consent = !!options.implicitConsent || network;
     // What to do when the source confirms exactly one match but could not confirm
     // the others: accept it (default, marked in the results) or ask the user.
     const [policy, setPolicy] = useState<"strict" | "verified_only">(
@@ -152,6 +146,30 @@ export function useWorkflow(
         ]);
         setSavedPlan("");
     }, [sourceKey]);
+    // A table with exactly one empty column most likely wants that column
+    // filled: propose it, as long as nothing was chosen yet. The user sees the
+    // proposal and can change it.
+    useEffect(() => {
+        if (!preview || sample) return;
+        const first = parseRange(preview.range_ref).bounds?.firstColumn ?? 1;
+        const empty = preview.profile.columns
+            .map((column, index) => ({ column, index }))
+            .filter(
+                ({ column }) => column.null_count >= preview.profile.row_count,
+            );
+        if (empty.length !== 1) return;
+        setMapping((current) =>
+            current.length === 1 && !current[0].name && !current[0].column
+                ? [
+                      {
+                          mode: "existing",
+                          name: empty[0].column.name,
+                          column: columnLetter(first + empty[0].index),
+                      },
+                  ]
+                : current,
+        );
+    }, [preview]);
     useEffect(() => {
         setDownloadName(
             `${(filename ?? "dataset").replace(/\.xlsx$/i, "")}-enriched.xlsx`,
@@ -238,7 +256,7 @@ export function useWorkflow(
         ...(savedPlan.trim()
             ? []
             : [
-                  { key: "consent" as const, met: network },
+                  { key: "consent" as const, met: consent },
                   {
                       key: "provider" as const,
                       met:
@@ -287,11 +305,14 @@ export function useWorkflow(
                     x.column,
                 ]),
             ),
-            allow_network: network,
+            allow_network: consent,
             mountain_resolution_policy: policy,
             ...(supplied === undefined ? {} : { plan: supplied }),
         });
         if (mounted.current && revision === generation.current) {
+            // Consent given by pressing the button stays given if the user
+            // switches to Advanced, where it is a ticked checkbox.
+            if (options.implicitConsent) setNetwork(true);
             setPlan(draft);
             setWorkspace("plan");
         }
@@ -314,14 +335,14 @@ export function useWorkflow(
         !!plan?.plan &&
         plan.validation.valid &&
         plan.status === "approved" &&
-        network &&
+        consent &&
         timeoutValid &&
         !locked;
     async function run() {
         if (!canRun || !plan) return;
         const started = await api.startRun(
             plan.plan_id,
-            network,
+            consent,
             Number(timeout),
         );
         if (mounted.current) {
@@ -378,7 +399,7 @@ export function useWorkflow(
         job?.status === "needs_review" &&
         review?.job_id === job.job_id &&
         hasCandidateChoice(review, choices) &&
-        network &&
+        consent &&
         timeoutValid &&
         !locked;
     function choose(operationId: string, choice: Choice) {
@@ -394,7 +415,7 @@ export function useWorkflow(
         const started = await api.resumeJob(
             job.job_id,
             decisions(review, choices),
-            network,
+            consent,
             Number(timeout),
         );
         if (mounted.current) {
@@ -447,6 +468,7 @@ export function useWorkflow(
         sample,
         loadPreparedPlan,
         network,
+        consent,
         setNetwork,
         policy,
         setPolicy,
@@ -472,6 +494,11 @@ export function useWorkflow(
         edit,
         withinBounds,
         mappingValid,
+        maxRows,
+        // Where a new column would go: right after everything the sheet holds.
+        freeColumn: bounds
+            ? columnLetter(Math.max(bounds.lastColumn, sheetColumns.length) + 1)
+            : "",
         timeoutValid,
         maxTimeout,
         canBuild,

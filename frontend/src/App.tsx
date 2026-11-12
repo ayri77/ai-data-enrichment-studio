@@ -17,6 +17,7 @@ import { Button } from "./components/ui/button";
 import { Advanced, ModeContext } from "./mode";
 import { initialMode, initialTheme, savePreference } from "./preferences";
 import { useDataset } from "./useDataset";
+import { useLimits } from "./useLimits";
 import { useWorkflow, type Workspace } from "./useWorkflow";
 
 export default function App() {
@@ -35,7 +36,8 @@ function Studio() {
         "details" | "settings" | null
     >(null);
     const heading = useRef<HTMLHeadingElement>(null);
-    const d = useDataset();
+    const limits = useLimits();
+    const d = useDataset({ auto: mode === "basic", maxRows: limits.maxRows });
     const w = useWorkflow(
         d.preview,
         `${d.dataset?.dataset_id ?? ""}:${d.sheet}:${d.range}`,
@@ -43,6 +45,7 @@ function Studio() {
         d.dataset?.worksheets.find((ws) => ws.name === d.sheet)?.columns,
         !!d.busy,
         d.sample,
+        { limits, implicitConsent: mode === "basic" },
     );
     useEffect(() => {
         savePreference("theme", theme);

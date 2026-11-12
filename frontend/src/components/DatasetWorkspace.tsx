@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
     FileSpreadsheet,
     LoaderCircle,
@@ -11,6 +11,7 @@ import { RangeSelection } from "./RangeSelection";
 import { DatasetPreview } from "./DatasetPreview";
 import { DatasetConfiguration } from "./WorkspaceViews";
 import { Button } from "./ui/button";
+import { useAdvanced } from "../mode";
 import type { useDataset } from "../useDataset";
 import type { Workflow } from "../useWorkflow";
 export function DatasetWorkspace({
@@ -26,6 +27,17 @@ export function DatasetWorkspace({
     const [dragging, setDragging] = useState(false);
     const fileInput = useRef<HTMLInputElement>(null);
     const workflowLocked = workflow.locked;
+    const advanced = useAdvanced();
+    const worksheet = d.dataset?.worksheets.find((ws) => ws.name === d.sheet);
+    // Basic finds the table itself. Its boundaries come into view when that did
+    // not work, when the workbook has several sheets, or when the user asks.
+    const [adjust, setAdjust] = useState(false);
+    useEffect(() => setAdjust(false), [d.dataset?.dataset_id]);
+    const boundaries =
+        advanced ||
+        adjust ||
+        (!!d.dataset && !d.preview && !d.busy) ||
+        (d.dataset?.worksheets.length ?? 0) > 1;
     return (
         <div className="dataset-layout">
             <div className="dataset-source">
@@ -153,28 +165,58 @@ export function DatasetWorkspace({
                             </span>
                         </div>
                     )}
-                    <RangeSelection
-                        key={`${d.dataset?.dataset_id ?? "empty"}:${d.sheet}`}
-                        sheets={d.dataset?.worksheets ?? []}
-                        sheet={d.sheet}
-                        range={d.range}
-                        disabled={!d.dataset || !!d.busy || workflowLocked}
-                        pending={d.busy === "preview"}
-                        onSheet={(name) => d.selectSheet(name)}
-                        onRange={d.editRange}
-                        onPreview={() => void d.loadPreview()}
-                    />
+                    {d.preview &&
+                        worksheet &&
+                        worksheet.row_count > d.preview.profile.row_count && (
+                            <p className="notice" data-testid="rows-taken">
+                                {t("rowsTaken", {
+                                    taken: d.preview.profile.row_count,
+                                    total: worksheet.row_count,
+                                    max: workflow.maxRows,
+                                })}
+                            </p>
+                        )}
+                    {boundaries ? (
+                        <RangeSelection
+                            key={`${d.dataset?.dataset_id ?? "empty"}:${d.sheet}`}
+                            sheets={d.dataset?.worksheets ?? []}
+                            sheet={d.sheet}
+                            range={d.range}
+                            disabled={!d.dataset || !!d.busy || workflowLocked}
+                            pending={d.busy === "preview"}
+                            onSheet={(name) => d.selectSheet(name)}
+                            onRange={d.editRange}
+                            onPreview={() => void d.loadPreview()}
+                        />
+                    ) : (
+                        d.preview && (
+                            <p className="table-found muted">
+                                {t("tableFound", { sheet: d.sheet })}{" "}
+                                <button
+                                    type="button"
+                                    className="inline-link"
+                                    disabled={!!d.busy || workflowLocked}
+                                    onClick={() => setAdjust(true)}
+                                >
+                                    {t("adjustTable")}
+                                </button>
+                            </p>
+                        )
+                    )}
                 </div>
                 <DatasetPreview
                     preview={d.preview}
                     filename={d.dataset?.filename}
                     busy={d.busy === "preview"}
                     hasWorkbook={!!d.dataset}
+                    filled={workflow.mapping.map((entry) => entry.name)}
+                    maxRows={workflow.maxRows}
                 />
             </div>
             <DatasetConfiguration
                 workflow={workflow}
                 preview={d.preview}
+                hasWorkbook={!!d.dataset}
                 onOpenSettings={onOpenSettings}
             />
         </div>

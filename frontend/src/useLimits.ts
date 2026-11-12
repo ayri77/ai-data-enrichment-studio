@@ -1,0 +1,32 @@
+import { useEffect, useState } from "react";
+import { api } from "./api";
+
+/** What one run accepts. The demo's bounds apply until the server answers. */
+export interface Limits {
+    maxRows: number;
+    maxTimeout: number;
+}
+export const DEMO_LIMITS: Limits = { maxRows: 20, maxTimeout: 300 };
+
+export function useLimits(): Limits {
+    const [limits, setLimits] = useState(DEMO_LIMITS);
+    useEffect(() => {
+        let active = true;
+        void (async () => {
+            try {
+                const stated = await api.limits();
+                if (active && stated)
+                    setLimits({
+                        maxRows: stated.max_run_rows,
+                        maxTimeout: stated.max_timeout_seconds,
+                    });
+            } catch {
+                // The demo's bounds stay; the server still checks every value.
+            }
+        })();
+        return () => {
+            active = false;
+        };
+    }, []);
+    return limits;
+}

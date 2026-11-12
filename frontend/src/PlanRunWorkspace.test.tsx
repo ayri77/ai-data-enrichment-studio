@@ -323,6 +323,30 @@ async function prepare() {
     );
     await userEvent.click(screen.getByLabelText(i18n.t("workflow.network")));
 }
+// Basic: the table is previewed on upload, the only empty column is proposed,
+// and pressing the button is the consent.
+async function prepareBasic() {
+    await userEvent.upload(
+        screen.getByLabelText("Upload Excel workbook"),
+        new File(["x"], "capitals.xlsx"),
+    );
+    await waitFor(() =>
+        expect(screen.getByLabelText(i18n.t("ws.fillColumn"))).toHaveValue("E"),
+    );
+    fireEvent.change(screen.getByLabelText("Enrichment instruction"), {
+        target: { value: "Literal cities" },
+    });
+}
+async function generateBasic() {
+    await prepareBasic();
+    await userEvent.click(button("ws.buildPlan"));
+    await screen.findByTestId("validation");
+}
+async function startBasic() {
+    await generateBasic();
+    await userEvent.click(button("ws.approveContinue"));
+    await userEvent.click(button("workflow.run"));
+}
 async function generate() {
     await prepare();
     await userEvent.click(button("ws.buildPlan"));
@@ -1420,7 +1444,7 @@ it("starts in Basic without technical tools; the switch reveals them and is reme
 it("Basic runs the whole scenario with the second layer out of sight", async () => {
     localStorage.removeItem("enrichment.mode");
     render(<App />);
-    await generate();
+    await generateBasic();
     // Column types and the column inspector belong to Advanced.
     await navigate("dataset");
     expect(
@@ -1469,7 +1493,7 @@ it("Basic offers the review step only when there is something to settle", async 
     const reviewTab = () =>
         screen.getByRole("navigation").querySelectorAll("button")[3];
     expect(reviewTab()).toBeDisabled();
-    await start();
+    await startBasic();
     await waitFor(() => expect(api.getReport).toHaveBeenCalled());
     expect(reviewTab()).toBeDisabled();
     // The run leads straight to the results, and back from there to the run.
@@ -1657,5 +1681,141 @@ it("says in Review that a row's country was not recognized, as it was written", 
         within(screen.getByTestId("unresolved-Oslo")).getByText(
             i18n.t("review.status.unresolved"),
         ),
+    ).toBeVisible();
+});
+
+it("Basic previews the table on upload, proposes the empty column and takes the button as consent", async () => {
+    localStorage.removeItem("enrichment.mode");
+    render(<App />);
+    // Before a workbook there is a plain statement of what can be asked for.
+    expect(screen.getByText(i18n.t("can.cityDistance"))).toBeVisible();
+    expect(screen.getByText(i18n.t("can.limit", { max: 20 }))).toBeVisible();
+    await prepareBasic();
+    expect(api.preview).toHaveBeenCalledWith("source", "Sheet1", "A1:E11");
+    absent("previewAction");
+    expect(
+        screen.queryByLabelText(i18n.t("workflow.network")),
+    ).not.toBeInTheDocument();
+    // What leaves the browser is said next to the button instead.
+    expect(screen.getByTestId("sends")).toHaveTextContent("OpenAI");
+    expect(screen.getByTestId("sends")).toHaveTextContent("Wikidata");
+    await userEvent.click(button("ws.buildPlan"));
+    await screen.findByTestId("validation");
+    expect(api.createPlan).toHaveBeenCalledWith(
+        expect.objectContaining({
+            range_ref: "A1:E11",
+            output_columns: { distance: "E" },
+            allow_network: true,
+        }),
+    );
+    await userEvent.click(button("ws.approveContinue"));
+    await userEvent.click(button("workflow.run"));
+    expect(api.startRun).toHaveBeenCalledWith("plan", true, 180);
+    // The consent given by the button is a ticked checkbox in Advanced.
+    await userEvent.selectOptions(
+        screen.getByLabelText(i18n.t("mode.label")),
+        "advanced",
+    );
+    await navigate("dataset");
+    expect(screen.getByLabelText(i18n.t("workflow.network"))).toBeChecked();
+});
+
+it("Basic takes no more rows than one run accepts and says so", async () => {
+    localStorage.removeItem("enrichment.mode");
+    vi.mocked(api.upload).mockResolvedValue({
+        dataset_id: "source",
+        filename: "long.xlsx",
+        worksheets: [
+            {
+                name: "Sheet1",
+                columns: preview.profile.columns.map((x) => x.name),
+                row_count: 100,
+            },
+        ],
+    });
+    vi.mocked(api.preview).mockResolvedValue({
+        ...preview,
+        range_ref: "A1:E21",
+        profile: { ...preview.profile, row_count: 20 },
+    });
+    render(<App />);
+    await userEvent.upload(
+        screen.getByLabelText("Upload Excel workbook"),
+        new File(["x"], "long.xlsx"),
+    );
+    expect(await screen.findByTestId("rows-taken")).toHaveTextContent(
+        i18n.t("rowsTaken", { taken: 20, total: 100, max: 20 }),
+    );
+    expect(api.preview).toHaveBeenCalledWith("source", "Sheet1", "A1:E21");
+});
+
+it("Basic shows the table boundaries when the table cannot be read, or on request", async () => {
+    localStorage.removeItem("enrichment.mode");
+    vi.mocked(api.preview).mockRejectedValueOnce(
+        new WorkspaceApiError("invalid_headers", "Headers"),
+    );
+    render(<App />);
+    await userEvent.upload(
+        screen.getByLabelText("Upload Excel workbook"),
+        new File(["x"], "capitals.xlsx"),
+    );
+    // The reason is shown and the boundaries can be corrected by hand.
+    expect(await screen.findByRole("alert")).toBeVisible();
+    await userEvent.click(button("previewAction"));
+    await waitFor(() => expect(api.preview).toHaveBeenCalledTimes(2));
+    // Once the table is read, the boundaries step back behind a link.
+    await userEvent.click(
+        await screen.findByRole("button", { name: i18n.t("adjustTable") }),
+    );
+    expect(button("previewAction")).toBeVisible();
+});
+
+it("Basic can fill a new column placed after the table", async () => {
+    localStorage.removeItem("enrichment.mode");
+    render(<App />);
+    await prepareBasic();
+    await userEvent.selectOptions(
+        screen.getByLabelText(i18n.t("ws.fillColumn")),
+        i18n.t("ws.newColumnOption"),
+    );
+    expect(button("ws.buildPlan")).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(i18n.t("ws.newColumnName")), {
+        target: { value: "km" },
+    });
+    await userEvent.click(button("ws.buildPlan"));
+    await screen.findByTestId("validation");
+    expect(api.createPlan).toHaveBeenCalledWith(
+        expect.objectContaining({ output_columns: { km: "F" } }),
+    );
+});
+
+it("proposes no column when the table has none or several empty ones", async () => {
+    localStorage.removeItem("enrichment.mode");
+    vi.mocked(api.preview).mockResolvedValue({
+        ...preview,
+        profile: {
+            ...preview.profile,
+            columns: preview.profile.columns
+                .map((column) => ({
+                    ...column,
+                    null_count: column.name.startsWith("c") ? 0 : 10,
+                }))
+                .map((column, index) =>
+                    index === 3 ? { ...column, null_count: 10 } : column,
+                ),
+        },
+    });
+    render(<App />);
+    await userEvent.upload(
+        screen.getByLabelText("Upload Excel workbook"),
+        new File(["x"], "capitals.xlsx"),
+    );
+    const fill = await screen.findByLabelText(i18n.t("ws.fillColumn"));
+    await waitFor(() => expect(api.preview).toHaveBeenCalled());
+    expect(fill).toHaveValue("");
+    expect(
+        within(
+            document.querySelector<HTMLElement>(".build-checklist")!,
+        ).getByText(i18n.t("ws.need.mapping")),
     ).toBeVisible();
 });

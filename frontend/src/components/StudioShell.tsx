@@ -132,7 +132,15 @@ export function StudioShell({
                     <ShieldCheck aria-hidden="true" />
                     {t("sourceUnchanged")}
                 </span>
-                <span>{t(hosted ? "hostedSession" : "sessionOnly")}</span>
+                <span>
+                    {t(
+                        hosted
+                            ? "hostedSession"
+                            : mode === "basic"
+                              ? "sessionLocal"
+                              : "sessionOnly",
+                    )}
+                </span>
             </footer>
         </div>
     );

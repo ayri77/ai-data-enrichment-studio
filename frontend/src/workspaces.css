@@ -1232,8 +1232,26 @@
     flex-wrap: wrap;
     gap: 8px;
     font-size: 12px;
+    padding: 0 12px;
 }
 .workspace-actions > .sample-plan {
     flex-basis: 100%;
     font-size: 12px;
+}
+.workspace-actions > .sends {
+    flex-basis: 100%;
+    font-size: 12px;
+}
+.table-found {
+    font-size: 12px;
+    padding: 0 12px;
+}
+.can-do ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    color: var(--studio-text);
+    font-size: 13px;
+}
+.can-do li {
+    margin-top: 2px;
 }
