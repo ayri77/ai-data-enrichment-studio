@@ -79,7 +79,7 @@ provide the dataset ID and actual worksheet/range; the range includes headers.
 | Validate | `POST /api/plans/{plan_id}/validate` | Semantic DAG/type/parameter checks and explicit column bindings |
 | Approve | `POST /api/plans/{plan_id}/approve` | Requires `approved: true` and exact displayed `fingerprint` |
 | Start | `POST /api/plans/{plan_id}/runs` | 202 with opaque job ID and initial `queued` state |
-| Poll | `GET /api/jobs/{job_id}` | Status, timestamps, metrics, sanitized error and artifact URLs |
+| Poll | `GET /api/jobs/{job_id}` | Status, timestamps, metrics, sanitized error and artifact URLs; `progress` — `{rows_done, rows_total}` once the worker has read the table, `null` before. It counts finished rows whatever their outcome, stays as it was when a run is cancelled or timed out, and carries no result: partial results are still never published |
 | Cancel | `POST /api/jobs/{job_id}/cancel` | 202; request cancellation, poll until terminal |
 | Download | `GET /api/jobs/{job_id}/artifacts/result` | Separate enriched XLSX after successful publication |
 | Report | `GET /api/jobs/{job_id}/artifacts/report` | JSON audit for every terminal job, including stops/failures |

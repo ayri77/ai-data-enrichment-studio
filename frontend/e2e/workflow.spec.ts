@@ -496,12 +496,21 @@ test("example: one click fills the task; the prepared plan runs without an AI re
     expect(JSON.parse(planning[0]).plan.steps.length).toBeGreaterThan(0);
     // One press approves the plan and starts the run.
     await page.getByRole("button", { name: "Approve and run" }).click();
-    await expect(page.getByTestId("metric-total_rows")).toHaveText("10", {
-        timeout: 30_000,
-    });
-    // Removing the workbook brings the examples back.
-    await navigate(page, "Dataset");
-    await page.getByRole("button", { name: "Remove workbook" }).click();
+    // The run is summed up in a sentence; the counters belong to Advanced.
+    await expect(page.getByTestId("job-status")).toHaveText(
+        /Rows filled: \d+ of 10\.|All rows are filled: 10 of 10\./,
+        { timeout: 30_000 },
+    );
+    await expect(page.getByTestId("metric-total_rows")).toHaveCount(0);
+    // Starting over warns that the filled table goes with the workbook, and
+    // brings the examples back.
+    await page
+        .getByRole("button", { name: "Start over with another table" })
+        .click();
+    await expect(
+        page.getByText("Download the filled table first if you need it."),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Remove and start over" }).click();
     await expect(
         page.getByRole("button", {
             name: "Capitals: distances between cities",
@@ -544,7 +553,10 @@ test("Basic: an uploaded workbook needs an instruction and nothing else", async 
         allow_network: true,
     });
     await page.getByRole("button", { name: "Approve and run" }).click();
-    await expect(page.getByTestId("metric-total_rows")).toContainText("10");
+    await expect(page.getByTestId("job-status")).toHaveText(
+        /Rows filled: \d+ of 10\./,
+        { timeout: 30_000 },
+    );
     // The boundaries are still one click away.
     await navigate(page, "Dataset");
     await page.getByRole("button", { name: "Change its boundaries" }).click();

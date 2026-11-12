@@ -26,7 +26,7 @@ import {
     type Sort,
 } from "../resultsModel";
 import { Button } from "./ui/button";
-import { Back, EmptyState, ModeNotice } from "./WorkspaceViews";
+import { Back, EmptyState, ModeNotice, StartOver } from "./WorkspaceViews";
 
 function SortHeader({
     label,
@@ -414,7 +414,13 @@ function ResultTable({ w }: { w: Workflow }) {
     );
 }
 
-export function ExportWorkspace({ w }: { w: Workflow }) {
+export function ExportWorkspace({
+    w,
+    onStartOver,
+}: {
+    w: Workflow;
+    onStartOver: () => void;
+}) {
     const { t } = useTranslation();
     const advanced = useAdvanced();
     const reviewable = advanced || w.job?.status === "needs_review";
@@ -506,6 +512,9 @@ export function ExportWorkspace({ w }: { w: Workflow }) {
                     <p className="muted">{t("ws.exportDetail")}</p>
                     {w.job?.status === "needs_review" && (
                         <p className="notice">{t("workflow.unresolved")}</p>
+                    )}
+                    {w.job && isTerminal(w.job.status) && (
+                        <StartOver w={w} onStartOver={onStartOver} />
                     )}
                 </div>
                 <div className="workspace-actions">

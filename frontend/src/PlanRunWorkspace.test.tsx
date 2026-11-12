@@ -2004,3 +2004,152 @@ it("Basic explains a plan that failed the check without codes and does not offer
     expect(button("ws.approveRun")).toBeDisabled();
     expect(api.approvePlan).not.toHaveBeenCalled();
 });
+
+it("shows how many rows a running job has finished, in the bar and on Execution", async () => {
+    localStorage.removeItem("enrichment.mode");
+    const running: Job = {
+        ...queued,
+        status: "running",
+        started_at: "2026-11-10T09:00:01Z",
+    };
+    vi.mocked(api.startRun).mockResolvedValue(running);
+    vi.mocked(api.getJob)
+        .mockResolvedValueOnce({ ...running, progress: null })
+        .mockResolvedValue({
+            ...running,
+            progress: { rows_done: 4, rows_total: 10 },
+        });
+    render(<App />);
+    await startBasic();
+    // Until the worker has read the table there is nothing to count.
+    expect(await screen.findByTestId("run-progress")).toHaveTextContent(
+        i18n.t("exec.preparing"),
+    );
+    expect(screen.getByRole("progressbar")).not.toHaveAttribute("value");
+    const rows = i18n.t("activity.rows", { done: 4, total: 10 });
+    await waitFor(
+        () =>
+            expect(screen.getByTestId("run-progress")).toHaveTextContent(rows),
+        { timeout: 3000 },
+    );
+    expect(screen.getByRole("progressbar")).toHaveValue(4);
+    expect(screen.getByRole("progressbar")).toHaveAttribute("max", "10");
+    expect(screen.getByTestId("job-status")).toHaveTextContent(
+        i18n.t("activity.running"),
+    );
+    // The bar carries the same count to every other step.
+    await navigate("dataset");
+    expect(screen.getByTestId("activity-rows")).toHaveTextContent(rows);
+    expect(
+        document.querySelector<HTMLElement>(".activity-track.measured")!.style
+            .width,
+    ).toBe("40%");
+    // A count that changes with every row is not part of the announced status.
+    expect(
+        within(document.querySelector<HTMLElement>(".activity-bar")!).getByRole(
+            "status",
+        ),
+    ).not.toHaveTextContent(rows);
+});
+
+it("Basic sums a finished run up in a sentence and leaves the counters to Advanced", async () => {
+    localStorage.removeItem("enrichment.mode");
+    render(<App />);
+    await startBasic();
+    await waitFor(() => expect(api.getReview).toHaveBeenCalled());
+    // The fixture report lists one row, and it is empty; two names can be chosen.
+    await waitFor(() =>
+        expect(screen.getByTestId("job-status")).toHaveTextContent(
+            i18n.t("exec.outcome.none", { total: 1 }),
+        ),
+    );
+    expect(
+        await screen.findByText(i18n.t("exec.outcome.choices", { count: 2 })),
+    ).toBeVisible();
+    expect(screen.queryByTestId("metric-total_rows")).not.toBeInTheDocument();
+    expect(
+        screen.queryByText(i18n.t("workflow.unresolved")),
+    ).not.toBeInTheDocument();
+    absent("exec.runAgain");
+    await userEvent.selectOptions(
+        screen.getByLabelText(i18n.t("mode.label")),
+        "advanced",
+    );
+    expect(screen.getByTestId("metric-total_rows")).toHaveTextContent("10");
+    expect(screen.getByTestId("job-status")).toHaveTextContent(
+        i18n.t("workflow.status.needs_review"),
+    );
+});
+
+it("Basic says how a stopped run ended and offers to run it again", async () => {
+    localStorage.removeItem("enrichment.mode");
+    const timedOut: Job = {
+        ...queued,
+        status: "timed_out",
+        finished_at: "2026-11-10T09:03:00Z",
+        error: {
+            code: "timed_out",
+            message: "Run stopped; results discarded.",
+        },
+        progress: { rows_done: 3, rows_total: 10 },
+        artifacts: { report: "/api/jobs/job/artifacts/report" },
+    };
+    vi.mocked(api.getJob).mockResolvedValue(timedOut);
+    vi.mocked(api.getReport).mockResolvedValue({
+        ...timedOut,
+        source_sha256: draft.source_sha256,
+    });
+    render(<App />);
+    await startBasic();
+    await waitFor(() =>
+        expect(screen.getByTestId("job-status")).toHaveTextContent(
+            i18n.t("exec.outcome.timed_out", { limit: 180 }),
+        ),
+    );
+    expect(
+        screen.getByText(
+            i18n.t("exec.outcome.reached", { done: 3, total: 10 }),
+        ),
+    ).toBeVisible();
+    expect(screen.getByText(i18n.t("exec.outcome.fewer"))).toBeVisible();
+    // The code is for Advanced; there is no table to look at.
+    expect(screen.queryByText("timed_out")).not.toBeInTheDocument();
+    expect(screen.getByText(i18n.t("exec.retryHint"))).toBeVisible();
+    expect(button("ws.viewOutput")).toBeDisabled();
+    await userEvent.click(button("exec.runAgain"));
+    await waitFor(() => expect(api.startRun).toHaveBeenCalledTimes(2));
+    // The same approved plan: no second approval.
+    expect(api.approvePlan).toHaveBeenCalledTimes(1);
+});
+
+it("starting over asks first when a filled table would be lost", async () => {
+    localStorage.removeItem("enrichment.mode");
+    vi.mocked(api.remove).mockResolvedValue(undefined);
+    render(<App />);
+    await startBasic();
+    await waitFor(() => expect(api.getReport).toHaveBeenCalled());
+    await userEvent.click(
+        await screen.findByRole("button", {
+            name: i18n.t("startOver.action"),
+        }),
+    );
+    expect(screen.getByText(i18n.t("startOver.warning"))).toBeVisible();
+    expect(api.remove).not.toHaveBeenCalled();
+    await userEvent.click(button("startOver.keep"));
+    expect(
+        screen.queryByText(i18n.t("startOver.warning")),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("job-status")).toBeVisible();
+    // The same control closes the Results step.
+    await navigate("export");
+    await userEvent.click(button("startOver.action"));
+    await userEvent.click(button("startOver.confirm"));
+    expect(api.remove).toHaveBeenCalledWith("source");
+    // Back at the first step with nothing loaded.
+    expect(await screen.findByText(i18n.t("can.cityDistance"))).toBeVisible();
+    expect(screen.getByLabelText("Enrichment instruction")).toHaveValue("");
+    await navigate("execution");
+    expect(screen.getByTestId("job-status")).toHaveTextContent(
+        i18n.t("exec.idle"),
+    );
+});

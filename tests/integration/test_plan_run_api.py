@@ -1003,3 +1003,64 @@ def test_an_unusable_mountain_cell_costs_its_row_not_the_run(client):
         "NAME_TOO_LONG",
     ]
     assert "result" in job["artifacts"]
+
+
+class PacedTransport(APITransportFixture):
+    """The offline answers, each a little late, so a run can be watched."""
+
+    def get_json(self, *, url: str, params: Mapping[str, str], timeout_seconds: float) -> object:
+        sleep(0.15)
+        return super().get_json(url=url, params=params, timeout_seconds=timeout_seconds)
+
+
+def paced_executor(capabilities: frozenset[str], policy: MountainPolicy, max_rows: int):
+    return live_executor(capabilities, policy, max_rows, transport=PacedTransport())
+
+
+def test_a_run_reports_how_many_rows_are_finished():
+    with TestClient(create_app(offline_executor_factory=paced_executor)) as client:
+        plan = draft(client)
+        approve(client, plan)
+        job = start(client, plan)
+        # Nothing is known until the worker has read the table.
+        assert job["progress"] is None
+        seen = []
+        current = job
+        deadline = monotonic() + 30
+        while monotonic() < deadline:
+            current = client.get(f"/api/jobs/{job['job_id']}").json()
+            if current["progress"] and current["progress"] not in seen:
+                seen.append(current["progress"])
+            if current["status"] in TERMINAL:
+                break
+            sleep(0.02)
+        assert current["status"] in {"completed", "needs_review"}, current
+        total = current["metrics"]["total_rows"]
+        assert {step["rows_total"] for step in seen} == {total}
+        done = [step["rows_done"] for step in seen]
+        assert done == sorted(done)
+        # Seen on the way, not only at the end.
+        assert any(0 < value < total for value in done), done
+        assert current["progress"] == {"rows_done": total, "rows_total": total}
+        report = client.get(current["artifacts"]["report"]).json()
+        assert report["progress"] == current["progress"]
+
+
+def test_a_stopped_run_says_how_far_it_got():
+    with TestClient(create_app(offline_executor_factory=paced_executor)) as client:
+        plan = draft(client)
+        approve(client, plan)
+        job = start(client, plan)
+        endpoint = f"/api/jobs/{job['job_id']}"
+        deadline = monotonic() + 30
+        while monotonic() < deadline:
+            progress = client.get(endpoint).json()["progress"]
+            if progress and progress["rows_done"] >= 1:
+                break
+            sleep(0.02)
+        assert client.post(endpoint + "/cancel").status_code == 202
+        final = wait(client, job)
+        assert final["status"] == "cancelled"
+        # The results are discarded; how far the run got is still true.
+        assert "result" not in final["artifacts"]
+        assert 1 <= final["progress"]["rows_done"] < final["progress"]["rows_total"]

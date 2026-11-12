@@ -253,6 +253,30 @@ def test_row_failures_are_isolated_and_dependency_steps_blocked() -> None:
     assert len(lookup.calls) == 2
 
 
+def test_progress_is_reported_before_the_first_record_and_after_each_one() -> None:
+    executor, plan, _, _ = mountain_setup(batch_size=2)
+    inputs = [
+        record("a", "Mountain 0"),
+        record("b", "Unknown Mountain"),
+        record("c", "Mountain 0"),
+    ]
+    seen: list[tuple[int, int]] = []
+
+    observed = executor.execute(plan, inputs, on_record_done=lambda *call: seen.append(call))
+    # A failed row is a finished row; batches do not show in the count.
+    assert seen == [(0, 3), (1, 3), (2, 3), (3, 3)]
+    # Reporting changes nothing about the result.
+    plain = executor.execute(plan, inputs)
+    assert [r.row_result for r in observed.records] == [r.row_result for r in plain.records]
+    assert observed.metrics == plain.metrics
+
+    # Rejected input reports nothing: no record was started.
+    seen.clear()
+    with pytest.raises(ValueError, match="Duplicate record ID"):
+        executor.execute(plan, [inputs[0], inputs[0]], on_record_done=lambda *c: seen.append(c))
+    assert seen == []
+
+
 def test_each_execution_starts_new_memoization_scope() -> None:
     executor, plan, resolver, lookup = mountain_setup(batch_size=1)
     rows = [record("1", "Mountain 0"), record("2", "Mountain 0")]

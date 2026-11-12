@@ -7,6 +7,7 @@ import {
     ListChecks,
     LoaderCircle,
     Play,
+    RotateCcw,
     X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -14,7 +15,9 @@ import { isTerminal, type Preview } from "../api";
 import { Advanced, useAdvanced, useHosted } from "../mode";
 import type { Workflow, Workspace } from "../useWorkflow";
 import { columnLetter, parseRange } from "../range";
+import { remainingSeconds, runOutcome } from "../runModel";
 import { normalizeColumn, type OutputTarget } from "../workflowModel";
+import { clock, useElapsed } from "./ActivityBar";
 import { Button } from "./ui/button";
 import { ProviderSettings } from "./ProviderSettings";
 import { PlanGraph } from "./PlanGraph";
@@ -789,52 +792,170 @@ export function ModeNotice({ w }: { w: Workflow }) {
     ) : null;
 }
 
-export function ExecutionWorkspace({ w }: { w: Workflow }) {
+/** How far a running job is: its rows, and a guess at the time left. */
+function RunProgress({ w }: { w: Workflow }) {
+    const { t } = useTranslation();
+    const elapsed = useElapsed(w.active ? w.jobSince : null);
+    if (!w.active) return null;
+    const progress = w.job?.progress;
+    const left = progress
+        ? remainingSeconds(elapsed, progress.rows_done, progress.rows_total)
+        : null;
+    return (
+        <div className="run-progress">
+            {/* Without a value the element shows that work goes on, no more. */}
+            <progress
+                aria-label={t("exec.progressLabel")}
+                {...(progress
+                    ? { value: progress.rows_done, max: progress.rows_total }
+                    : {})}
+            />
+            <p data-testid="run-progress">
+                {progress
+                    ? t("activity.rows", {
+                          done: progress.rows_done,
+                          total: progress.rows_total,
+                      })
+                    : t("exec.preparing")}
+                {left !== null &&
+                    ` · ${t("activity.remaining", { time: clock(left) })}`}
+            </p>
+        </div>
+    );
+}
+
+/**
+ * Leave this table and begin with another one. The server forgets a removed
+ * workbook together with its results, so when there is a filled table to lose
+ * the button asks first, on the page, without a browser dialog.
+ */
+export function StartOver({
+    w,
+    onStartOver,
+}: {
+    w: Workflow;
+    onStartOver: () => void;
+}) {
+    const { t } = useTranslation();
+    const [asking, setAsking] = useState(false);
+    if (asking)
+        return (
+            <div className="start-over notice" role="group">
+                <p>{t("startOver.warning")}</p>
+                <div>
+                    <Button variant="outline" onClick={() => setAsking(false)}>
+                        {t("startOver.keep")}
+                    </Button>
+                    <Button onClick={onStartOver}>
+                        {t("startOver.confirm")}
+                    </Button>
+                </div>
+            </div>
+        );
+    return (
+        <Button
+            variant="outline"
+            disabled={w.locked}
+            onClick={() =>
+                w.job?.artifacts.result ? setAsking(true) : onStartOver()
+            }
+        >
+            <RotateCcw aria-hidden="true" />
+            {t("startOver.action")}
+        </Button>
+    );
+}
+
+export function ExecutionWorkspace({
+    w,
+    onStartOver,
+}: {
+    w: Workflow;
+    onStartOver: () => void;
+}) {
     const { t } = useTranslation();
     const advanced = useAdvanced();
     const terminal = !!w.job && isTerminal(w.job.status);
     const toReview = w.job?.status === "needs_review";
+    // A run that ended without a filled table: failed, cancelled or timed out.
+    const produced = !!w.job?.artifacts.result;
+    const stopped = terminal && !produced;
     // Basic has nothing left to control once a run exists and is not running.
     const controls = advanced || !w.job || w.active;
+    const outcome =
+        !advanced && w.job
+            ? runOutcome(w.job, w.report, w.plan?.plan ?? null, w.review)
+            : null;
     return (
         <div className="stage-layout">
             <section className="workspace-panel execution-stage">
                 <div className="summary-content">
                     <div className="panel-title">
                         <Play aria-hidden="true" />
-                        <h2>{t("workflow.results")}</h2>
+                        <h2>
+                            {t(advanced ? "workflow.results" : "exec.title")}
+                        </h2>
                     </div>
                     <p
                         className={`job-status status-${w.job?.status ?? "idle"}`}
                         role="status"
                         data-testid="job-status"
                     >
-                        {w.job
-                            ? t(`workflow.status.${w.job.status}`)
-                            : t("ws.readyToRun")}
+                        {advanced
+                            ? w.job
+                                ? t(`workflow.status.${w.job.status}`)
+                                : t("ws.readyToRun")
+                            : outcome
+                              ? t(`exec.outcome.${outcome.key}`, outcome.values)
+                              : w.job
+                                ? t(`activity.${w.job.status}`)
+                                : t("exec.idle")}
                     </p>
+                    {outcome?.more.map((sentence) => (
+                        <p key={sentence.key}>
+                            {t(`exec.outcome.${sentence.key}`, sentence.values)}
+                        </p>
+                    ))}
+                    <RunProgress w={w} />
                     <ModeNotice w={w} />
                     {w.job?.previous_job_id && (
                         <p className="muted">{t("review.continued")}</p>
                     )}
-                    <QualitySummary w={w} />
-                    {w.job?.error && (
-                        <p className="validation-note" role="alert">
-                            <code>{w.job.error.code}</code> ·{" "}
-                            {w.job.error.message}
+                    <Advanced>
+                        <QualitySummary w={w} />
+                        {w.job?.error && (
+                            <p className="validation-note" role="alert">
+                                <code>{w.job.error.code}</code> ·{" "}
+                                {w.job.error.message}
+                            </p>
+                        )}
+                    </Advanced>
+                    {advanced ? (
+                        <p className="muted">
+                            {w.active
+                                ? t("ws.runningHint")
+                                : terminal
+                                  ? t(
+                                        w.job!.status === "needs_review"
+                                            ? "workflow.unresolved"
+                                            : "ws.terminalHint",
+                                    )
+                                  : t("ws.startHint")}
                         </p>
+                    ) : (
+                        // The outcome sentence already says how a run ended.
+                        !terminal && (
+                            <p className="muted">
+                                {w.active
+                                    ? t("ws.runningHint")
+                                    : t(
+                                          w.plan?.status === "approved"
+                                              ? "exec.idleApproved"
+                                              : "exec.idleNoPlan",
+                                      )}
+                            </p>
+                        )
                     )}
-                    <p className="muted">
-                        {w.active
-                            ? t("ws.runningHint")
-                            : terminal
-                              ? t(
-                                    w.job!.status === "needs_review"
-                                        ? "workflow.unresolved"
-                                        : "ws.terminalHint",
-                                )
-                              : t("ws.startHint")}
-                    </p>
                 </div>
                 <Advanced>
                     {w.plan?.plan && <PlanGraph draft={w.plan} />}
@@ -845,7 +966,15 @@ export function ExecutionWorkspace({ w }: { w: Workflow }) {
                     <h2>{t(controls ? "ws.runControls" : "ws.nextStep")}</h2>
                     {!w.plan && <p>{t("ws.noPlan")}</p>}
                     {!controls && terminal && (
-                        <p>{t(toReview ? "ws.reviewHint" : "ws.exportHint")}</p>
+                        <p>
+                            {t(
+                                stopped
+                                    ? "exec.retryHint"
+                                    : toReview
+                                      ? "ws.reviewHint"
+                                      : "ws.exportHint",
+                            )}
+                        </p>
                     )}
                     {!w.network && (
                         <p className="muted">{t("ws.executionNetwork")}</p>
@@ -887,8 +1016,10 @@ export function ExecutionWorkspace({ w }: { w: Workflow }) {
                             {t("workflow.cancel")}
                         </Button>
                     ) : (
-                        // Repeating an unchanged run is a tool for inspection.
-                        (advanced || !w.job) && (
+                        // Repeating a run that produced a table is a tool for
+                        // inspection; repeating one that produced nothing is
+                        // the way forward in either mode.
+                        (advanced || !w.job || stopped) && (
                             <Button
                                 disabled={!w.canRun}
                                 onClick={() => void w.action(w.run, "start")}
@@ -901,18 +1032,25 @@ export function ExecutionWorkspace({ w }: { w: Workflow }) {
                                 ) : (
                                     <Play />
                                 )}
-                                {t(w.job ? "ws.retryPlan" : "workflow.run")}
+                                {t(
+                                    !w.job
+                                        ? "workflow.run"
+                                        : advanced
+                                          ? "ws.retryPlan"
+                                          : "exec.runAgain",
+                                )}
                             </Button>
                         )
                     )}
                     {advanced && terminal && (
                         <p className="muted">{t("ws.retryHint")}</p>
                     )}
+                    {terminal && <StartOver w={w} onStartOver={onStartOver} />}
                 </div>
                 <div className="workspace-actions">
                     <Back w={w} to="plan" />
                     <Button
-                        disabled={!terminal}
+                        disabled={advanced ? !terminal : !produced}
                         onClick={() =>
                             w.navigate(toReview ? "review" : "export")
                         }

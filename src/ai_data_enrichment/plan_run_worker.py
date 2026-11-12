@@ -2,7 +2,7 @@
 
 import json
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, MutableSequence
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -86,12 +86,27 @@ class RunTask:
     previous_job_id: str | None = None
 
 
-def execute_workbook(task: RunTask, factory: ExecutorFactory) -> None:
+def execute_workbook(
+    task: RunTask,
+    factory: ExecutorFactory,
+    progress: MutableSequence[int] | None = None,
+) -> None:
     """No API state is shared. Parent publishes only after a successful exit.
 
     A terminated worker's files are discarded; partial files are never offered
     as a completed result, and no checkpoint/resume contract is implied.
+
+    ``progress`` is the one exception to "nothing shared": two integers,
+    finished rows and all rows, that the parent only reads to tell a person how
+    far the run is. They carry no result and are never used to decide anything.
     """
+
+    def report(done: int, total: int) -> None:
+        assert progress is not None
+        # Total first, so a reader never sees more finished rows than rows.
+        progress[1] = total
+        progress[0] = done
+
     try:
         if sha256(task.source_path.read_bytes()).hexdigest() != task.source_sha256:
             raise ValueError("Source changed")
@@ -121,6 +136,7 @@ def execute_workbook(task: RunTask, factory: ExecutorFactory) -> None:
             job_id=task.job_id,
             previous_job_id=task.previous_job_id,
             preserve_existing_outputs=True,
+            on_record_done=report if progress is not None else None,
         )
         if sha256(task.source_path.read_bytes()).hexdigest() != task.source_sha256:
             raise ValueError("Source changed")
