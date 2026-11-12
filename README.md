@@ -486,6 +486,50 @@ The JSON report is written to the ignored `artifacts/resolution-experiments/`.
 `--offline` uses the injected offline responses and only checks that the script
 itself works. Results depend on live data and can change between runs.
 
+### Scale experiment (developer tool)
+
+One run is bounded for the public demo: 20 data rows, 400 requests per external
+source, 300 seconds. `scripts/experiment_scale.py` measures what happens beyond
+that. It builds a test workbook in the layout of a bundled sample, raises the
+bounds for its own process and drives the same HTTP API the interface uses —
+upload, the example's prepared plan, approval, one run, the report — against the
+live sources. No OpenAI key is needed.
+
+```powershell
+uv run python -m scripts.experiment_scale --case capitals --rows 100
+uv run python -m scripts.experiment_scale --case capitals --rows 500 --distinct 60
+uv run python -m scripts.experiment_scale --case mountains --rows 50
+uv run python -m scripts.experiment_scale --case capitals --rows 100 --demo-limits
+```
+
+It prints the run time, seconds and requests per row, the request counters of
+each source (retries, rate-limit waits, refusals by the request budget), the
+steps that produced no value, the size of the review and of the report, and
+writes the same as JSON to the ignored `artifacts/scale-experiments/`.
+`--demo-limits` raises only the row count, to show which remaining bound stops
+a larger run first. `--offline` uses fixture answers and only checks the script.
+
+Capitals rows are pairs, so `--distinct` sets how many different places are
+looked up; mountains rows are one name each (about 140 in the list; `--repeat`
+cycles it). Entries whose country name the application does not recognize are
+left out unless `--keep-unrecognized` is given.
+
+To look at a large table in the interface, build the workbook and start the
+local server with raised bounds:
+
+```powershell
+uv run python -m scripts.scale_workbook --case capitals --rows 300
+$env:ENRICHMENT_MAX_RUN_ROWS = "500"; $env:ENRICHMENT_MAX_TIMEOUT_SECONDS = "1800"
+$env:ENRICHMENT_MAX_PROVIDER_REQUESTS = "20000"; $env:ENRICHMENT_MAX_PROVIDER_WAIT_SECONDS = "600"
+uv run --locked --env-file .env python -m ai_data_enrichment.local_server --allow-network
+```
+
+These four variables (`ai_data_enrichment/run_limits.py`) exist for measurement.
+The pipeline is not built for that scale: rows are processed one after another,
+a run that is stopped leaves no partial result, and nothing is checkpointed.
+Mind the sources too: Open-Meteo's free tier allows 10 000 calls a day per IP
+address.
+
 ### Execute an Excel enrichment job (M3)
 
 The `enrichment run` command executes a saved, validated plan

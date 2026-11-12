@@ -77,6 +77,21 @@ export function useWorkflow(
             }
         }
     }
+    // The server's bounds for one run; the demo's unless it says otherwise.
+    const [maxTimeout, setMaxTimeout] = useState(300);
+    const [maxRows, setMaxRows] = useState(20);
+    useEffect(() => {
+        void (async () => {
+            try {
+                const limits = await api.limits();
+                if (!mounted.current || !limits) return;
+                setMaxTimeout(limits.max_timeout_seconds);
+                setMaxRows(limits.max_run_rows);
+            } catch {
+                // The default bound stays; the server still checks the value.
+            }
+        })();
+    }, []);
     const [workspace, setWorkspace] = useState<Workspace>("dataset");
     const [instruction, setInstruction] = useState("");
     const [mapping, setMapping] = useState<OutputTarget[]>([
@@ -191,12 +206,14 @@ export function useWorkflow(
     const withinBounds =
         !!bounds &&
         bounds.lastRow - bounds.headerRow >= 1 &&
-        bounds.lastRow - bounds.headerRow <= 20 &&
+        bounds.lastRow - bounds.headerRow <= maxRows &&
         bounds.lastColumn <= 100;
     const mappingValid =
         !!preview && validMappings(mapping, preview, sheetColumns);
     const timeoutValid =
-        /^\d+$/.test(timeout) && Number(timeout) >= 1 && Number(timeout) <= 300;
+        /^\d+$/.test(timeout) &&
+        Number(timeout) >= 1 &&
+        Number(timeout) <= maxTimeout;
     const planningReadiness = !provider
         ? providerError
             ? "unavailable"
@@ -456,6 +473,7 @@ export function useWorkflow(
         withinBounds,
         mappingValid,
         timeoutValid,
+        maxTimeout,
         canBuild,
         missing,
         canRun,

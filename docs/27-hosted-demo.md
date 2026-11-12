@@ -41,6 +41,11 @@ deployment cannot be open by accident.
 | `ENRICHMENT_STATIC_DIR` | no | Built frontend, default `frontend/dist` (set in the image) |
 | `PORT` | no | Listening port, default `10000` in the image |
 
+Do not set the `ENRICHMENT_MAX_*` variables on a hosted demo. They raise the
+bounds of one run for local measurement (see the README's scale experiment);
+the defaults — 20 rows, 400 requests per source, 300 seconds — are what keeps a
+shared instance short, cheap and polite to the free external sources.
+
 ## Examples
 
 A visitor of a public demo usually has no suitable workbook at hand. While no
