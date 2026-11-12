@@ -338,6 +338,16 @@ export function useWorkflow(
         consent &&
         timeoutValid &&
         !locked;
+    function begin(started: Job) {
+        archive();
+        setReport(null);
+        setReview(null);
+        setChoices({});
+        setPollError("");
+        setJob(started);
+        setJobSince(Date.now());
+        setWorkspace("execution");
+    }
     async function run() {
         if (!canRun || !plan) return;
         const started = await api.startRun(
@@ -345,16 +355,29 @@ export function useWorkflow(
             consent,
             Number(timeout),
         );
-        if (mounted.current) {
-            archive();
-            setReport(null);
-            setReview(null);
-            setChoices({});
-            setPollError("");
-            setJob(started);
-            setJobSince(Date.now());
+        if (mounted.current) begin(started);
+    }
+    // Basic: one press approves the displayed plan and starts it. The server
+    // still requires the approval; the two requests are made one after another.
+    // If the start is refused, the plan stays approved and Execution offers
+    // the start again.
+    async function approveAndRun() {
+        if (!plan?.plan || !plan.validation.valid || locked) return;
+        let current = plan;
+        if (current.status !== "approved") {
+            current = await api.approvePlan(plan.plan_id, plan.fingerprint);
+            if (!mounted.current) return;
+            setPlan(current);
             setWorkspace("execution");
         }
+        if (!consent || !timeoutValid) return;
+        setOperation({ kind: "start", since: Date.now() });
+        const started = await api.startRun(
+            current.plan_id,
+            consent,
+            Number(timeout),
+        );
+        if (mounted.current) begin(started);
     }
     const jobId = job?.job_id;
     useEffect(() => {
@@ -509,6 +532,7 @@ export function useWorkflow(
         validate,
         approve,
         run,
+        approveAndRun,
         cancel,
         retryPoll: () => setRetry((x) => x + 1),
         download,

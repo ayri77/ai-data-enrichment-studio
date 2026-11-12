@@ -342,10 +342,10 @@ async function generateBasic() {
     await userEvent.click(button("ws.buildPlan"));
     await screen.findByTestId("validation");
 }
+// Basic approves and starts with one press.
 async function startBasic() {
     await generateBasic();
-    await userEvent.click(button("ws.approveContinue"));
-    await userEvent.click(button("workflow.run"));
+    await userEvent.click(button("ws.approveRun"));
 }
 async function generate() {
     await prepare();
@@ -1453,8 +1453,7 @@ it("Basic runs the whole scenario with the second layer out of sight", async () 
     await navigate("plan");
     absent("workflow.validate");
     expect(screen.queryByText("Sheet1 · A1:E11")).not.toBeInTheDocument();
-    await userEvent.click(button("ws.approveContinue"));
-    await userEvent.click(button("workflow.run"));
+    await userEvent.click(button("ws.approveRun"));
     await waitFor(() => expect(api.getReport).toHaveBeenCalled());
     // A finished run offers the way forward, not a repeat of the same run.
     absent("ws.retryPlan");
@@ -1708,9 +1707,10 @@ it("Basic previews the table on upload, proposes the empty column and takes the 
             allow_network: true,
         }),
     );
-    await userEvent.click(button("ws.approveContinue"));
-    await userEvent.click(button("workflow.run"));
-    expect(api.startRun).toHaveBeenCalledWith("plan", true, 180);
+    await userEvent.click(button("ws.approveRun"));
+    await waitFor(() =>
+        expect(api.startRun).toHaveBeenCalledWith("plan", true, 180),
+    );
     // The consent given by the button is a ticked checkbox in Advanced.
     await userEvent.selectOptions(
         screen.getByLabelText(i18n.t("mode.label")),
@@ -1818,4 +1818,189 @@ it("proposes no column when the table has none or several empty ones", async () 
             document.querySelector<HTMLElement>(".build-checklist")!,
         ).getByText(i18n.t("ws.need.mapping")),
     ).toBeVisible();
+});
+
+const capitals: PlanDraft = {
+    ...draft,
+    plan: {
+        version: "1.0",
+        steps: [
+            {
+                id: "from_city",
+                capability: "geocode",
+                inputs: {
+                    city: { kind: "column", name: "city" },
+                    country: { kind: "column", name: "country" },
+                },
+                parameters: {},
+            },
+            {
+                id: "to_city",
+                capability: "geocode",
+                inputs: {
+                    city: { kind: "column", name: "city2" },
+                    country: { kind: "column", name: "country2" },
+                },
+                parameters: {},
+            },
+            {
+                id: "distance",
+                capability: "geodesic_distance",
+                inputs: {
+                    point_a: { kind: "step_output", step_id: "from_city" },
+                    point_b: { kind: "step_output", step_id: "to_city" },
+                },
+                parameters: { unit: "km" },
+            },
+        ],
+        outputs: draft.plan!.outputs,
+        assumptions: [],
+    },
+};
+
+it("Basic shows the plan in words instead of the graph, and one press approves and starts it", async () => {
+    localStorage.removeItem("enrichment.mode");
+    vi.mocked(api.createPlan).mockResolvedValue(capitals);
+    vi.mocked(api.approvePlan).mockResolvedValue({
+        ...capitals,
+        status: "approved",
+        approved_at: "2026-11-10T09:00:00Z",
+    });
+    render(<App />);
+    await generateBasic();
+    expect(
+        screen.getByRole("heading", { name: i18n.t("plan.title") }),
+    ).toBeVisible();
+    const steps = document.querySelectorAll(".plan-steps li");
+    expect(steps).toHaveLength(3);
+    expect(steps[0]).toHaveTextContent(i18n.t("plan.do.geocode"));
+    expect(steps[0]).toHaveTextContent(
+        "City: column “city” · Country: column “country”",
+    );
+    expect(steps[2]).toHaveTextContent(
+        "From: result of step 1 · To: result of step 2",
+    );
+    expect(steps[2]).toHaveTextContent("Written to column “distance” (E), km");
+    // The graph, its inspector and the step ids belong to Advanced.
+    expect(
+        screen.queryByRole("region", { name: i18n.t("ws.graph") }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("from_city")).not.toBeInTheDocument();
+    expect(screen.getByTestId("validation")).toHaveTextContent(
+        i18n.t("plan.checked"),
+    );
+    expect(screen.getByText(i18n.t("plan.runNote"))).toBeVisible();
+    absent("ws.approveContinue");
+    await userEvent.click(button("ws.approveRun"));
+    await waitFor(() => expect(api.startRun).toHaveBeenCalledTimes(1));
+    // Approval is still a separate request, made first, for this exact plan.
+    expect(api.approvePlan).toHaveBeenCalledWith("plan", draft.fingerprint);
+    expect(vi.mocked(api.approvePlan).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(api.startRun).mock.invocationCallOrder[0],
+    );
+    expect(await screen.findByTestId("job-status")).toBeVisible();
+    // With a run in place the Plan screen leads to it and cannot start another.
+    await navigate("plan");
+    absent("ws.approveRun");
+    expect(button("ws.toExecution")).toBeEnabled();
+    // The same plan in Advanced is the graph.
+    await userEvent.selectOptions(
+        screen.getByLabelText(i18n.t("mode.label")),
+        "advanced",
+    );
+    expect(
+        screen.getByRole("region", { name: i18n.t("ws.graph") }),
+    ).toBeVisible();
+    expect(document.querySelector(".plan-steps")).not.toBeInTheDocument();
+});
+
+it("Basic keeps the plan approved when the start is refused and offers the start again", async () => {
+    localStorage.removeItem("enrichment.mode");
+    vi.mocked(api.startRun).mockRejectedValueOnce(
+        new WorkspaceApiError("job_active", "sanitized"),
+    );
+    render(<App />);
+    await generateBasic();
+    await userEvent.click(button("ws.approveRun"));
+    expect(await screen.findByRole("alert")).toHaveAttribute(
+        "data-error-code",
+        "job_active",
+    );
+    expect(api.approvePlan).toHaveBeenCalledTimes(1);
+    await userEvent.click(button("workflow.run"));
+    await waitFor(() => expect(api.startRun).toHaveBeenCalledTimes(2));
+    // The approval is not repeated.
+    expect(api.approvePlan).toHaveBeenCalledTimes(1);
+});
+
+it("says plainly why there is no plan and what can be asked for instead", async () => {
+    localStorage.removeItem("enrichment.mode");
+    vi.mocked(api.createPlan).mockResolvedValue({
+        ...draft,
+        plan: null,
+        planning_status: "unsupported",
+        reason: "Population is not available.",
+        validation: {
+            valid: false,
+            errors: [{ code: "no_plan", message: "No ready plan." }],
+        },
+    });
+    render(<App />);
+    await generateBasic();
+    const refusal = screen.getByTestId("plan-refusal");
+    expect(refusal).toHaveTextContent(i18n.t("plan.refused.unsupported"));
+    // The model's own explanation is shown once, marked as the model's.
+    expect(refusal).toHaveTextContent(
+        `${i18n.t("plan.modelSays")} Population is not available.`,
+    );
+    expect(screen.getAllByText("Population is not available.")).toHaveLength(1);
+    expect(
+        within(refusal).getByText(i18n.t("can.mountainElevation")),
+    ).toBeVisible();
+    expect(within(refusal).getByText(i18n.t("plan.rephrase"))).toBeVisible();
+    expect(screen.queryByText("no_plan")).not.toBeInTheDocument();
+    expect(screen.getByTestId("validation")).toHaveTextContent(
+        i18n.t("plan.none"),
+    );
+    expect(button("ws.approveRun")).toBeDisabled();
+    expect(screen.queryByText(i18n.t("plan.runNote"))).not.toBeInTheDocument();
+    // Advanced sees the same explanation, with the code.
+    await userEvent.selectOptions(
+        screen.getByLabelText(i18n.t("mode.label")),
+        "advanced",
+    );
+    expect(screen.getByTestId("plan-refusal")).toBeVisible();
+    expect(screen.getByText("no_plan")).toBeVisible();
+    expect(button("ws.approveContinue")).toBeDisabled();
+});
+
+it("Basic explains a plan that failed the check without codes and does not offer to run it", async () => {
+    localStorage.removeItem("enrichment.mode");
+    vi.mocked(api.createPlan).mockResolvedValue({
+        ...capitals,
+        validation: {
+            valid: false,
+            contract_valid: false,
+            errors: [
+                {
+                    code: "UNRESOLVED_INPUT_TYPE",
+                    message: "Column city has mixed types.",
+                    step_id: "from_city",
+                },
+            ],
+        },
+    });
+    render(<App />);
+    await generateBasic();
+    const invalid = screen.getByTestId("plan-invalid");
+    expect(invalid).toHaveTextContent(i18n.t("plan.invalid.text"));
+    expect(invalid).toHaveTextContent("Column city has mixed types.");
+    expect(screen.queryByText("UNRESOLVED_INPUT_TYPE")).not.toBeInTheDocument();
+    expect(screen.getByTestId("validation")).toHaveTextContent(
+        i18n.t("plan.blocked"),
+    );
+    // The steps stay visible: they show what was understood.
+    expect(document.querySelectorAll(".plan-steps li")).toHaveLength(3);
+    expect(button("ws.approveRun")).toBeDisabled();
+    expect(api.approvePlan).not.toHaveBeenCalled();
 });

@@ -1255,3 +1255,103 @@
 .can-do li {
     margin-top: 2px;
 }
+.plan-words {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 20px;
+    flex: 1;
+    min-height: 0;
+}
+.plan-description > p {
+    font-size: 12px;
+}
+.plan-steps {
+    list-style: none;
+    counter-reset: plan-step;
+    margin: 10px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 720px;
+}
+.plan-steps li {
+    counter-increment: plan-step;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 12px 14px 12px 50px;
+    border: 1px solid var(--studio-border);
+    border-radius: 7px;
+    background: var(--studio-surface0);
+    font-size: 13px;
+}
+.plan-steps li::before {
+    content: counter(plan-step);
+    position: absolute;
+    left: 14px;
+    top: 12px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--studio-selection);
+    border: 1px solid var(--studio-control-border);
+    font-size: 12px;
+    font-weight: 600;
+}
+.plan-steps strong {
+    font-size: 14px;
+}
+.plan-step-inputs {
+    color: var(--studio-muted);
+}
+.plan-step-writes {
+    color: var(--studio-source);
+    font-weight: 600;
+}
+.plan-problem {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 720px;
+    padding: 16px 18px;
+    border: 1px solid var(--studio-danger);
+    border-radius: 7px;
+    background: var(--studio-surface0);
+    font-size: 13px;
+}
+.plan-problem h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    color: var(--studio-danger);
+}
+.plan-problem h3 svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+.plan-problem details ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
+}
+.plan-problem summary,
+.instruction-fold summary {
+    cursor: pointer;
+}
+.instruction-fold p {
+    margin-top: 8px;
+}
+.plan-problem .can-do {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.plan-problem .can-do ul {
+    margin-top: 0;
+}

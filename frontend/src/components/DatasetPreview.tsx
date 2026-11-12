@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Columns3, Info, LoaderCircle, Table2 } from "lucide-react";
 import type { Preview } from "../api";
 import { useAdvanced } from "../mode";
+import { CanDo } from "./CanDo";
 import { columnLetter, parseRange } from "../range";
 
 export function DatasetPreview({
@@ -274,20 +275,7 @@ export function DatasetPreview({
                                 {hasWorkbook ? (
                                     <p>{t("readyHint")}</p>
                                 ) : (
-                                    <div className="can-do">
-                                        <p>{t("can.title")}</p>
-                                        <ul>
-                                            <li>{t("can.cityCoordinates")}</li>
-                                            <li>{t("can.cityDistance")}</li>
-                                            <li>
-                                                {t("can.mountainElevation")}
-                                            </li>
-                                        </ul>
-                                        <p>{t("can.needs")}</p>
-                                        <p>
-                                            {t("can.limit", { max: maxRows })}
-                                        </p>
-                                    </div>
+                                    <CanDo maxRows={maxRows} />
                                 )}
                             </div>
                         </div>

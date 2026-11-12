@@ -482,14 +482,20 @@ test("example: one click fills the task; the prepared plan runs without an AI re
         "title",
         "Wait for the current operation to finish.",
     );
-    await page
-        .getByRole("button", { name: "Approve / Continue to Execution" })
-        .click();
+    // The plan is put into words; the graph belongs to Advanced.
+    await expect(page.locator(".plan-steps li")).toHaveText([
+        /Find the mountain.*Name: column “Mountain” · Country: column “Country”/,
+        /Look up the elevation.*Object: result of step 1.*Written to column “height” \(C\), m/,
+    ]);
+    await expect(
+        page.getByRole("region", { name: "Planned workflow" }),
+    ).toHaveCount(0);
     await expect(activity).toHaveCount(0);
     // The submitted request carried the prepared plan itself.
     expect(planning).toHaveLength(1);
     expect(JSON.parse(planning[0]).plan.steps.length).toBeGreaterThan(0);
-    await page.getByRole("button", { name: "Start bounded run" }).click();
+    // One press approves the plan and starts the run.
+    await page.getByRole("button", { name: "Approve and run" }).click();
     await expect(page.getByTestId("metric-total_rows")).toHaveText("10", {
         timeout: 30_000,
     });
@@ -529,15 +535,15 @@ test("Basic: an uploaded workbook needs an instruction and nothing else", async 
         .getByLabel("Enrichment instruction")
         .fill("Calculate distances between the cities.");
     await page.getByRole("button", { name: "Build Plan" }).click();
-    await page
-        .getByRole("button", { name: "Approve / Continue to Execution" })
-        .click();
+    await expect(page.locator(".plan-steps li").last()).toContainText(
+        "Written to column “distance” (E), km",
+    );
     expect(JSON.parse(planning[0])).toMatchObject({
         range_ref: "A1:E11",
         output_columns: { distance: "E" },
         allow_network: true,
     });
-    await page.getByRole("button", { name: "Start bounded run" }).click();
+    await page.getByRole("button", { name: "Approve and run" }).click();
     await expect(page.getByTestId("metric-total_rows")).toContainText("10");
     // The boundaries are still one click away.
     await navigate(page, "Dataset");

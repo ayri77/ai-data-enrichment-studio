@@ -60,6 +60,26 @@ export function dependencies(step: EnrichmentPlan["steps"][number]) {
         return [];
     });
 }
+// How many steps a step waits for. Presentation only: server validation stays
+// authoritative, so a cycle is simply cut here instead of being reported.
+export function stepDepths(plan: EnrichmentPlan) {
+    const depths = new Map<string, number>();
+    function depth(id: string, path = new Set<string>()): number {
+        if (depths.has(id)) return depths.get(id)!;
+        if (path.has(id)) return 0;
+        const node = plan.steps.find((x) => x.id === id);
+        const parents = node ? dependencies(node) : [];
+        const nextPath = new Set([...path, id]);
+        return parents.length
+            ? Math.min(
+                  12,
+                  1 + Math.max(...parents.map((p) => depth(p.step, nextPath))),
+              )
+            : 0;
+    }
+    plan.steps.forEach((s) => depths.set(s.id, depth(s.id)));
+    return depths;
+}
 export function issueGroups(report: AuditReport | null) {
     const groups = new Map<
         string,

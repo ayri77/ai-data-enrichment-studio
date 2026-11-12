@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { PlanDraft } from "../api";
-import { dependencies } from "../workflowModel";
+import { dependencies, stepDepths } from "../workflowModel";
 
 export function PlanGraph({ draft }: { draft: PlanDraft }) {
     const { t } = useTranslation();
@@ -10,21 +10,7 @@ export function PlanGraph({ draft }: { draft: PlanDraft }) {
     if (!plan) return null;
     const step = plan.steps.find((x) => x.id === selected) ?? plan.steps[0];
     // Presentation only: server validation remains authoritative, including cycles.
-    const depths = new Map<string, number>();
-    function depth(id: string, path = new Set<string>()): number {
-        if (depths.has(id)) return depths.get(id)!;
-        if (path.has(id)) return 0;
-        const node = plan!.steps.find((x) => x.id === id);
-        const parents = node ? dependencies(node) : [];
-        const nextPath = new Set([...path, id]);
-        return parents.length
-            ? Math.min(
-                  12,
-                  1 + Math.max(...parents.map((p) => depth(p.step, nextPath))),
-              )
-            : 0;
-    }
-    plan.steps.forEach((s) => depths.set(s.id, depth(s.id)));
+    const depths = stepDepths(plan);
     const levels = [...new Set(depths.values())].sort((a, b) => a - b);
     const positions = new Map(
         plan.steps.map((s) => {

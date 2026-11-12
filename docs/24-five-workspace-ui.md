@@ -41,11 +41,18 @@ The header has a **Mode** switch next to theme and language. The choice is kept 
 - **No consent checkbox.** Pressing "Build Plan" is the consent, and the line above the button says what leaves the browser: the instruction and a sample of the table go to OpenAI when the AI plans, and the run looks the names up in the open sources. Nothing is said when the server works on fixture answers. Advanced keeps the checkbox.
 - **Before a workbook is chosen**, the empty table area states what can be asked for (city coordinates, distance between two cities, a mountain and its elevation), that countries must be written in English or as a two-letter code, and the row limit. The instruction field shows an English example, and says that only English instructions have been checked.
 
+On Plan, Basic puts the plan into words instead of drawing it:
+
+- **"What will be done"** lists, for each row, the steps in the order they depend on each other, with the columns they read and the column the result is written to ("Find the mountain — Name: column “Mountain” · Country: column “Country”", "Look up the elevation — Written to column “height” (C), m"). The sentences come from `frontend/src/planModel.ts`, which only reads the plan the server validated. A capability the interface has no words for is listed under its own name, so the description never hides a step; a value written into the plan is shown as "the same for every row".
+- **One button, "Approve and run".** It sends the approval of the displayed fingerprint and then the start, one request after the other; the server still refuses a start without approval. If the start is refused, the plan stays approved and Execution offers the start again. Once the plan has a run, the button leads to it instead of starting another. Advanced keeps approval and start as two actions.
+- **When there is no plan to run**, the screen says why in a sentence. A refusal by the planner (`unsupported`, `ambiguous`) shows the model's own explanation, marked as such, the list of what the system can do, and the advice to rephrase; this block is the same in both modes. A plan that failed validation shows "This plan cannot be run", the validator's messages behind "What the check reported", and the steps as the planner understood them. Error codes and step ids stay in Advanced. Validation itself is unchanged.
+- A long instruction is folded in the summary.
+
 **Advanced** adds the second layer:
 
 - the connection band, **Provider / Model settings** and **Diagnostics**;
 - on Dataset: table boundaries always in view with the **Preview selection** button, A1 range input and its guidance, column types and the column inspector, the output mapping with several targets, the consent checkbox, the single-match policy, **Use an existing plan** (plan JSON), **Advanced policy and limits** (timeout), provider readiness lines;
-- on Plan: sheet and range, step/output counts, **Validate again**;
+- on Plan: the graph with its node inspector instead of the description in words, sheet and range, step/output counts, validation codes, **Validate again**, and approval as a separate action from the start;
 - on Execution: the plan graph, run timestamps, **Retry same approved plan**;
 - on Review: matches that cannot be chosen, technical details, error codes;
 - on Results: per-row step detail, workbook filename, JSON audit download, the source checksum confirmation (a *changed* source is reported in both modes).

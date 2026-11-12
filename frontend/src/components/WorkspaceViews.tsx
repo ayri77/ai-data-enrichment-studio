@@ -4,6 +4,7 @@ import {
     ArrowRight,
     CircleAlert,
     GitBranch,
+    ListChecks,
     LoaderCircle,
     Play,
     X,
@@ -17,6 +18,7 @@ import { normalizeColumn, type OutputTarget } from "../workflowModel";
 import { Button } from "./ui/button";
 import { ProviderSettings } from "./ProviderSettings";
 import { PlanGraph } from "./PlanGraph";
+import { PlanDescription, PlanInvalid, PlanRefusal } from "./PlanDescription";
 
 /** What is still missing before a plan can be built, next to the button itself. */
 function BuildChecklist({
@@ -525,77 +527,124 @@ function AdvancedControls({ w }: { w: Workflow }) {
 
 export function PlanWorkspace({ w }: { w: Workflow }) {
     const { t } = useTranslation();
+    const advanced = useAdvanced();
+    const draft = w.plan;
+    const runnable = !!draft?.plan && draft.validation.valid;
+    // A long instruction would push the rest of the summary off the screen.
+    const long = !advanced && (draft?.instruction.length ?? 0) > 220;
     return (
         <div className="stage-layout">
             <section className="workspace-panel plan-stage">
-                <div className="panel-title">
-                    <GitBranch aria-hidden="true" />
-                    <h2>{t("ws.graph")}</h2>
-                </div>
-                {w.plan?.plan ? (
-                    <PlanGraph key={w.plan.fingerprint} draft={w.plan} />
-                ) : (
+                {/* A refusal is its own heading: there is no workflow to title. */}
+                {(!draft || draft.plan) && (
+                    <div className="panel-title">
+                        {advanced ? (
+                            <GitBranch aria-hidden="true" />
+                        ) : (
+                            <ListChecks aria-hidden="true" />
+                        )}
+                        <h2>{t(advanced ? "ws.graph" : "plan.title")}</h2>
+                    </div>
+                )}
+                {!draft ? (
                     <EmptyState icon="plan" text={t("ws.noPlan")} />
+                ) : !draft.plan ? (
+                    <div className="plan-words panel-scroll">
+                        <PlanRefusal draft={draft} maxRows={w.maxRows} />
+                    </div>
+                ) : advanced ? (
+                    <PlanGraph key={draft.fingerprint} draft={draft} />
+                ) : (
+                    <div className="plan-words panel-scroll">
+                        {!draft.validation.valid && (
+                            <PlanInvalid draft={draft} />
+                        )}
+                        <PlanDescription draft={draft} />
+                    </div>
                 )}
             </section>
             <aside className="workspace-panel stage-sidebar">
                 <div className="panel-scroll summary-content">
                     <h2>{t("workflow.planSummary")}</h2>
-                    {w.plan && (
+                    {draft && (
                         <>
-                            <p>{w.plan.instruction}</p>
+                            {long ? (
+                                <details className="instruction-fold">
+                                    <summary>
+                                        {draft.instruction.slice(0, 160).trim()}
+                                        …
+                                    </summary>
+                                    <p>{draft.instruction}</p>
+                                </details>
+                            ) : (
+                                <p>{draft.instruction}</p>
+                            )}
                             <Advanced>
                                 <p className="mono">
-                                    {w.plan.sheet_name} · {w.plan.range_ref}
+                                    {draft.sheet_name} · {draft.range_ref}
                                 </p>
                             </Advanced>
                             <p
                                 className={
-                                    w.plan.validation.valid
+                                    draft.validation.valid
                                         ? "success-text"
                                         : "validation-note"
                                 }
                                 data-testid="validation"
                             >
                                 {t(
-                                    w.plan.validation.valid
-                                        ? "workflow.valid"
-                                        : "workflow.invalid",
+                                    advanced
+                                        ? draft.validation.valid
+                                            ? "workflow.valid"
+                                            : "workflow.invalid"
+                                        : draft.validation.valid
+                                          ? "plan.checked"
+                                          : draft.plan
+                                            ? "plan.blocked"
+                                            : "plan.none",
                                 )}
                             </p>
-                            {w.plan.validation.contract_valid &&
-                                !w.plan.validation.valid && (
-                                    <p className="validation-note">
-                                        {t("workflow.intentConflict")}
+                            <Advanced>
+                                {draft.validation.contract_valid &&
+                                    !draft.validation.valid && (
+                                        <p className="validation-note">
+                                            {t("workflow.intentConflict")}
+                                        </p>
+                                    )}
+                            </Advanced>
+                            {/* Without a plan the reason is the main message
+                                and is shown next to it, once. */}
+                            {draft.plan && draft.reason && (
+                                <p>{draft.reason}</p>
+                            )}
+                            <Advanced>
+                                {draft.validation.errors.map((err, i) => (
+                                    <p className="validation-note" key={i}>
+                                        <code>{err.code}</code> {err.step_id} ·{" "}
+                                        {err.message}
                                     </p>
-                                )}
-                            {w.plan.reason && <p>{w.plan.reason}</p>}
-                            {w.plan.validation.errors.map((err, i) => (
-                                <p className="validation-note" key={i}>
-                                    <code>{err.code}</code> {err.step_id} ·{" "}
-                                    {err.message}
-                                </p>
-                            ))}
-                            {w.plan.plan && (
+                                ))}
+                            </Advanced>
+                            {draft.plan && (
                                 <>
                                     <Advanced>
                                         <div className="plan-counts">
                                             <strong>
-                                                {w.plan.plan.steps.length}
+                                                {draft.plan.steps.length}
                                             </strong>{" "}
                                             {t("ws.steps")} ·{" "}
                                             <strong>
-                                                {w.plan.plan.outputs.length}
+                                                {draft.plan.outputs.length}
                                             </strong>{" "}
                                             {t("ws.outputs")}
                                         </div>
                                     </Advanced>
                                     <h3>{t("ws.outputs")}</h3>
-                                    {w.plan.plan.outputs.map((o) => (
+                                    {draft.plan.outputs.map((o) => (
                                         <p key={o.target_column}>
                                             <strong>
                                                 {
-                                                    w.plan!.output_columns[
+                                                    draft.output_columns[
                                                         o.target_column
                                                     ]
                                                 }{" "}
@@ -605,11 +654,11 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
                                                 `(${o.expected_unit})`}
                                         </p>
                                     ))}
-                                    {w.plan.plan.assumptions.length > 0 && (
+                                    {draft.plan.assumptions.length > 0 && (
                                         <>
                                             <h3>{t("workflow.assumptions")}</h3>
                                             <ul>
-                                                {w.plan.plan.assumptions.map(
+                                                {draft.plan.assumptions.map(
                                                     (a, i) => (
                                                         <li key={i}>{a}</li>
                                                     ),
@@ -619,13 +668,17 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
                                     )}
                                 </>
                             )}
-                            <p className="notice">
-                                {t(
-                                    w.plan.status === "approved"
-                                        ? "ws.approvalRecorded"
-                                        : "ws.approvalHint",
-                                )}
-                            </p>
+                            {(advanced || runnable) && (
+                                <p className="notice">
+                                    {t(
+                                        draft.status === "approved"
+                                            ? "ws.approvalRecorded"
+                                            : advanced
+                                              ? "ws.approvalHint"
+                                              : "plan.runNote",
+                                    )}
+                                </p>
+                            )}
                             <Advanced>
                                 <Button
                                     variant="outline"
@@ -639,7 +692,7 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
                             </Advanced>
                         </>
                     )}
-                    {!w.plan && w.canBuild && (
+                    {!draft && w.canBuild && (
                         <Button
                             onClick={() =>
                                 void w.action(
@@ -654,22 +707,51 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
                 </div>
                 <div className="workspace-actions">
                     <Back w={w} to="dataset" />
-                    {w.plan?.status === "approved" ? (
+                    {advanced ? (
+                        draft?.status === "approved" ? (
+                            <Button onClick={() => w.navigate("execution")}>
+                                {t("ws.toExecution")}
+                                <ArrowRight />
+                            </Button>
+                        ) : (
+                            <Button
+                                disabled={w.locked || !runnable}
+                                onClick={() =>
+                                    void w.action(w.approve, "approve")
+                                }
+                            >
+                                {t("ws.approveContinue")}
+                                <ArrowRight />
+                            </Button>
+                        )
+                    ) : w.job ? (
+                        // The plan already has a run: one press must not
+                        // start a second one.
                         <Button onClick={() => w.navigate("execution")}>
                             {t("ws.toExecution")}
                             <ArrowRight />
                         </Button>
                     ) : (
                         <Button
-                            disabled={
-                                w.locked ||
-                                !w.plan?.plan ||
-                                !w.plan.validation.valid
+                            disabled={w.locked || !runnable}
+                            onClick={() =>
+                                void w.action(w.approveAndRun, "approve")
                             }
-                            onClick={() => void w.action(w.approve, "approve")}
                         >
-                            {t("ws.approveContinue")}
-                            <ArrowRight />
+                            {w.operation?.kind === "approve" ||
+                            w.operation?.kind === "start" ? (
+                                <LoaderCircle
+                                    className="spin"
+                                    aria-hidden="true"
+                                />
+                            ) : (
+                                <Play aria-hidden="true" />
+                            )}
+                            {t(
+                                draft?.status === "approved"
+                                    ? "workflow.run"
+                                    : "ws.approveRun",
+                            )}
                         </Button>
                     )}
                 </div>
@@ -677,7 +759,6 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
         </div>
     );
 }
-
 export function QualitySummary({ w }: { w: Workflow }) {
     const { t } = useTranslation();
     const keys = [
