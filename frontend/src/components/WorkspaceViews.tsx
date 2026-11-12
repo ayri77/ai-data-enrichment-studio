@@ -4,6 +4,7 @@ import {
     ArrowRight,
     CircleAlert,
     GitBranch,
+    LoaderCircle,
     Play,
     X,
 } from "lucide-react";
@@ -327,7 +328,9 @@ export function DatasetConfiguration({
                             type="button"
                             className="inline-link"
                             disabled={w.locked}
-                            onClick={() => void w.action(w.loadPreparedPlan)}
+                            onClick={() =>
+                                void w.action(w.loadPreparedPlan, "prepared")
+                            }
                         >
                             {t("sample.usePlan")}
                         </button>
@@ -349,14 +352,24 @@ export function DatasetConfiguration({
                 <BuildChecklist w={w} onOpenSettings={onOpenSettings} />
                 <Button
                     disabled={!w.canBuild}
-                    onClick={() => void w.action(w.create)}
+                    onClick={() =>
+                        void w.action(
+                            w.create,
+                            w.savedPlan.trim() ? "check" : "plan",
+                        )
+                    }
                 >
                     {t(
                         w.savedPlan.trim()
                             ? "workflow.submitPlan"
                             : "ws.buildPlan",
                     )}
-                    <ArrowRight aria-hidden="true" />
+                    {w.operation?.kind === "plan" ||
+                    w.operation?.kind === "check" ? (
+                        <LoaderCircle className="spin" aria-hidden="true" />
+                    ) : (
+                        <ArrowRight aria-hidden="true" />
+                    )}
                 </Button>
             </div>
         </section>
@@ -494,7 +507,9 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
                                 <Button
                                     variant="outline"
                                     disabled={w.locked || !!w.job}
-                                    onClick={() => void w.action(w.validate)}
+                                    onClick={() =>
+                                        void w.action(w.validate, "validate")
+                                    }
                                 >
                                     {t("workflow.validate")}
                                 </Button>
@@ -502,7 +517,14 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
                         </>
                     )}
                     {!w.plan && w.canBuild && (
-                        <Button onClick={() => void w.action(w.create)}>
+                        <Button
+                            onClick={() =>
+                                void w.action(
+                                    w.create,
+                                    w.savedPlan.trim() ? "check" : "plan",
+                                )
+                            }
+                        >
                             {t("ws.buildPlan")}
                         </Button>
                     )}
@@ -521,7 +543,7 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
                                 !w.plan?.plan ||
                                 !w.plan.validation.valid
                             }
-                            onClick={() => void w.action(w.approve)}
+                            onClick={() => void w.action(w.approve, "approve")}
                         >
                             {t("ws.approveContinue")}
                             <ArrowRight />
@@ -656,7 +678,7 @@ export function ExecutionWorkspace({ w }: { w: Workflow }) {
                         <Button
                             variant="outline"
                             disabled={w.busy}
-                            onClick={() => void w.action(w.cancel)}
+                            onClick={() => void w.action(w.cancel, "cancel")}
                         >
                             {t("workflow.cancel")}
                         </Button>
@@ -665,9 +687,16 @@ export function ExecutionWorkspace({ w }: { w: Workflow }) {
                         (advanced || !w.job) && (
                             <Button
                                 disabled={!w.canRun}
-                                onClick={() => void w.action(w.run)}
+                                onClick={() => void w.action(w.run, "start")}
                             >
-                                <Play />
+                                {w.operation?.kind === "start" ? (
+                                    <LoaderCircle
+                                        className="spin"
+                                        aria-hidden="true"
+                                    />
+                                ) : (
+                                    <Play />
+                                )}
                                 {t(w.job ? "ws.retryPlan" : "workflow.run")}
                             </Button>
                         )

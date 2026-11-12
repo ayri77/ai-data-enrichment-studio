@@ -610,7 +610,10 @@ it("discards a late plan response after its source binding changes", async () =>
     });
     let request!: Promise<void>;
     act(() => {
-        request = view.result.current.action(view.result.current.create);
+        request = view.result.current.action(
+            view.result.current.create,
+            "plan",
+        );
     });
     view.rerender({ key: "new" });
     await act(async () => {
@@ -648,7 +651,7 @@ it("blocks the backend row envelope and rejects malformed supplied JSON before A
     expect(api.createPlan).not.toHaveBeenCalled();
 });
 
-it("blocks starting an approved plan while a source replacement is pending across navigation", async () => {
+it("holds the user on Dataset while a source replacement is pending; the approved plan cannot be started", async () => {
     render(<App />);
     await generate();
     await userEvent.click(button("ws.approveContinue"));
@@ -663,8 +666,13 @@ it("blocks starting an approved plan while a source replacement is pending acros
         screen.getByLabelText("Upload Excel workbook"),
         new File(["new"], "new.xlsx"),
     );
-    await navigate("execution");
-    expect(button("workflow.run")).toBeDisabled();
+    // The wait is named, and the other steps cannot be opened meanwhile.
+    expect(screen.getByText(i18n.t("activity.upload"))).toBeVisible();
+    const execution = within(screen.getByRole("navigation")).getAllByRole(
+        "button",
+    )[2];
+    expect(execution).toBeDisabled();
+    expect(execution).toHaveAttribute("title", i18n.t("activity.wait"));
     await act(async () =>
         resolve({
             dataset_id: "replacement",
@@ -672,6 +680,10 @@ it("blocks starting an approved plan while a source replacement is pending acros
             worksheets: [{ name: "Sheet1", columns: ["city"], row_count: 1 }],
         }),
     );
+    expect(
+        screen.queryByText(i18n.t("activity.upload")),
+    ).not.toBeInTheDocument();
+    await navigate("execution");
     expect(button("workflow.run")).toBeDisabled();
     expect(api.startRun).not.toHaveBeenCalled();
 });
@@ -704,7 +716,7 @@ it("preserves the exact header when selecting an existing output column", async 
         ]);
     });
     await waitFor(() => expect(result.current.canBuild).toBe(true));
-    await act(() => result.current.action(result.current.create));
+    await act(() => result.current.action(result.current.create, "plan"));
     expect(api.createPlan).toHaveBeenCalledWith(
         expect.objectContaining({ output_columns: { " distance ": "E" } }),
     );
@@ -1512,4 +1524,59 @@ it("Basic says a prepared plan is in use and lets the user drop it", async () =>
         screen.queryByText(i18n.t("sample.planLoaded")),
     ).not.toBeInTheDocument();
     expect(button("ws.buildPlan")).toBeVisible();
+});
+
+it("names what it is waiting for, counts the time and says what is locked", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+        let finish!: (value: PlanDraft) => void;
+        vi.mocked(api.createPlan).mockReturnValueOnce(
+            new Promise((done) => {
+                finish = done;
+            }),
+        );
+        vi.mocked(api.getJob).mockResolvedValue({
+            ...queued,
+            status: "running",
+        });
+        render(<App />);
+        await prepare();
+        await userEvent.click(button("ws.buildPlan"));
+        // A short request: named, timed, and it keeps the user on its step.
+        const bar = () => document.querySelector<HTMLElement>(".activity-bar")!;
+        expect(within(bar()).getByRole("status")).toHaveTextContent(
+            i18n.t("activity.plan"),
+        );
+        expect(within(bar()).getByRole("timer")).toHaveTextContent("0:00");
+        await act(() => vi.advanceTimersByTimeAsync(7000));
+        expect(within(bar()).getByRole("timer")).toHaveTextContent("0:07");
+        const tabs = () =>
+            within(screen.getByRole("navigation")).getAllByRole("button");
+        expect(tabs()[1]).toBeDisabled();
+        await act(async () => finish(draft));
+        expect(document.querySelector(".activity-bar")).toBeNull();
+        expect(tabs()[0]).toBeEnabled();
+        // A running job: other steps stay reachable, and say why they are locked.
+        await userEvent.click(button("ws.approveContinue"));
+        await userEvent.click(button("workflow.run"));
+        expect(
+            await within(bar()).findByText(i18n.t("activity.running")),
+        ).toBeVisible();
+        expect(bar()).toHaveTextContent("180");
+        expect(
+            within(bar()).queryByText(i18n.t("activity.locked")),
+        ).not.toBeInTheDocument();
+        await navigate("dataset");
+        expect(
+            within(bar()).getByText(i18n.t("activity.locked")),
+        ).toBeVisible();
+        await userEvent.click(
+            within(bar()).getByRole("button", {
+                name: i18n.t("activity.open"),
+            }),
+        );
+        expect(screen.getByTestId("job-status")).toBeVisible();
+    } finally {
+        vi.useRealTimers();
+    }
 });

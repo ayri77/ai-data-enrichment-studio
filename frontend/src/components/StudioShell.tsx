@@ -20,7 +20,8 @@ export function StudioShell({
     onThemeChange: (theme: Theme) => void;
     mode: Mode;
     onModeChange: (mode: Mode) => void;
-    unavailable: Workspace[];
+    /** Steps that cannot be opened now, each with the reason shown as a tooltip. */
+    unavailable: Partial<Record<Workspace, string>>;
     children: ReactNode;
     workspace: Workspace;
     onNavigate: (workspace: Workspace) => void;
@@ -101,12 +102,8 @@ export function StudioShell({
                                 : undefined
                         }
                         type="button"
-                        disabled={unavailable.includes(id as Workspace)}
-                        title={
-                            unavailable.includes(id as Workspace)
-                                ? t(`ws.${id}Unavailable`)
-                                : undefined
-                        }
+                        disabled={id in unavailable}
+                        title={unavailable[id as Workspace]}
                         onClick={() => onNavigate(id as Workspace)}
                         aria-current={id === workspace ? "page" : undefined}
                     >
