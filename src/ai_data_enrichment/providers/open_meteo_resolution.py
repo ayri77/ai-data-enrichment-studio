@@ -19,6 +19,7 @@ from ai_data_enrichment.providers.open_meteo_candidates import normalize_open_me
 from ai_data_enrichment.resolution.engine import ResolutionEngine
 from ai_data_enrichment.resolution.geographic import GeographicRankingStrategy
 from ai_data_enrichment.resolution.geography import normalize_country_code
+from ai_data_enrichment.resolution.input_errors import check_name_length, unrecognized_country
 from ai_data_enrichment.resolution.models import (
     CandidateSet,
     ResolutionAttribute,
@@ -80,10 +81,12 @@ class OpenMeteoResolutionService:
         if "administrative_area" in inputs and (not isinstance(region, str) or not region.strip()):
             raise ValueError("Explicit administrative area must be nonblank text.")
         area = region.strip() if isinstance(region, str) else None
+        check_name_length(city)
         try:
             country_code = normalize_country_code(country)
         except LookupError as exc:
-            raise ValueError("Resolution requires a recognized country.") from exc
+            # A data problem of this row, not a defect of the plan or the run.
+            raise unrecognized_country() from exc
 
         context = [ResolutionAttribute(name="country_code", value=country_code)]
 

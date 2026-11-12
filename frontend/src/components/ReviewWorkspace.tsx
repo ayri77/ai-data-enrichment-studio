@@ -29,12 +29,14 @@ function useCode() {
 }
 
 function contextLine(item: ReviewItem, locale: string, kind: string) {
-    const { country_code, country_codes, administrative_area } =
+    const { country_code, country_codes, administrative_area, country } =
         item.query.context;
     return [
         kind,
         typeof administrative_area === "string" ? administrative_area : null,
-        countryName(country_code ?? country_codes, locale),
+        // A country the lookup did not recognize is shown as it was written.
+        countryName(country_code ?? country_codes, locale) ??
+            (typeof country === "string" ? country : null),
     ]
         .filter(Boolean)
         .join(" · ");
@@ -314,7 +316,13 @@ function Informational({ items }: { items: ReviewItem[] }) {
                                 code("type", item.query.entity_type),
                             )}
                         </span>
-                        <span>{code("status", item.status)}</span>
+                        <span>
+                            {/* A row's own unusable value is named as such; the
+                                source was not asked about it. */}
+                            {t(`review.input.${item.reason_codes[0]}`, {
+                                defaultValue: code("status", item.status),
+                            })}
+                        </span>
                         <span className="review-rows">
                             {t("review.rows", { rows: rowList(item) })}
                         </span>

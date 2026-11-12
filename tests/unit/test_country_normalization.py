@@ -8,6 +8,7 @@ from ai_data_enrichment.providers.open_meteo import OpenMeteoGeocodingHandler
 from ai_data_enrichment.providers.open_meteo_resolution import OpenMeteoResolutionService
 from ai_data_enrichment.providers.wikidata_country import parse_country_codes
 from ai_data_enrichment.resolution.geography import normalize_country_code
+from ai_data_enrichment.resolution.input_errors import UnusableInput
 from ai_data_enrichment.resolution.models import ResolutionPolicy
 
 
@@ -77,11 +78,13 @@ def test_unknown_or_multi_country_geocoding_input_remains_invalid(country: str) 
     )
     assert result.error_code == "INVALID_INPUT"
     assert result.message == f"Unrecognized country: '{country}'."
-    with pytest.raises(ValueError, match="Resolution requires a recognized country"):
+    # The audited service names it a problem of this cell, so a run can go on.
+    with pytest.raises(UnusableInput) as rejection:
         OpenMeteoResolutionService(transport).resolve(
             inputs={"city": "Example", "country": country},
             policy=ResolutionPolicy(policy_id="strict", version="1"),
         )
+    assert rejection.value.error_code == "UNRECOGNIZED_COUNTRY"
     assert not transport.requests
 
 
@@ -102,5 +105,8 @@ def test_mountain_parser_keeps_multi_country_semantics(
 
 @pytest.mark.parametrize("country", ["", "Nepal/", "/China", "Nepal//China", "Unknown country"])
 def test_mountain_parser_keeps_invalid_country_errors(country: str) -> None:
-    with pytest.raises(ValueError, match="empty component|requires recognized countries"):
+    with pytest.raises(UnusableInput) as rejection:
         parse_country_codes(country)
+    assert rejection.value.error_code == "UNRECOGNIZED_COUNTRY"
+    # Direct callers that expect a ValueError for bad input keep working.
+    assert isinstance(rejection.value, ValueError)

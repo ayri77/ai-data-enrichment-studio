@@ -15,9 +15,9 @@ rows over 40 capitals ask the source about 40 places, 500 rows over 190 about
 run's own memory rather than by the source.
 
 Entries whose country name the application does not recognize ("Russia",
-"Ivory Coast", ...) are left out by default, because one such row currently
-fails the whole run before any request is made. `--keep-unrecognized` puts them
-back to reproduce that.
+"Ivory Coast", ...) are left out by default, so that every row can be looked up
+and runs stay comparable. Such a row is not an error of the run: it stays empty
+with the reason given. `--keep-unrecognized` puts them back to see that.
 """
 
 from __future__ import annotations

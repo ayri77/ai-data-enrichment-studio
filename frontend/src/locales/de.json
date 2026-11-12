@@ -426,5 +426,9 @@
     "activity.locked": "Bis zum Abschluss können Daten und Aufgabe nicht geändert werden.",
     "activity.open": "Ausführung öffnen",
     "activity.elapsed": "Verstrichene Zeit",
-    "activity.wait": "Bitte warten, bis der laufende Vorgang abgeschlossen ist."
+    "activity.wait": "Bitte warten, bis der laufende Vorgang abgeschlossen ist.",
+    "results.cause.country": "Das für „{{subject}}“ angegebene Land wurde nicht erkannt. Bitte den englischen Namen oder den zweibuchstabigen Code verwenden.",
+    "results.cause.too_long": "Der Name in dieser Zeile ist für eine Suche zu lang.",
+    "review.input.country_not_recognized": "das Land wurde nicht erkannt; bitte den englischen Namen oder den zweibuchstabigen Code verwenden",
+    "review.input.name_too_long": "der Name ist für eine Suche zu lang"
 }

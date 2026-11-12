@@ -896,3 +896,110 @@ def test_limits_state_what_one_run_accepts(client):
         json={"timeout_seconds": limits["max_timeout_seconds"] + 1},
     )
     assert over.status_code == 422
+
+
+def table(header, *rows):
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet.title = "Sheet1"
+    sheet.append(header)
+    for row in rows:
+        sheet.append(row)
+    buffer = BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue(), f"A1:{'ABCDE'[len(header) - 1]}{len(rows) + 1}"
+
+
+def run_table(client, name, header, *rows):
+    content, range_ref = table(header, *rows)
+    dataset_id = upload(client, name, content)
+    response = client.post(
+        "/api/plans", json={**request_body(dataset_id, name), "range_ref": range_ref}
+    )
+    assert response.status_code == 201, response.text
+    plan = response.json()
+    approve(client, plan)
+    job = wait(client, start(client, plan))
+    report = client.get(f"/api/jobs/{job['job_id']}/artifacts/report").json()
+    codes = [
+        {step["step_id"]: step["result"]["error_code"] for step in record["row_result"]["steps"]}
+        for record in report["execution"]["records"]
+    ]
+    return job, report, codes
+
+
+CAPITALS_HEADER = ("Capital_From", "Country_From", "Capital_To", "Country_To", "distance")
+KNOWN_PAIR = ("London", "United Kingdom", "Rome", "Italy")
+
+
+@pytest.mark.parametrize(
+    ("row", "code"),
+    [
+        (("London", "UK", "Rome", "Italy"), "UNRECOGNIZED_COUNTRY"),
+        (("London", "Україна", "Rome", "Italy"), "UNRECOGNIZED_COUNTRY"),
+        (("London", "Italy, France", "Rome", "Italy"), "UNRECOGNIZED_COUNTRY"),
+        (("L" * 600, "Italy", "Rome", "Italy"), "NAME_TOO_LONG"),
+        (("   ", "Italy", "Rome", "Italy"), "MISSING_VALUE"),
+        (("London", " \t", "Rome", "Italy"), "MISSING_VALUE"),
+    ],
+)
+def test_one_unusable_cell_costs_its_row_not_the_run(client, row, code):
+    job, report, codes = run_table(client, "capitals", CAPITALS_HEADER, KNOWN_PAIR, row)
+    assert job["status"] in {"completed", "needs_review"}
+    assert job["metrics"]["total_rows"] == 2
+    # The good row is computed as before, and the workbook is published.
+    assert codes[0] == {"from_city": None, "to_city": None, "distance": None}
+    assert "result" in job["artifacts"]
+    # The other row says what was wrong with it; its other lookup still ran.
+    assert codes[1] == {"from_city": code, "to_city": None, "distance": "DEPENDENCY_FAILED"}
+    assert [entry["status"] for entry in report["rows"]] == ["success", "partial"]
+
+
+def test_an_unrecognized_country_is_audited_without_asking_the_source(client):
+    job, report, _ = run_table(
+        client, "capitals", CAPITALS_HEADER, KNOWN_PAIR, ("London", "UK", "Rome", "Italy")
+    )
+    operations = report["execution"]["resolution_report"]["operations"]
+    rejected = [
+        operation
+        for operation in operations
+        if operation["report"]["decision"]["reason_codes"] == ["country_not_recognized"]
+    ]
+    assert len(rejected) == 1
+    entry = rejected[0]["report"]
+    assert entry["candidate_set"]["query"]["name"] == "London"
+    context = entry["candidate_set"]["query"]["context"]
+    assert [(item["name"], item["value"]) for item in context] == [("country", "UK")]
+    # Two requests for the good row; none for the rejected cell, and the
+    # repeated "Rome" is answered from the run's memory.
+    assert report["execution"]["provider_requests"]["open-meteo"]["transport_attempts"] == 2
+    assert entry["candidate_set"]["candidates"] == []
+    assert entry["candidate_set"]["provider_error_code"] is None
+    assert entry["decision"]["status"] == "incomplete_verification"
+    assert rejected[0]["record_links"] == [{"record_id": "Sheet1!3", "step_id": "from_city"}]
+    # The review lists it for information: there is nothing to choose.
+    review = client.get(f"/api/jobs/{job['job_id']}/review").json()
+    listed = [item for item in review["informational"] if item["query"]["name"] == "London"]
+    assert [item["reason_codes"] for item in listed] == [["country_not_recognized"]]
+    assert all(item["query"]["name"] != "London" for item in review["items"])
+
+
+def test_an_unusable_mountain_cell_costs_its_row_not_the_run(client):
+    job, report, codes = run_table(
+        client,
+        "mountains",
+        ("Mountain", "Country", "height"),
+        ("Mount Everest", "Nepal/China"),
+        ("Mount Elbrus", "Russia"),
+        ("K2", "Pakistan/"),
+        ("M" * 600, "Nepal"),
+    )
+    assert job["status"] in {"completed", "needs_review"}
+    assert codes[0]["resolve"] is None and codes[0]["elevation"] is None
+    assert [row["resolve"] for row in codes[1:]] == [
+        "UNRECOGNIZED_COUNTRY",
+        "UNRECOGNIZED_COUNTRY",
+        "NAME_TOO_LONG",
+    ]
+    assert "result" in job["artifacts"]

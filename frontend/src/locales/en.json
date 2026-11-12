@@ -426,5 +426,9 @@
     "activity.locked": "Until it finishes, the data and the task cannot be changed.",
     "activity.open": "Open the run",
     "activity.elapsed": "Elapsed time",
-    "activity.wait": "Wait for the current operation to finish."
+    "activity.wait": "Wait for the current operation to finish.",
+    "results.cause.country": "The country given for “{{subject}}” was not recognized. Use its English name or two-letter code.",
+    "results.cause.too_long": "The name in this row is too long to look up.",
+    "review.input.country_not_recognized": "the country is not recognized; use its English name or two-letter code",
+    "review.input.name_too_long": "the name is too long to look up"
 }

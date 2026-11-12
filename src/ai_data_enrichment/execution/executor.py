@@ -20,6 +20,10 @@ from ai_data_enrichment.execution.models import (
 )
 
 
+def _is_empty(value: object) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
 class UnsupportedLiteralError(ValueError):
     """Indicate that a plan literal cannot be used as a runtime value."""
 
@@ -131,10 +135,11 @@ class DAGExecutor:
                 )
                 continue
 
+            # A cell that holds only spaces is as empty as one that holds nothing.
             missing_values = [
                 reference.name
                 for reference in step.inputs.values()
-                if isinstance(reference, ColumnReference) and row[reference.name] is None
+                if isinstance(reference, ColumnReference) and _is_empty(row[reference.name])
             ]
             if missing_values:
                 record_outcome(
