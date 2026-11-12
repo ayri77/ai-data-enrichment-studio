@@ -17,15 +17,25 @@ class OpenAIPlanClient:
         api: Any,
         model: str,
         max_output_tokens: int = 2048,
+        reasoning_effort: str | None = None,
     ) -> None:
-        """Initialize the client with API configuration and token limit."""
+        """Initialize the client with API configuration and token limit.
+
+        ``reasoning_effort`` is for reasoning models only and is sent only when
+        set: a model without reasoning rejects the parameter. For a reasoning
+        model the hidden reasoning tokens count against ``max_output_tokens``,
+        so a budget that fits a plan may not fit the reasoning before it.
+        """
 
         if max_output_tokens <= 0:
             raise ValueError("max_output_tokens must be positive")
+        if reasoning_effort is not None and not reasoning_effort.strip():
+            raise ValueError("reasoning_effort must not be empty")
 
         self._api = api
         self._model = model
         self._max_output_tokens = max_output_tokens
+        self._reasoning_effort = reasoning_effort
 
     def complete(
         self,
@@ -49,6 +59,11 @@ class OpenAIPlanClient:
             text={"format": {"type": "json_object"}},
             store=False,
             max_output_tokens=self._max_output_tokens,
+            **(
+                {"reasoning": {"effort": self._reasoning_effort}}
+                if self._reasoning_effort is not None
+                else {}
+            ),
         )
 
         # Truncated/incomplete responses are failures, not partially usable plans.

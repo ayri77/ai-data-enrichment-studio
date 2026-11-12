@@ -244,3 +244,54 @@ default when `OPENAI_MODEL` is unset. `gpt-4.1` remains selectable but has not b
 measured. Free-form and non-English instructions have not been measured on any model.
 The samples are small; treat the table as a floor for decisions, not as a rate.
 
+
+## Candidate models: the Luna tier (not measured)
+
+Asked on 2026-11-12: why not OpenAI's "Luna", which is cheaper and scores higher on
+public benchmarks. Two models carry the name. The Luna rows are from OpenAI's model pages
+on that day, the `gpt-4.1` prices from public price comparisons; nothing here has been
+run against this project.
+
+| Model | Input / output per 1M tokens | Released | Kind |
+| --- | --- | --- | --- |
+| `gpt-4.1-mini` (default) | $0.40 / $1.60 | 2025-04 | no reasoning |
+| `gpt-4.1` | $2.00 / $8.00 | 2025-04 | no reasoning |
+| `gpt-5.6-luna` | $0.20 / $1.20 | 2026-07 | reasoning, default effort `medium` |
+| `gpt-6-luna` | $0.10 / $0.50 | 2026-09 | reasoning, default effort `medium` |
+
+What follows from the facts, before any measurement:
+
+- **Price is not the argument here.** One planning request for the samples is about
+  3,100 input tokens (prompt, capability contracts, table profile and schema, estimated
+  at four characters per token) and a few hundred output tokens: about a fifth of a
+  cent on `gpt-4.1-mini`. A cheaper model saves fractions of a cent per plan, less
+  whatever its reasoning tokens cost.
+- **Benchmarks are not the argument either.** `gpt-4o-mini` was a capable model and
+  produced 0 valid Mountains plans in 10 (table above). What decides is this planner's
+  own contract, measured.
+- **Both are reasoning models, and this adapter was written for models without
+  reasoning.** Hidden reasoning tokens are billed as output and count against
+  `max_output_tokens` (4096 in the server); a response that spends the budget on
+  reasoning comes back `incomplete`, which the adapter treats as a failure. The server
+  waits 30 s for one request.
+- A report on OpenAI's developer forum describes `gpt-6-luna` occasionally returning an
+  extra message item for structured-output requests. Unverified here; if it happens
+  with this adapter's JSON mode, it would show up as malformed JSON and a repair.
+
+So the model is not added to `SUPPORTED_MODELS` on the strength of the question. The
+adapter can now state an effort (`OpenAIPlanClient(reasoning_effort=...)`, sent only when
+set), and the measurement script takes `--reasoning-effort` and `--max-output-tokens`
+and reports how long each request took and how many exceeded the server's 30 s.
+
+To measure (about 40 requests per model and effort; a few cents in total):
+
+```
+uv run --env-file .env python -m scripts.experiment_planner --case capitals --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets distance
+uv run --env-file .env python -m scripts.experiment_planner --case mountains --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets height
+```
+
+and the same two with `--reasoning-effort none`. Acceptance, the same bar the default
+model met: 10 of 10 valid plans on both tasks, no request over 30 s, no `incomplete`
+responses. If one effort passes, the model is added to `SUPPORTED_MODELS` together with
+that effort, the default stays `gpt-4.1-mini`, and this section becomes a row in the
+table above. If neither passes, the section records the result and the list stays as it is.

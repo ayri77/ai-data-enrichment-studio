@@ -48,6 +48,22 @@ def test_openai_client_requests_json_and_returns_response() -> None:
     assert kwargs["store"] is False
 
     assert any("version" in message["content"] for message in kwargs["input"])
+    # A model without reasoning rejects the parameter, so it is absent unless asked for.
+    assert "reasoning" not in kwargs
+
+
+def test_openai_client_sends_reasoning_effort_only_when_set() -> None:
+    api = Mock()
+    api.responses.create.return_value.output_text = "{}"
+    api.responses.create.return_value.status = "completed"
+
+    OpenAIPlanClient(api=api, model="reasoning-model", reasoning_effort="low").complete(
+        messages=[{"role": "system", "content": "Plan."}], response_schema={}
+    )
+
+    assert api.responses.create.call_args.kwargs["reasoning"] == {"effort": "low"}
+    with pytest.raises(ValueError, match="reasoning_effort"):
+        OpenAIPlanClient(api=api, model="reasoning-model", reasoning_effort=" ")
 
 
 def test_openai_client_rejects_incomplete_response() -> None:
