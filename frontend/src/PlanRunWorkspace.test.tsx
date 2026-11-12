@@ -26,6 +26,7 @@ import i18n, { messages } from "./i18n";
 vi.mock("./api", async (original) => ({
     ...(await original<typeof import("./api")>()),
     api: {
+        limits: vi.fn(),
         access: vi.fn(),
         samples: vi.fn(),
         sampleWorkbook: vi.fn(),
@@ -1512,4 +1513,45 @@ it("Basic says a prepared plan is in use and lets the user drop it", async () =>
         screen.queryByText(i18n.t("sample.planLoaded")),
     ).not.toBeInTheDocument();
     expect(button("ws.buildPlan")).toBeVisible();
+});
+
+it("takes the bounds of one run from the server", async () => {
+    vi.mocked(api.limits).mockResolvedValue({
+        max_run_rows: 500,
+        max_timeout_seconds: 1800,
+        default_timeout_seconds: 180,
+    });
+    // A table of 300 rows is beyond the demo's 20 and within this server's 500.
+    vi.mocked(api.preview).mockResolvedValue({
+        ...preview,
+        range_ref: "A1:E301",
+        profile: { ...preview.profile, row_count: 300 },
+    });
+    vi.mocked(api.upload).mockResolvedValue({
+        dataset_id: "source",
+        filename: "source.xlsx",
+        worksheets: [
+            {
+                name: "Sheet1",
+                columns: preview.profile.columns.map((column) => column.name),
+                row_count: 301,
+            },
+        ],
+    });
+    render(<App />);
+    await generate();
+    await userEvent.click(button("ws.approveContinue"));
+    await navigate("dataset");
+    await userEvent.click(screen.getByText("Advanced policy and limits"));
+    const timeout = screen.getByLabelText(i18n.t("workflow.timeout"));
+    await waitFor(() => expect(timeout).toHaveAttribute("max", "1800"));
+    fireEvent.change(timeout, { target: { value: "900" } });
+    await navigate("execution");
+    expect(button("workflow.run")).toBeEnabled();
+    await navigate("dataset");
+    fireEvent.change(screen.getByLabelText(i18n.t("workflow.timeout")), {
+        target: { value: "1801" },
+    });
+    await navigate("execution");
+    expect(button("workflow.run")).toBeDisabled();
 });

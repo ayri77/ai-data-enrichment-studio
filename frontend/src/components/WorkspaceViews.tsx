@@ -377,7 +377,7 @@ function AdvancedControls({ w }: { w: Workflow }) {
                     disabled={w.locked}
                     type="number"
                     min={1}
-                    max={300}
+                    max={w.maxTimeout}
                     value={w.timeout}
                     onChange={(e) => w.setTimeout(e.target.value)}
                     aria-invalid={!w.timeoutValid}

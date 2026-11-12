@@ -14,6 +14,7 @@ import i18n, { messages } from "./i18n";
 vi.mock("./api", async (original) => ({
     ...(await original<typeof import("./api")>()),
     api: {
+        limits: vi.fn(),
         access: vi.fn(),
         samples: vi.fn(),
         sampleWorkbook: vi.fn(),

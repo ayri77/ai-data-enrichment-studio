@@ -297,7 +297,14 @@ async function configureProvider(
         );
     }
 }
+/** What one run accepts; the server may be started with other bounds. */
+export interface RunLimits {
+    max_run_rows: number;
+    max_timeout_seconds: number;
+    default_timeout_seconds: number;
+}
 export const api = {
+    limits: () => response<RunLimits>(call("/api/limits")),
     access: () =>
         response<AccessState>(call("/api/access", { cache: "no-store" })),
     samples: () => response<{ samples: Sample[] }>(call("/api/samples")),

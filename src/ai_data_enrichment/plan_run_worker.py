@@ -19,6 +19,11 @@ from ai_data_enrichment.orchestration.live_executor import build_live_executor
 from ai_data_enrichment.providers.http_transport import JsonTransport
 from ai_data_enrichment.providers.request_policy import ProviderRequestPolicy
 from ai_data_enrichment.resolution.resume import ResumeSelection
+from ai_data_enrichment.run_limits import (
+    MAX_PROVIDER_REQUESTS,
+    MAX_PROVIDER_WAIT_SECONDS,
+    MAX_RUN_ROWS,
+)
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy
 
 MountainPolicy = Literal["strict", "verified_only"]
@@ -27,9 +32,8 @@ MountainPolicy = Literal["strict", "verified_only"]
 # resume_selections=... as a keyword.
 ExecutorFactory = Callable[..., JobExecutor]
 ResumeSelections = Mapping[tuple[str, str], ResumeSelection]
-MAX_RUN_ROWS = 20
 MAX_PLAN_STEPS = 12
-MAX_PROVIDER_REQUESTS = 400
+__all__ = ["MAX_PLAN_STEPS", "MAX_PROVIDER_REQUESTS", "MAX_RUN_ROWS"]
 
 
 def builtin_registry() -> CapabilityRegistry:
@@ -59,7 +63,7 @@ def live_executor(
             provider: ProviderRequestPolicy(
                 max_requests_per_job=MAX_PROVIDER_REQUESTS,
                 max_operations_per_job=MAX_RUN_ROWS * MAX_PLAN_STEPS,
-                max_total_wait_seconds=15,
+                max_total_wait_seconds=MAX_PROVIDER_WAIT_SECONDS,
             )
             for provider in ("open-meteo", "wikidata")
         },

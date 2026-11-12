@@ -56,6 +56,7 @@ from ai_data_enrichment.review import (
     review_payload,
     user_chosen_steps,
 )
+from ai_data_enrichment.run_limits import DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy, PlanValidator
 from ai_data_enrichment.workspace_errors import WorkspaceError
 
@@ -143,7 +144,9 @@ class ApprovalRequest(BaseModel):
 class RunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     allow_network: bool = False
-    timeout_seconds: int = Field(default=180, ge=1, le=300, strict=True)
+    timeout_seconds: int = Field(
+        default=DEFAULT_TIMEOUT_SECONDS, ge=1, le=MAX_TIMEOUT_SECONDS, strict=True
+    )
 
 
 class ResumeRequest(RunRequest):
@@ -383,6 +386,15 @@ class PlanRunService:
 
     def _routes(self) -> None:
         router = self.router
+
+        @router.get("/limits")
+        async def limits():
+            # What one run accepts, so a client can say so before it is refused.
+            return {
+                "max_run_rows": MAX_RUN_ROWS,
+                "max_timeout_seconds": MAX_TIMEOUT_SECONDS,
+                "default_timeout_seconds": DEFAULT_TIMEOUT_SECONDS,
+            }
 
         @router.post("/plans", status_code=201)
         async def create(body: PlanRequest):

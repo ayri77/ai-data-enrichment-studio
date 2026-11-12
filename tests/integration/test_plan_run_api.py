@@ -33,6 +33,11 @@ from ai_data_enrichment.plan_run import TERMINAL, PlanRunSettings
 from ai_data_enrichment.plan_run_worker import MountainPolicy, ResumeSelections, live_executor
 from ai_data_enrichment.providers.http_transport import UrllibJsonTransport
 from ai_data_enrichment.providers.wikidata import WIKIDATA_API_URL
+from ai_data_enrichment.run_limits import (
+    DEFAULT_TIMEOUT_SECONDS,
+    MAX_RUN_ROWS,
+    MAX_TIMEOUT_SECONDS,
+)
 
 
 def plan_payload(name="capitals") -> dict:
@@ -874,3 +879,20 @@ def test_a_running_job_is_never_evicted(monkeypatch):
         upload(client)
         assert client.get(f"/api/plans/{plan['plan_id']}").status_code == 404
         assert client.get(f"/api/jobs/{running['job_id']}").status_code == 404
+
+
+def test_limits_state_what_one_run_accepts(client):
+    limits = client.get("/api/limits").json()
+    assert limits == {
+        "max_run_rows": MAX_RUN_ROWS,
+        "max_timeout_seconds": MAX_TIMEOUT_SECONDS,
+        "default_timeout_seconds": DEFAULT_TIMEOUT_SECONDS,
+    }
+    # The stated bound is the enforced one.
+    plan = draft(client)
+    approve(client, plan)
+    over = client.post(
+        f"/api/plans/{plan['plan_id']}/runs",
+        json={"timeout_seconds": limits["max_timeout_seconds"] + 1},
+    )
+    assert over.status_code == 422
