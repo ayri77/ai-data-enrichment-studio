@@ -21,17 +21,19 @@ import { PlanGraph } from "./PlanGraph";
 /** What is still missing before a plan can be built, next to the button itself. */
 function BuildChecklist({
     w,
+    hasWorkbook,
     onOpenSettings,
 }: {
     w: Workflow;
+    hasWorkbook: boolean;
     onOpenSettings?: () => void;
 }) {
     const { t } = useTranslation();
     const hosted = useHosted();
     if (!w.missing.length) return null;
     const text: Record<(typeof w.missing)[number], string> = {
-        preview: t("ws.need.preview"),
-        selection: t("workflow.selectionLimit"),
+        preview: t(hasWorkbook ? "ws.need.preview" : "ws.need.workbook"),
+        selection: t("workflow.selectionLimit", { max: w.maxRows }),
         instruction: t("ws.need.instruction"),
         mapping: t("ws.need.mapping"),
         consent: t("provider.consentMissing"),
@@ -76,10 +78,12 @@ function BuildChecklist({
 export function DatasetConfiguration({
     workflow: w,
     preview,
+    hasWorkbook,
     onOpenSettings,
 }: {
     workflow: Workflow;
     preview: Preview | null;
+    hasWorkbook: boolean;
     onOpenSettings?: () => void;
 }) {
     const { t } = useTranslation();
@@ -94,6 +98,20 @@ export function DatasetConfiguration({
             ),
         );
     }
+    // Basic asks one question: which column to fill. Several outputs, and a
+    // new column at an address of the user's choice, are Advanced.
+    const single = !advanced && w.mapping.length === 1;
+    // Basic has no consent checkbox: pressing the button is the consent, so the
+    // button says what leaves the browser. Nothing leaves it on fixture answers.
+    const sends =
+        advanced || !preview || !w.provider?.server_network_allowed
+            ? []
+            : [
+                  ...(w.savedPlan.trim() || w.planningReadiness !== "ready"
+                      ? []
+                      : [t("ws.sends.ai")]),
+                  t("ws.sends.sources"),
+              ];
     return (
         <section className="configuration workspace-panel">
             <div className="panel-scroll configuration-fields">
@@ -103,7 +121,13 @@ export function DatasetConfiguration({
                 </div>
                 {!preview && <p className="muted">{t("ws.taskHint")}</p>}
                 {(w.plan || w.job) && (
-                    <p className="notice">{t("ws.invalidateWarning")}</p>
+                    <p className="notice">
+                        {t(
+                            advanced
+                                ? "ws.invalidateWarning"
+                                : "ws.invalidateWarningBasic",
+                        )}
+                    </p>
                 )}
                 <fieldset disabled={!preview || w.locked}>
                     <label>
@@ -111,148 +135,234 @@ export function DatasetConfiguration({
                         <textarea
                             maxLength={4000}
                             value={w.instruction}
+                            placeholder={t("workflow.instructionExample")}
+                            aria-describedby="instruction-hint"
                             onChange={(e) =>
                                 w.edit(() => w.setInstruction(e.target.value))
                             }
                         />
                     </label>
-                    <h3>{t("ws.outputs")}</h3>
-                    <p className="muted">{t("ws.mappingHint")}</p>
-                    {w.mapping.map((entry, index) => (
-                        <div className="output-target" key={index}>
-                            <div className="mapping-row">
-                                <label>
-                                    {t("ws.targetType")} {index + 1}
-                                    <select
-                                        aria-label={`${t("ws.targetType")} ${index + 1}`}
-                                        value={entry.mode}
-                                        onChange={(e) =>
-                                            update(index, {
-                                                mode: e.target
-                                                    .value as OutputTarget["mode"],
-                                                column: "",
-                                                name: "",
-                                            })
-                                        }
-                                    >
-                                        <option value="existing">
-                                            {t("ws.existingColumn")}
-                                        </option>
-                                        <option value="new">
-                                            {t("ws.newColumn")}
-                                        </option>
-                                    </select>
-                                </label>
-                                <Button
-                                    variant="outline"
-                                    disabled={w.mapping.length === 1}
-                                    onClick={() =>
-                                        w.edit(() =>
-                                            w.setMapping(
-                                                w.mapping.filter(
-                                                    (_, i) => i !== index,
-                                                ),
-                                            ),
-                                        )
+                    <p className="muted" id="instruction-hint">
+                        {t("workflow.instructionHint")}
+                    </p>
+                    {single ? (
+                        <>
+                            <label>
+                                {t("ws.fillColumn")}
+                                <select
+                                    value={
+                                        w.mapping[0].mode === "new"
+                                            ? NEW_COLUMN
+                                            : w.mapping[0].column
                                     }
-                                    aria-label={`${t("workflow.removeMapping")} ${index + 1}`}
+                                    onChange={(e) => {
+                                        const value = e.target.value;
+                                        const col =
+                                            preview?.profile.columns.find(
+                                                (_, i) =>
+                                                    columnLetter(first + i) ===
+                                                    value,
+                                            );
+                                        update(
+                                            0,
+                                            value === NEW_COLUMN
+                                                ? {
+                                                      mode: "new",
+                                                      column: w.freeColumn,
+                                                      name: "",
+                                                  }
+                                                : {
+                                                      mode: "existing",
+                                                      column: value,
+                                                      name: col?.name ?? "",
+                                                  },
+                                        );
+                                    }}
                                 >
-                                    ×
-                                </Button>
-                            </div>
-                            {entry.mode === "existing" ? (
-                                <label>
-                                    {t("ws.targetColumn")} {index + 1}
-                                    <select
-                                        aria-label={`${t(entry.mode === "existing" ? "ws.targetColumn" : "ws.columnAddress")} ${index + 1}`}
-                                        value={entry.column}
-                                        onChange={(e) => {
-                                            const col =
-                                                preview?.profile.columns.find(
-                                                    (_, i) =>
-                                                        columnLetter(
-                                                            first + i,
-                                                        ) === e.target.value,
-                                                );
-                                            update(index, {
-                                                column: e.target.value,
-                                                name: col?.name ?? "",
-                                            });
-                                        }}
-                                    >
-                                        <option value="">
-                                            {t("ws.chooseColumn")}
+                                    <option value="">
+                                        {t("ws.chooseFill")}
+                                    </option>
+                                    {preview?.profile.columns.map((col, i) => (
+                                        <option
+                                            key={col.name}
+                                            value={columnLetter(first + i)}
+                                        >
+                                            {col.name} (
+                                            {columnLetter(first + i)})
                                         </option>
-                                        {preview?.profile.columns.map(
-                                            (col, i) => (
-                                                <option
-                                                    key={col.name}
-                                                    value={columnLetter(
-                                                        first + i,
-                                                    )}
-                                                >
-                                                    {columnLetter(first + i)} ·{" "}
-                                                    {col.name}
-                                                </option>
-                                            ),
-                                        )}
-                                    </select>
+                                    ))}
+                                    <option value={NEW_COLUMN}>
+                                        {t("ws.newColumnOption")}
+                                    </option>
+                                </select>
+                            </label>
+                            {w.mapping[0].mode === "new" && (
+                                <label>
+                                    {t("ws.newColumnName")}
+                                    <input
+                                        value={w.mapping[0].name}
+                                        maxLength={200}
+                                        onChange={(e) =>
+                                            update(0, { name: e.target.value })
+                                        }
+                                    />
                                 </label>
-                            ) : (
+                            )}
+                        </>
+                    ) : (
+                        <>
+                            <h3>{t("ws.outputs")}</h3>
+                            <p className="muted">{t("ws.mappingHint")}</p>
+                        </>
+                    )}
+                    {!single &&
+                        w.mapping.map((entry, index) => (
+                            <div className="output-target" key={index}>
                                 <div className="mapping-row">
                                     <label>
-                                        {t("ws.columnAddress")} {index + 1}
-                                        <input
-                                            aria-label={`${t("ws.columnAddress")} ${index + 1}`}
-                                            value={entry.column}
-                                            maxLength={3}
+                                        {t("ws.targetType")} {index + 1}
+                                        <select
+                                            aria-label={`${t("ws.targetType")} ${index + 1}`}
+                                            value={entry.mode}
                                             onChange={(e) =>
                                                 update(index, {
-                                                    column: normalizeColumn(
-                                                        e.target.value,
+                                                    mode: e.target
+                                                        .value as OutputTarget["mode"],
+                                                    column: "",
+                                                    name: "",
+                                                })
+                                            }
+                                        >
+                                            <option value="existing">
+                                                {t("ws.existingColumn")}
+                                            </option>
+                                            <option value="new">
+                                                {t("ws.newColumn")}
+                                            </option>
+                                        </select>
+                                    </label>
+                                    <Button
+                                        variant="outline"
+                                        disabled={w.mapping.length === 1}
+                                        onClick={() =>
+                                            w.edit(() =>
+                                                w.setMapping(
+                                                    w.mapping.filter(
+                                                        (_, i) => i !== index,
                                                     ),
-                                                })
-                                            }
-                                            placeholder="F / 6"
-                                        />
-                                    </label>
-                                    <label>
-                                        {t("ws.columnHeader")} {index + 1}
-                                        <input
-                                            aria-label={`${t("ws.columnHeader")} ${index + 1}`}
-                                            value={entry.name}
-                                            maxLength={200}
-                                            onChange={(e) =>
-                                                update(index, {
-                                                    name: e.target.value,
-                                                })
-                                            }
-                                        />
-                                    </label>
+                                                ),
+                                            )
+                                        }
+                                        aria-label={`${t("workflow.removeMapping")} ${index + 1}`}
+                                    >
+                                        ×
+                                    </Button>
                                 </div>
-                            )}
-                        </div>
-                    ))}
+                                {entry.mode === "existing" ? (
+                                    <label>
+                                        {t("ws.targetColumn")} {index + 1}
+                                        <select
+                                            aria-label={`${t(entry.mode === "existing" ? "ws.targetColumn" : "ws.columnAddress")} ${index + 1}`}
+                                            value={entry.column}
+                                            onChange={(e) => {
+                                                const col =
+                                                    preview?.profile.columns.find(
+                                                        (_, i) =>
+                                                            columnLetter(
+                                                                first + i,
+                                                            ) ===
+                                                            e.target.value,
+                                                    );
+                                                update(index, {
+                                                    column: e.target.value,
+                                                    name: col?.name ?? "",
+                                                });
+                                            }}
+                                        >
+                                            <option value="">
+                                                {t("ws.chooseColumn")}
+                                            </option>
+                                            {preview?.profile.columns.map(
+                                                (col, i) => (
+                                                    <option
+                                                        key={col.name}
+                                                        value={columnLetter(
+                                                            first + i,
+                                                        )}
+                                                    >
+                                                        {columnLetter(
+                                                            first + i,
+                                                        )}{" "}
+                                                        · {col.name}
+                                                    </option>
+                                                ),
+                                            )}
+                                        </select>
+                                    </label>
+                                ) : (
+                                    <div className="mapping-row">
+                                        <label>
+                                            {t("ws.columnAddress")} {index + 1}
+                                            <input
+                                                aria-label={`${t("ws.columnAddress")} ${index + 1}`}
+                                                value={entry.column}
+                                                maxLength={3}
+                                                onChange={(e) =>
+                                                    update(index, {
+                                                        column: normalizeColumn(
+                                                            e.target.value,
+                                                        ),
+                                                    })
+                                                }
+                                                placeholder="F / 6"
+                                            />
+                                        </label>
+                                        <label>
+                                            {t("ws.columnHeader")} {index + 1}
+                                            <input
+                                                aria-label={`${t("ws.columnHeader")} ${index + 1}`}
+                                                value={entry.name}
+                                                maxLength={200}
+                                                onChange={(e) =>
+                                                    update(index, {
+                                                        name: e.target.value,
+                                                    })
+                                                }
+                                            />
+                                        </label>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
                     {!w.mappingValid &&
-                        w.mapping.some((x) => x.column || x.name) && (
+                        (single
+                            ? w.mapping[0].mode === "new" &&
+                              !!w.mapping[0].name.trim()
+                            : w.mapping.some((x) => x.column || x.name)) && (
                             <p className="validation-note" role="alert">
                                 {t("ws.mappingInvalid")}
                             </p>
                         )}
-                    <Button
-                        variant="outline"
-                        disabled={w.mapping.length >= 20}
-                        onClick={() =>
-                            w.edit(() =>
-                                w.setMapping([
-                                    ...w.mapping,
-                                    { mode: "existing", name: "", column: "" },
-                                ]),
-                            )
-                        }
-                    >
-                        {t("workflow.addMapping")}
-                    </Button>
+                    {!single && (
+                        <Button
+                            variant="outline"
+                            disabled={w.mapping.length >= 20}
+                            onClick={() =>
+                                w.edit(() =>
+                                    w.setMapping([
+                                        ...w.mapping,
+                                        {
+                                            mode: "existing",
+                                            name: "",
+                                            column: "",
+                                        },
+                                    ]),
+                                )
+                            }
+                        >
+                            {t("workflow.addMapping")}
+                        </Button>
+                    )}
                     <Advanced>
                         <label>
                             {t("workflow.policy")}
@@ -276,16 +386,18 @@ export function DatasetConfiguration({
                         </label>
                         <p className="muted">{t("workflow.policyHint")}</p>
                     </Advanced>
-                    <label className="network-opt-in">
-                        <input
-                            type="checkbox"
-                            checked={w.network}
-                            onChange={(e) =>
-                                w.edit(() => w.setNetwork(e.target.checked))
-                            }
-                        />
-                        {t("workflow.network")}
-                    </label>
+                    <Advanced>
+                        <label className="network-opt-in">
+                            <input
+                                type="checkbox"
+                                checked={w.network}
+                                onChange={(e) =>
+                                    w.edit(() => w.setNetwork(e.target.checked))
+                                }
+                            />
+                            {t("workflow.network")}
+                        </label>
+                    </Advanced>
                     <Advanced>
                         <details data-advanced="true">
                             <summary>{t("workflow.savedPlan")}</summary>
@@ -349,7 +461,16 @@ export function DatasetConfiguration({
                         </button>
                     </p>
                 )}
-                <BuildChecklist w={w} onOpenSettings={onOpenSettings} />
+                {sends.length > 0 && (
+                    <p className="sends muted" data-testid="sends">
+                        {sends.join(" ")}
+                    </p>
+                )}
+                <BuildChecklist
+                    w={w}
+                    hasWorkbook={hasWorkbook}
+                    onOpenSettings={onOpenSettings}
+                />
                 <Button
                     disabled={!w.canBuild}
                     onClick={() =>
@@ -375,6 +496,8 @@ export function DatasetConfiguration({
         </section>
     );
 }
+
+const NEW_COLUMN = "__new__";
 
 function AdvancedControls({ w }: { w: Workflow }) {
     const { t } = useTranslation();

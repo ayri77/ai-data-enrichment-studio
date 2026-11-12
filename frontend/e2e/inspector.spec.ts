@@ -8,8 +8,10 @@ test("column inspector is an Advanced tool; neither mode overflows the document"
     await page
         .getByLabel("Upload Excel workbook")
         .setInputFiles(resolve("../samples/capitals.xlsx"));
-    await expect(page.getByLabel("Worksheet")).toHaveValue("Sheet1");
-    await page.getByRole("button", { name: "Preview selection" }).click();
+    // Basic previews the table on upload; there are no boundaries to set.
+    await expect(
+        page.getByRole("button", { name: "Preview selection" }),
+    ).toHaveCount(0);
     const inspector = page.getByRole("complementary", {
         name: "Column inspector",
     });

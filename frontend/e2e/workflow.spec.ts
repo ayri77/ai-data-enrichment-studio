@@ -450,17 +450,16 @@ test("example: one click fills the task; the prepared plan runs without an AI re
     await expect(page.getByLabel("Enrichment instruction")).toHaveValue(
         /elevation in metres of each mountain/,
     );
-    await expect(
-        page.getByLabel("Output column 1", { exact: true }),
-    ).toHaveValue("C");
+    await expect(page.getByLabel("Which column to fill?")).toHaveValue("C");
     await expect(page.locator(".upload-description strong")).toHaveText(
         "mountains.xlsx",
     );
-    await page
-        .getByLabel(
+    // Basic has no consent checkbox: pressing the button is the consent.
+    await expect(
+        page.getByLabel(
             "Allow external network requests for planning and execution",
-        )
-        .check();
+        ),
+    ).toHaveCount(0);
     await page
         .getByRole("button", { name: "Use it instead of asking the AI" })
         .click();
@@ -502,6 +501,48 @@ test("example: one click fills the task; the prepared plan runs without an AI re
             name: "Capitals: distances between cities",
         }),
     ).toBeVisible();
+});
+
+test("Basic: an uploaded workbook needs an instruction and nothing else", async ({
+    page,
+}) => {
+    const planning: string[] = [];
+    page.on("request", (r) => {
+        if (r.url().endsWith("/api/plans") && r.method() === "POST")
+            planning.push(r.postData() ?? "");
+    });
+    await page.goto("/");
+    // What can be asked for is stated before any file is chosen.
+    await expect(
+        page.getByText("calculate the distance between two cities"),
+    ).toBeVisible();
+    await page
+        .getByLabel("Upload Excel workbook")
+        .setInputFiles(resolve("../samples/capitals.xlsx"));
+    // The table is read at once, and its only empty column is proposed.
+    await expect(page.getByRole("columnheader").nth(1)).toBeVisible();
+    await expect(page.getByLabel("Which column to fill?")).toHaveValue("E");
+    await expect(
+        page.getByRole("button", { name: "Preview selection" }),
+    ).toHaveCount(0);
+    await page
+        .getByLabel("Enrichment instruction")
+        .fill("Calculate distances between the cities.");
+    await page.getByRole("button", { name: "Build Plan" }).click();
+    await page
+        .getByRole("button", { name: "Approve / Continue to Execution" })
+        .click();
+    expect(JSON.parse(planning[0])).toMatchObject({
+        range_ref: "A1:E11",
+        output_columns: { distance: "E" },
+        allow_network: true,
+    });
+    await page.getByRole("button", { name: "Start bounded run" }).click();
+    await expect(page.getByTestId("metric-total_rows")).toContainText("10");
+    // The boundaries are still one click away.
+    await navigate(page, "Dataset");
+    await page.getByRole("button", { name: "Change its boundaries" }).click();
+    await expect(page.getByLabel("Worksheet")).toHaveValue("Sheet1");
 });
 
 test("invalid saved plan cannot be approved; source selection clears its draft", async ({

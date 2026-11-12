@@ -34,12 +34,17 @@ Whenever the studio waits, one line under the heading of every step says what fo
 
 The header has a **Mode** switch next to theme and language. The choice is kept in the browser (`enrichment.mode`); a first visit starts in **Basic**. Both modes use the same controller, routes and validation: the mode changes what is shown, never what the server accepts.
 
-**Basic** keeps what a person filling a table needs: workbook and examples, table selection, instruction, output column, consent, plan summary with outputs and assumptions, run status and counts, the choices on Review, and the result table with its filter, sort, statistics and the XLSX download.
+**Basic** keeps what a person filling a table needs: workbook and examples, instruction, the column to fill, plan summary with outputs and assumptions, run status and counts, the choices on Review, and the result table with its filter, sort, statistics and the XLSX download. On Dataset it asks for three things only — a file, an instruction, a column:
+
+- **The table is read on upload.** The first sheet is previewed from `A1` without a button, taking no more data rows than one run accepts (`GET /api/limits`); a longer table gets a note with the numbers. The boundaries appear when the table could not be read, when the workbook has several sheets, or behind the link "Change its boundaries".
+- **One question, "Which column to fill?"**, with the table's columns and "A new column…", which is placed right after everything the sheet holds. If exactly one column of the table is empty, it is proposed (in both modes) as long as nothing was chosen yet. Several outputs and a new column at a chosen address are Advanced.
+- **No consent checkbox.** Pressing "Build Plan" is the consent, and the line above the button says what leaves the browser: the instruction and a sample of the table go to OpenAI when the AI plans, and the run looks the names up in the open sources. Nothing is said when the server works on fixture answers. Advanced keeps the checkbox.
+- **Before a workbook is chosen**, the empty table area states what can be asked for (city coordinates, distance between two cities, a mountain and its elevation), that countries must be written in English or as a two-letter code, and the row limit. The instruction field shows an English example, and says that only English instructions have been checked.
 
 **Advanced** adds the second layer:
 
 - the connection band, **Provider / Model settings** and **Diagnostics**;
-- on Dataset: A1 range input and its guidance, column types and the column inspector, the single-match policy, **Use an existing plan** (plan JSON), **Advanced policy and limits** (timeout), provider readiness lines;
+- on Dataset: table boundaries always in view with the **Preview selection** button, A1 range input and its guidance, column types and the column inspector, the output mapping with several targets, the consent checkbox, the single-match policy, **Use an existing plan** (plan JSON), **Advanced policy and limits** (timeout), provider readiness lines;
 - on Plan: sheet and range, step/output counts, **Validate again**;
 - on Execution: the plan graph, run timestamps, **Retry same approved plan**;
 - on Review: matches that cannot be chosen, technical details, error codes;

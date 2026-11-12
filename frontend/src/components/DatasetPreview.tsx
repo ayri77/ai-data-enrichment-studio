@@ -10,11 +10,16 @@ export function DatasetPreview({
     filename,
     busy,
     hasWorkbook,
+    filled = [],
+    maxRows = 20,
 }: {
     preview: Preview | null;
     filename?: string;
     busy: boolean;
     hasWorkbook: boolean;
+    /** Columns chosen to be filled: being empty is expected of them. */
+    filled?: string[];
+    maxRows?: number;
 }) {
     const { t } = useTranslation();
     const [selectedColumn, setSelectedColumn] = useState("");
@@ -54,7 +59,16 @@ export function DatasetPreview({
         ? [
               ...preview.profile.schema_warnings.map((w) => warning(w)),
               ...columns.flatMap((col) =>
-                  col.warnings.map((w) => warning(w, col.name)),
+                  col.warnings
+                      .filter(
+                          (w) =>
+                              advanced ||
+                              !filled.includes(col.name) ||
+                              !w.startsWith(
+                                  "Column contains no non-null values",
+                              ),
+                      )
+                      .map((w) => warning(w, col.name)),
               ),
           ]
         : [];
@@ -257,11 +271,24 @@ export function DatasetPreview({
                             )}
                             <div>
                                 <h3>{busy ? t("reading") : t("emptyTitle")}</h3>
-                                <p>
-                                    {hasWorkbook
-                                        ? t("readyHint")
-                                        : t("emptyHint")}
-                                </p>
+                                {hasWorkbook ? (
+                                    <p>{t("readyHint")}</p>
+                                ) : (
+                                    <div className="can-do">
+                                        <p>{t("can.title")}</p>
+                                        <ul>
+                                            <li>{t("can.cityCoordinates")}</li>
+                                            <li>{t("can.cityDistance")}</li>
+                                            <li>
+                                                {t("can.mountainElevation")}
+                                            </li>
+                                        </ul>
+                                        <p>{t("can.needs")}</p>
+                                        <p>
+                                            {t("can.limit", { max: maxRows })}
+                                        </p>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
@@ -320,7 +347,9 @@ export function DatasetPreview({
                     )
                 ) : (
                     <p>
-                        {hasWorkbook ? t("pendingSelection") : t("emptyHint")}
+                        {hasWorkbook
+                            ? t("pendingSelection")
+                            : t(advanced ? "emptyHint" : "ws.need.workbook")}
                     </p>
                 )}
             </section>
