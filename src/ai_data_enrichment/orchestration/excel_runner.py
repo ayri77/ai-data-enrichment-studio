@@ -1,6 +1,6 @@
 """Coordinate a validated Excel enrichment workflow."""
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -72,8 +72,12 @@ class ExcelEnrichmentRunner:
         previous_job_id: str | None = None,
         job_id: str | None = None,
         preserve_existing_outputs: bool = False,
+        on_record_done: Callable[[int, int], None] | None = None,
     ) -> ExcelEnrichmentResult:
-        """Validate, execute and publish one selected Excel table."""
+        """Validate, execute and publish one selected Excel table.
+
+        ``on_record_done(done, total)`` is passed to the executor unchanged.
+        """
 
         # Reject obvious destination conflicts before provider execution.
         if source_path.resolve() == output_path.resolve():
@@ -165,6 +169,8 @@ class ExcelEnrichmentRunner:
             batch.records,
             previous_job_id=previous_job_id,
             job_id=job_id,
+            # Only passed when asked for: other executors need not know it.
+            **({"on_record_done": on_record_done} if on_record_done else {}),
         )
 
         # Map successful operation results to original Excel rows.

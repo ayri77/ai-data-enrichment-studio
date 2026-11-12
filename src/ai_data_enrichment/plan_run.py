@@ -546,6 +546,8 @@ class PlanRunService:
             "finished_at": None,
             "error": None,
             "metrics": None,
+            # Finished and total rows once the worker has read the table.
+            "progress": None,
             "artifacts": {},
             "execution_mode": "offline_fixture" if self.offline_executor_factory else "live",
             "timeout_seconds": body.timeout_seconds,
@@ -575,10 +577,21 @@ class PlanRunService:
     async def supervise(self, task: RunTask, draft: dict, job: dict) -> None:
         public_job = job
         job = {**job, "artifacts": {}}
-        process = multiprocessing.get_context("spawn").Process(
+        context = multiprocessing.get_context("spawn")
+        # Two counters the worker writes and this side only reads: how far the
+        # run is. Results still arrive only through the worker's files.
+        counters = context.Array("i", 2, lock=False)
+        process = context.Process(
             target=execute_workbook,
-            args=(task, self.offline_executor_factory or live_executor),
+            args=(task, self.offline_executor_factory or live_executor, counters),
         )
+
+        def publish_progress() -> None:
+            done, total = counters[0], counters[1]
+            if total > 0 and (job["progress"] or {}).get("rows_done") != done:
+                job["progress"] = {"rows_done": min(done, total), "rows_total": total}
+                public_job["progress"] = job["progress"]
+
         execution: dict = {}
         try:
             job.update(status="running", started_at=timestamp())
@@ -592,7 +605,10 @@ class PlanRunService:
                 if monotonic() - started >= job["timeout_seconds"]:
                     job["status"] = "timed_out"
                     break
+                publish_progress()
                 await asyncio.sleep(0.05)
+            # The last rows may have finished between two looks.
+            publish_progress()
             # Cancellation wins even if requested just as the worker exits.
             if self.cancel_events[task.job_id].is_set():
                 job["status"] = "cancelled"

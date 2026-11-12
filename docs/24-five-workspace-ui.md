@@ -23,12 +23,12 @@ The shell, navigation and workspace actions stay inside the desktop viewport. So
 
 ## Waiting
 
-Whenever the studio waits, one line under the heading of every step says what for, in plain words: reading the workbook or the selection, building or checking a plan, approving, starting a run, the run itself, preparing a download. Beside it runs the time elapsed since the wait began (browser clock). A moving stripe signals activity only: the API reports no partial progress, so nothing claims a percentage. For a run the line also gives the row count and the time limit after which the server stops it.
+Whenever the studio waits, one line under the heading of every step says what for, in plain words: reading the workbook or the selection, building or checking a plan, approving, starting a run, the run itself, preparing a download. Beside it runs the time elapsed since the wait began (browser clock). For a short request a moving stripe signals activity only, and nothing claims a percentage. A run reports its rows: the worker counts finished rows and the job status carries `progress` (`rows_done`, `rows_total`), so the line says "Rows processed: 4 of 10", the stripe is as long as that share, and from the second finished row an estimate of the time left is added ("about 0:20 left"). The estimate is the pace so far applied to the remaining rows, rounded up to five seconds; rows differ, so it is a guess and is worded as one. The line also gives the time limit after which the server stops the run.
 
 - A **short request** (everything except the run itself) keeps the user on its step: the other steps are disabled with the tooltip "Wait for the current operation to finish", because the request ends by opening its own step anyway. The pressed button shows a spinner.
 - A **running job** does not hold the user in place. On any other step the line adds that the data and the task cannot be changed until the run finishes, and links back to the run. Input locking itself is unchanged.
 
-`ActivityBar` (`frontend/src/components/ActivityBar.tsx`) reads the operation from the workflow controller (`operation`, `jobSince`) and the dataset hook (`busy`, `busySince`). The status text is a live region; the clock is a `timer`, which screen readers do not announce on every tick. With reduced motion the stripe and spinner stand still.
+`ActivityBar` (`frontend/src/components/ActivityBar.tsx`) reads the operation from the workflow controller (`operation`, `jobSince`) and the dataset hook (`busy`, `busySince`). The status text is a live region; the clock is a `timer`, which screen readers do not announce on every tick, and the row count stands outside the live region for the same reason. With reduced motion the stripe and spinner stand still.
 
 ## Basic and Advanced modes
 
@@ -48,12 +48,19 @@ On Plan, Basic puts the plan into words instead of drawing it:
 - **When there is no plan to run**, the screen says why in a sentence. A refusal by the planner (`unsupported`, `ambiguous`) shows the model's own explanation, marked as such, the list of what the system can do, and the advice to rephrase; this block is the same in both modes. A plan that failed validation shows "This plan cannot be run", the validator's messages behind "What the check reported", and the steps as the planner understood them. Error codes and step ids stay in Advanced. Validation itself is unchanged.
 - A long instruction is folded in the summary.
 
+On Execution, Basic says what happened instead of listing counters:
+
+- **While the run goes on**: a progress bar with the rows processed and the estimate of the time left, and the cancel button.
+- **When it ends**: one sentence — "All rows are filled: 10 of 10", "Rows filled: 7 of 10", or "None of the 10 rows could be filled" — followed, when rows are left, by "Names waiting for your choice: 2" or "The rest could not be confirmed and were left empty". The filled count is taken from the same rows the Results step lists (`frontend/src/runModel.ts`), so the two screens cannot disagree; the job's own counters are used only until the report has arrived.
+- **When it ends without a table** (failed, cancelled, timed out): what happened, how many rows were processed before the stop, for a timeout the advice to select fewer rows, and the button **Run again**, which starts the same approved plan. "View output" is disabled, because there is nothing to view.
+- **Start over with another table**, on Execution and on Results in both modes, removes the workbook and returns to Dataset with the examples. The server forgets a removed workbook together with its results, so when a filled table exists the button first says so on the page and asks to confirm.
+
 **Advanced** adds the second layer:
 
 - the connection band, **Provider / Model settings** and **Diagnostics**;
 - on Dataset: table boundaries always in view with the **Preview selection** button, A1 range input and its guidance, column types and the column inspector, the output mapping with several targets, the consent checkbox, the single-match policy, **Use an existing plan** (plan JSON), **Advanced policy and limits** (timeout), provider readiness lines;
 - on Plan: the graph with its node inspector instead of the description in words, sheet and range, step/output counts, validation codes, **Validate again**, and approval as a separate action from the start;
-- on Execution: the plan graph, run timestamps, **Retry same approved plan**;
+- on Execution: the status with its four counters and the error code, the plan graph, run timestamps, **Retry same approved plan** after any run;
 - on Review: matches that cannot be chosen, technical details, error codes;
 - on Results: per-row step detail, workbook filename, JSON audit download, the source checksum confirmation (a *changed* source is reported in both modes).
 

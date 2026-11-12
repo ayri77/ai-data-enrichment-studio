@@ -1,6 +1,6 @@
 """Execute a validated DAG across bounded source-independent input records."""
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from uuid import uuid4
 
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan, StepOutputReference
@@ -87,12 +87,16 @@ class JobExecutor:
         *,
         job_id: str | None = None,
         previous_job_id: str | None = None,
+        on_record_done: Callable[[int, int], None] | None = None,
     ) -> JobExecutionResult:
         """Process a bounded job sequentially, preserving row IDs and order.
 
         Reject the entire input (including duplicate IDs or excess rows)
         before invoking any handler. A new memoization session is created
         for every call, even when reusing the same JobExecutor instance.
+
+        ``on_record_done(done, total)`` is called once before the first record
+        and after each finished one. It only reports; it cannot change a result.
         """
         prepared = prepare_input_records(records, self._policy)
         capabilities = sorted({step.capability for step in plan.steps})
@@ -336,6 +340,8 @@ class JobExecutor:
 
         results: list[RecordExecution] = []
         statuses = {"success": 0, "partial": 0, "failure": 0}
+        if on_record_done is not None:
+            on_record_done(0, len(prepared))
         for start in range(0, len(prepared), self._policy.batch_size):
             for record in prepared[start : start + self._policy.batch_size]:
                 # The observer is called after each audited DAG step, including
@@ -376,6 +382,8 @@ class JobExecutor:
                 )
                 statuses[classify_row_outcome(row_result)] += 1
                 results.append(RecordExecution(record_id=record.record_id, row_result=row_result))
+                if on_record_done is not None:
+                    on_record_done(len(results), len(prepared))
 
         counts = memo.snapshot_metrics()
         extra = [

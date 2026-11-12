@@ -139,7 +139,16 @@
     flex-shrink: 0;
     color: var(--studio-muted);
 }
-/* Movement without a claim about how much is done: the server reports none. */
+/* Movement without a claim about how much is done, until the run reports its
+   rows; then the stripe is as long as the share of rows that are finished. */
+.activity-track.measured {
+    animation: none;
+    transition: width 0.4s ease-out;
+}
+.activity-rows {
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+}
 .activity-track {
     position: absolute;
     left: 0;
@@ -158,10 +167,13 @@
     }
 }
 @media (prefers-reduced-motion: reduce) {
-    .activity-track {
+    .activity-track:not(.measured) {
         width: 100%;
         animation: none;
         opacity: 0.5;
+    }
+    .activity-track.measured {
+        transition: none;
     }
     .activity-bar .spin {
         animation: none;
@@ -1354,4 +1366,74 @@
 }
 .plan-problem .can-do ul {
     margin-top: 0;
+}
+.run-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-width: 520px;
+}
+.run-progress progress {
+    appearance: none;
+    width: 100%;
+    height: 8px;
+    border: 0;
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--studio-control-border);
+    color: var(--studio-accent);
+}
+.run-progress progress::-webkit-progress-bar {
+    background: var(--studio-control-border);
+}
+.run-progress progress::-webkit-progress-value {
+    background: var(--studio-accent);
+}
+.run-progress progress::-moz-progress-bar {
+    background: var(--studio-accent);
+}
+/* No count yet: movement only, as in the bar above. */
+.run-progress progress:indeterminate {
+    background: linear-gradient(
+            90deg,
+            transparent 0 35%,
+            var(--studio-accent) 35% 65%,
+            transparent 65%
+        )
+        var(--studio-control-border);
+    background-size: 200% 100%;
+    animation: run-progress-slide 1.6s linear infinite;
+}
+.run-progress progress:indeterminate::-webkit-progress-bar {
+    background: transparent;
+}
+.run-progress progress:indeterminate::-moz-progress-bar {
+    background: transparent;
+}
+@keyframes run-progress-slide {
+    from {
+        background-position: 100% 0;
+    }
+    to {
+        background-position: -100% 0;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .run-progress progress:indeterminate {
+        animation: none;
+    }
+}
+.run-progress p {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+.start-over {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.start-over > div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
 }

@@ -85,6 +85,12 @@ function Studio() {
             "export",
         ] as const)
             if (id !== w.workspace) unavailable[id] = t("activity.wait");
+    // Removing the workbook resets the task with it; the first step then shows
+    // the examples again.
+    const startOver = () => {
+        d.remove();
+        w.navigate("dataset");
+    };
     useEffect(() => {
         // Switching to Basic on a step it does not offer leads back to the run.
         if (stranded) w.navigate(w.job ? "execution" : "dataset");
@@ -159,10 +165,12 @@ function Studio() {
                     )}
                     {w.workspace === "plan" && <PlanWorkspace w={w} />}
                     {w.workspace === "execution" && (
-                        <ExecutionWorkspace w={w} />
+                        <ExecutionWorkspace w={w} onStartOver={startOver} />
                     )}
                     {w.workspace === "review" && <ReviewWorkspace w={w} />}
-                    {w.workspace === "export" && <ExportWorkspace w={w} />}
+                    {w.workspace === "export" && (
+                        <ExportWorkspace w={w} onStartOver={startOver} />
+                    )}
                 </div>
                 {diagnostics && (
                     <Diagnostics
