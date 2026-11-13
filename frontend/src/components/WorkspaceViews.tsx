@@ -82,6 +82,51 @@ function BuildChecklist({
 }
 
 /**
+ * How many rows of the table one run fills. The table can be far longer than
+ * a run accepts; that is said here, with the rows the run will take, instead
+ * of being a reason not to build a plan.
+ */
+function RunRows({ w, preview }: { w: Workflow; preview: Preview | null }) {
+    const { t } = useTranslation();
+    const total =
+        preview?.rows?.row_numbers.length ?? preview?.profile.row_count;
+    if (!preview || !total) return null;
+    const most = Math.min(total, w.maxRows);
+    const first = preview.rows?.row_numbers[0];
+    return (
+        <div className="run-rows" data-testid="run-rows">
+            <label>
+                {t("run.rows")}
+                <input
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={most}
+                    value={w.runCount}
+                    disabled={w.locked}
+                    onChange={(event) =>
+                        w.edit(() => w.setRunCount(event.target.value))
+                    }
+                />
+            </label>
+            <p className="muted">
+                {w.runLast === null
+                    ? t("run.rowsInvalid", { max: most })
+                    : first === undefined
+                      ? t("run.rowsOf", { count: Number(w.runCount), total })
+                      : t("run.rowsFrom", {
+                            count: Number(w.runCount),
+                            total,
+                            first,
+                            last: w.runLast,
+                        })}{" "}
+                {total > w.maxRows && t("run.rowsLimit", { max: w.maxRows })}
+            </p>
+        </div>
+    );
+}
+
+/**
  * A column chosen to be filled may already hold values in some rows. The
  * person is told before the run, with the rows, and decides what happens to
  * them; keeping them is the default.
@@ -94,15 +139,19 @@ function ExistingOutputs({
     preview: Preview | null;
 }) {
     const { t } = useTranslation();
+    // Only the rows the run takes matter here, not the whole table shown.
+    const last = w.runLast;
     const occupied = w.mapping
         .filter((target) => target.mode === "existing")
         .map((target) => ({
             column: target.name,
-            rows: occupiedRows(preview, target.name),
+            rows: occupiedRows(preview, target.name).filter(
+                (row) => last !== null && row <= last,
+            ),
         }))
         .filter((entry) => entry.rows.length > 0);
     if (occupied.length === 0) return null;
-    const total = preview?.rows?.values.length ?? 0;
+    const total = Number(w.runCount) || 0;
     const listed = (rows: number[]) =>
         rows.length > 8 ? `${rows.slice(0, 8).join(", ")}, …` : rows.join(", ");
     return (
@@ -428,6 +477,7 @@ export function DatasetConfiguration({
                             {t("workflow.addMapping")}
                         </Button>
                     )}
+                    <RunRows w={w} preview={preview} />
                     <ExistingOutputs w={w} preview={preview} />
                     <Advanced>
                         <label>

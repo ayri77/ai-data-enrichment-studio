@@ -4,7 +4,6 @@ import { beforeEach, expect, it } from "vitest";
 import type { Preview } from "./api";
 import { DatasetPreview } from "./components/DatasetPreview";
 import i18n from "./i18n";
-import { PAGE_ROWS } from "./tableModel";
 
 const TOTAL = 120;
 /** Row r holds "City r", a population that falls as r grows, and a gap at r = 3. */
@@ -53,30 +52,44 @@ beforeEach(async () => {
     await i18n.changeLanguage("en");
 });
 
-it("shows the whole table a page at a time, with worksheet row numbers", async () => {
+it("shows as many rows as asked for, with worksheet row numbers, and all on request", async () => {
     show();
-    expect(
-        screen.getByText(i18n.t("rowsTotal", { total: TOTAL })),
-    ).toBeInTheDocument();
+    expect(screen.getByTestId("row-count")).toHaveTextContent(
+        i18n.t("rowsTotal", { total: TOTAL }),
+    );
     expect(
         screen.getByRole("columnheader", { name: i18n.t("rowNumber") }),
     ).toBeInTheDocument();
-    expect(shown()).toHaveLength(PAGE_ROWS);
+    const shownRows = screen.getByRole("combobox", {
+        name: i18n.t("rowsShow"),
+    });
+    expect(shownRows).toHaveValue("50");
+    expect(shown()).toHaveLength(50);
     expect(shown().slice(0, 3)).toEqual(["2", "3", "4"]);
-    await userEvent.click(
-        screen.getByRole("button", {
-            name: i18n.t("showMoreRows", { count: PAGE_ROWS }),
-        }),
-    );
-    expect(shown()).toHaveLength(2 * PAGE_ROWS);
-    // The last page is as long as what is left.
-    await userEvent.click(
-        screen.getByRole("button", {
-            name: i18n.t("showMoreRows", { count: TOTAL - 2 * PAGE_ROWS }),
-        }),
-    );
+    // What is not shown is said, not hidden.
+    expect(
+        screen.getByText(i18n.t("rowsShown", { shown: 50, total: TOTAL })),
+    ).toBeInTheDocument();
+    await userEvent.selectOptions(shownRows, "20");
+    expect(shown()).toHaveLength(20);
+    await userEvent.selectOptions(shownRows, i18n.t("rowsShowAll"));
     expect(shown()).toHaveLength(TOTAL);
     expect(screen.getByText(i18n.t("valueLimit"))).toBeInTheDocument();
+});
+
+it("dims the rows a run does not take and leaves them to look through", () => {
+    render(
+        <DatasetPreview
+            preview={preview}
+            busy={false}
+            hasWorkbook
+            runLast={21}
+        />,
+    );
+    const rows = within(screen.getAllByRole("rowgroup")[1]).getAllByRole("row");
+    // Worksheet rows 2–21 are the run's; row 22 onwards is only shown.
+    expect(rows[19]).not.toHaveAttribute("data-out-of-run");
+    expect(rows[20]).toHaveAttribute("data-out-of-run", "true");
 });
 
 it("filters by text and says how many rows match", async () => {
@@ -87,14 +100,14 @@ it("filters by text and says how many rows match", async () => {
     await userEvent.type(filter, "city 12");
     // City 12 and City 120, 121.
     expect(shown()).toEqual(["12", "120", "121"]);
-    expect(
-        screen.getByText(i18n.t("rowsMatching", { shown: 3, total: TOTAL })),
-    ).toBeInTheDocument();
+    expect(screen.getByTestId("row-count")).toHaveTextContent(
+        i18n.t("rowsMatching", { shown: 3, total: TOTAL }),
+    );
     await userEvent.clear(filter);
     await userEvent.type(filter, "no such text");
     expect(screen.getByRole("status")).toHaveTextContent(i18n.t("noMatches"));
     await userEvent.clear(filter);
-    expect(shown()).toHaveLength(PAGE_ROWS);
+    expect(shown()).toHaveLength(50);
 });
 
 it("sorts by a column in both directions and back to the worksheet order", async () => {

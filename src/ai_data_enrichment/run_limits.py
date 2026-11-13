@@ -27,8 +27,12 @@ def bounded(name: str, default: int, ceiling: int) -> int:
     return value
 
 
-# Data rows in the selected table. An upload itself may hold up to 5000 rows.
-MAX_RUN_ROWS = bounded("ENRICHMENT_MAX_RUN_ROWS", 20, 5000)
+# What a table may hold to be read and looked through: data rows and cells of
+# the selection. Fixed; a run takes its rows from such a table.
+MAX_TABLE_ROWS = 5000
+MAX_TABLE_CELLS = 100_000
+# Data rows one run fills.
+MAX_RUN_ROWS = bounded("ENRICHMENT_MAX_RUN_ROWS", 20, MAX_TABLE_ROWS)
 # HTTP attempts to one external source during one run.
 MAX_PROVIDER_REQUESTS = bounded("ENRICHMENT_MAX_PROVIDER_REQUESTS", 400, 1_000_000)
 # Seconds one run may spend waiting on pacing and retries, per external source.

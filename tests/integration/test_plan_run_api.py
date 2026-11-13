@@ -885,6 +885,8 @@ def test_a_running_job_is_never_evicted(monkeypatch):
 def test_limits_state_what_one_run_accepts(client):
     limits = client.get("/api/limits").json()
     assert limits == {
+        "max_table_rows": 5000,
+        "max_table_cells": 100_000,
         "max_run_rows": MAX_RUN_ROWS,
         "max_timeout_seconds": MAX_TIMEOUT_SECONDS,
         "default_timeout_seconds": DEFAULT_TIMEOUT_SECONDS,

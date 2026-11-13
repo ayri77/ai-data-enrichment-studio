@@ -15,6 +15,7 @@ import {
 import { columnLetter, parseRange } from "./range";
 import { DEMO_LIMITS, type Limits } from "./useLimits";
 import { validMappings, type OutputTarget } from "./workflowModel";
+import { defaultRunCount, runRows } from "./tableModel";
 import {
     decisions,
     hasCandidateChoice,
@@ -112,6 +113,17 @@ export function useWorkflow(
     const [existingOutputs, setExistingOutputs] = useState<"keep" | "replace">(
         "keep",
     );
+    // How many rows of the table one run fills: its first rows, as many as a
+    // run accepts unless the person asks for fewer. The table itself may be
+    // far longer; looking through it is not limited by this.
+    const [runCount, setRunCount] = useState("");
+    useEffect(() => {
+        const rows = defaultRunCount(preview, maxRows);
+        setRunCount(rows ? String(rows) : "");
+    }, [preview, maxRows]);
+    const taken = /^\d+$/.test(runCount)
+        ? runRows(preview, Number(runCount), maxRows)
+        : null;
     const [timeout, setTimeout] = useState("180");
     const [plan, setPlan] = useState<PlanDraft | null>(null);
     const [job, setJob] = useState<Job | null>(null);
@@ -249,11 +261,8 @@ export function useWorkflow(
         change();
     }
     const bounds = preview ? parseRange(preview.range_ref).bounds : undefined;
-    const withinBounds =
-        !!bounds &&
-        bounds.lastRow - bounds.headerRow >= 1 &&
-        bounds.lastRow - bounds.headerRow <= maxRows &&
-        bounds.lastColumn <= 100;
+    // The rows of the run are what a plan is limited by, not the table shown.
+    const withinBounds = !!bounds && bounds.lastColumn <= 100 && !!taken;
     const mappingValid =
         !!preview && validMappings(mapping, preview, sheetColumns);
     const timeoutValid =
@@ -325,7 +334,8 @@ export function useWorkflow(
         const draft = await api.createPlan({
             dataset_id: preview.dataset_id,
             sheet_name: preview.sheet_name,
-            range_ref: preview.range_ref,
+            // The run's rows, not the whole table that is shown.
+            range_ref: taken?.range ?? preview.range_ref,
             instruction,
             output_columns: Object.fromEntries(
                 mapping.map((x) => [
@@ -569,6 +579,10 @@ export function useWorkflow(
         setPolicy,
         existingOutputs,
         setExistingOutputs,
+        runCount,
+        setRunCount,
+        /** Worksheet row of the last row the run takes; null when not valid. */
+        runLast: taken?.last ?? null,
         timeout,
         setTimeout,
         plan,

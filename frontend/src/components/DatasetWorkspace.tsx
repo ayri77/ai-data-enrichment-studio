@@ -172,7 +172,6 @@ export function DatasetWorkspace({
                                 {t("rowsTaken", {
                                     taken: d.preview.profile.row_count,
                                     total: worksheet.row_count,
-                                    max: workflow.maxRows,
                                 })}
                             </p>
                         )}
@@ -211,6 +210,7 @@ export function DatasetWorkspace({
                     hasWorkbook={!!d.dataset}
                     filled={workflow.mapping.map((entry) => entry.name)}
                     maxRows={workflow.maxRows}
+                    runLast={workflow.runLast}
                 />
             </div>
             <DatasetConfiguration

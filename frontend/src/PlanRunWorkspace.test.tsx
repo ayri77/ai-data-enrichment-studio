@@ -664,18 +664,53 @@ it("discards a late plan response after its source binding changes", async () =>
     expect(view.result.current.workspace).toBe("dataset");
 });
 
-it("blocks the backend row envelope and rejects malformed supplied JSON before API submission", async () => {
-    vi.mocked(api.preview).mockResolvedValueOnce({
+it("fills the first rows of a table longer than one run accepts, as many as asked for", async () => {
+    vi.mocked(api.preview).mockResolvedValue({
         ...preview,
-        range_ref: "A1:E22",
+        range_ref: "A1:E1001",
+        profile: { ...preview.profile, row_count: 1000 },
+        rows: {
+            row_numbers: Array.from({ length: 1000 }, (_, index) => index + 2),
+            values: Array.from({ length: 1000 }, () => [
+                "UA",
+                "Kyiv",
+                "PL",
+                "Warsaw",
+                null,
+            ]),
+        },
     });
-    const view = render(<App />);
+    render(<App />);
     await prepare();
+    // The length of the table is not a reason to refuse: a run takes its first rows.
+    const rows = within(screen.getByTestId("run-rows"));
+    const count = rows.getByLabelText(i18n.t("run.rows"));
+    expect(count).toHaveValue(20);
+    expect(screen.getByTestId("run-rows")).toHaveTextContent(
+        i18n.t("run.rowsFrom", { count: 20, total: 1000, first: 2, last: 21 }),
+    );
+    expect(screen.getByTestId("run-rows")).toHaveTextContent(
+        i18n.t("run.rowsLimit", { max: 20 }),
+    );
+    expect(document.querySelector("[data-requirement]")).toBeNull();
+    // More than a run accepts is said at the field, and nothing is sent.
+    fireEvent.change(count, { target: { value: "21" } });
     expect(button("ws.buildPlan")).toBeDisabled();
     expect(
         document.querySelector('[data-requirement="selection"]'),
-    ).toHaveTextContent("1–20");
-    view.unmount();
+    ).toHaveTextContent("20");
+    expect(screen.getByTestId("run-rows")).toHaveTextContent(
+        i18n.t("run.rowsInvalid", { max: 20 }),
+    );
+    fireEvent.change(count, { target: { value: "5" } });
+    await userEvent.click(button("ws.buildPlan"));
+    // The plan is asked for the run's rows; the table shown stays whole.
+    expect(api.createPlan).toHaveBeenCalledWith(
+        expect.objectContaining({ range_ref: "A1:E6" }),
+    );
+});
+
+it("rejects malformed supplied JSON before API submission", async () => {
     render(<App />);
     await prepare();
     await userEvent.click(screen.getByText(i18n.t("workflow.savedPlan")));
@@ -2200,7 +2235,7 @@ it("Basic previews the table on upload, proposes the empty column and takes the 
     expect(screen.getByLabelText(i18n.t("workflow.network"))).toBeChecked();
 });
 
-it("Basic takes no more rows than one run accepts and says so", async () => {
+it("Basic reads the whole table, however many rows one run accepts", async () => {
     localStorage.removeItem("enrichment.mode");
     vi.mocked(api.upload).mockResolvedValue({
         dataset_id: "source",
@@ -2215,18 +2250,59 @@ it("Basic takes no more rows than one run accepts and says so", async () => {
     });
     vi.mocked(api.preview).mockResolvedValue({
         ...preview,
-        range_ref: "A1:E21",
-        profile: { ...preview.profile, row_count: 20 },
+        range_ref: "A1:E101",
+        profile: { ...preview.profile, row_count: 100 },
     });
     render(<App />);
     await userEvent.upload(
         screen.getByLabelText("Upload Excel workbook"),
         new File(["x"], "long.xlsx"),
     );
-    expect(await screen.findByTestId("rows-taken")).toHaveTextContent(
-        i18n.t("rowsTaken", { taken: 20, total: 100, max: 20 }),
+    await waitFor(() =>
+        expect(api.preview).toHaveBeenCalledWith("source", "Sheet1", "A1:E101"),
     );
-    expect(api.preview).toHaveBeenCalledWith("source", "Sheet1", "A1:E21");
+    // Nothing was left out, so there is nothing to say about it; the run's
+    // rows are stated where the task is written.
+    expect(await screen.findByTestId("run-rows")).toHaveTextContent(
+        i18n.t("run.rowsOf", { count: 20, total: 100 }),
+    );
+    expect(screen.queryByTestId("rows-taken")).toBeNull();
+});
+
+it("says so when a table is longer than can be read", async () => {
+    localStorage.removeItem("enrichment.mode");
+    vi.mocked(api.upload).mockResolvedValue({
+        dataset_id: "source",
+        filename: "huge.xlsx",
+        worksheets: [
+            {
+                name: "Sheet1",
+                columns: preview.profile.columns.map((x) => x.name),
+                row_count: 9000,
+            },
+        ],
+    });
+    vi.mocked(api.preview).mockResolvedValue({
+        ...preview,
+        range_ref: "A1:E5001",
+        profile: { ...preview.profile, row_count: 5000 },
+    });
+    render(<App />);
+    await userEvent.upload(
+        screen.getByLabelText("Upload Excel workbook"),
+        new File(["x"], "huge.xlsx"),
+    );
+    // Five columns: the row bound is reached before the cell bound.
+    await waitFor(() =>
+        expect(api.preview).toHaveBeenCalledWith(
+            "source",
+            "Sheet1",
+            "A1:E5001",
+        ),
+    );
+    expect(await screen.findByTestId("rows-taken")).toHaveTextContent(
+        i18n.t("rowsTaken", { taken: 5000, total: 9000 }),
+    );
 });
 
 it("Basic reads a table that does not start in A1 from where the server found it", async () => {
@@ -2252,24 +2328,24 @@ it("Basic reads a table that does not start in A1 from where the server found it
     vi.mocked(api.preview).mockResolvedValue({
         ...preview,
         sheet_name: "Regional_Data",
-        range_ref: "C4:G24",
-        profile: { ...preview.profile, row_count: 20 },
+        range_ref: "C4:G44",
+        profile: { ...preview.profile, row_count: 40 },
     });
     render(<App />);
     await userEvent.upload(
         screen.getByLabelText("Upload Excel workbook"),
         new File(["x"], "report.xlsx"),
     );
-    // The header row of the table, then no more rows than one run accepts.
+    // The header row of the table and every row under it.
     await waitFor(() =>
         expect(api.preview).toHaveBeenCalledWith(
             "source",
             "Regional_Data",
-            "C4:G24",
+            "C4:G44",
         ),
     );
-    expect(await screen.findByTestId("rows-taken")).toHaveTextContent(
-        i18n.t("rowsTaken", { taken: 20, total: 40, max: 20 }),
+    expect(await screen.findByTestId("run-rows")).toHaveTextContent(
+        i18n.t("run.rowsOf", { count: 20, total: 40 }),
     );
 });
 

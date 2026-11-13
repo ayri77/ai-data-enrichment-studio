@@ -13,7 +13,8 @@ import type { Preview } from "../api";
 import {
     filterRows,
     nextSort,
-    PAGE_ROWS,
+    ALL_ROWS,
+    SHOWN_ROWS,
     sortRows,
     tableRows,
     type Sort,
@@ -29,6 +30,7 @@ export function DatasetPreview({
     hasWorkbook,
     filled = [],
     maxRows = 20,
+    runLast = null,
 }: {
     preview: Preview | null;
     filename?: string;
@@ -37,6 +39,8 @@ export function DatasetPreview({
     /** Columns chosen to be filled: being empty is expected of them. */
     filled?: string[];
     maxRows?: number;
+    /** Worksheet row of the last row a run takes; later rows are only shown. */
+    runLast?: number | null;
 }) {
     const { t, i18n } = useTranslation();
     const locale = i18n.resolvedLanguage ?? "en";
@@ -45,11 +49,10 @@ export function DatasetPreview({
     // many rows drawn as were asked for. None of it changes the selection.
     const [query, setQuery] = useState("");
     const [sort, setSort] = useState<Sort>(null);
-    const [limit, setLimit] = useState(PAGE_ROWS);
+    const [limit, setLimit] = useState<number>(SHOWN_ROWS[1]);
     useEffect(() => {
         setQuery("");
         setSort(null);
-        setLimit(PAGE_ROWS);
     }, [preview]);
     // The server sends every row; without them only the sample can be shown.
     const whole = !!preview?.rows;
@@ -131,42 +134,59 @@ export function DatasetPreview({
                                 </span>
                             )}
                         </strong>
-                        <span>
-                            {!preview
-                                ? t("readOnly")
-                                : !whole
-                                  ? t("sampleCount", {
-                                        shown: preview.profile.sample_records
-                                            .length,
-                                        total: preview.profile.row_count,
-                                    })
-                                  : query.trim()
-                                    ? t("rowsMatching", {
-                                          shown: ordered.length,
-                                          total: all.length,
+                        {preview && whole && all.length > 0 ? (
+                            <div className="table-tools">
+                                <input
+                                    type="search"
+                                    value={query}
+                                    placeholder={t("filterRows")}
+                                    aria-label={t("filterRows")}
+                                    title={t("tableToolsHint")}
+                                    onChange={(event) =>
+                                        setQuery(event.target.value)
+                                    }
+                                />
+                                <span data-testid="row-count">
+                                    {query.trim()
+                                        ? t("rowsMatching", {
+                                              shown: ordered.length,
+                                              total: all.length,
+                                          })
+                                        : t("rowsTotal", { total: all.length })}
+                                </span>
+                                <label className="table-shown">
+                                    {t("rowsShow")}
+                                    <select
+                                        value={limit}
+                                        onChange={(event) =>
+                                            setLimit(Number(event.target.value))
+                                        }
+                                    >
+                                        {SHOWN_ROWS.map((rows) => (
+                                            <option key={rows} value={rows}>
+                                                {rows}
+                                            </option>
+                                        ))}
+                                        <option value={ALL_ROWS}>
+                                            {t("rowsShowAll")}
+                                        </option>
+                                    </select>
+                                </label>
+                            </div>
+                        ) : (
+                            <span>
+                                {preview
+                                    ? t("sampleCount", {
+                                          shown: preview.profile.sample_records
+                                              .length,
+                                          total: preview.profile.row_count,
                                       })
-                                    : t("rowsTotal", { total: all.length })}
-                        </span>
+                                    : t("readOnly")}
+                            </span>
+                        )}
                     </header>
                     {preview ? (
                         <>
-                            {whole && all.length > 0 && (
-                                <div className="table-tools">
-                                    <input
-                                        type="search"
-                                        value={query}
-                                        placeholder={t("filterRows")}
-                                        aria-label={t("filterRows")}
-                                        onChange={(event) => {
-                                            setQuery(event.target.value);
-                                            setLimit(PAGE_ROWS);
-                                        }}
-                                    />
-                                    <span className="muted">
-                                        {t("tableToolsHint")}
-                                    </span>
-                                </div>
-                            )}
                             <div
                                 className="table-scroll"
                                 role="region"
@@ -282,17 +302,14 @@ export function DatasetPreview({
                                                                     sort?.column ===
                                                                     index
                                                                 }
-                                                                onClick={() => {
+                                                                onClick={() =>
                                                                     setSort(
                                                                         nextSort(
                                                                             sort,
                                                                             index,
                                                                         ),
-                                                                    );
-                                                                    setLimit(
-                                                                        PAGE_ROWS,
-                                                                    );
-                                                                }}
+                                                                    )
+                                                                }
                                                             >
                                                                 {sort?.column !==
                                                                 index ? (
@@ -311,7 +328,18 @@ export function DatasetPreview({
                                     </thead>
                                     <tbody>
                                         {visible.map((row) => (
-                                            <tr key={row.row}>
+                                            <tr
+                                                key={row.row}
+                                                // Shown, but not among the
+                                                // rows this run fills.
+                                                data-out-of-run={
+                                                    whole &&
+                                                    runLast !== null &&
+                                                    row.row > runLast
+                                                        ? true
+                                                        : undefined
+                                                }
+                                            >
                                                 <th
                                                     scope="row"
                                                     className="sample-index mono"
@@ -367,37 +395,18 @@ export function DatasetPreview({
                                 <span>
                                     {t(whole ? "tableNote" : "sampleNote")}
                                 </span>
-                                {ordered.length > visible.length ? (
-                                    <span>
-                                        {t("rowsShown", {
-                                            shown: visible.length,
-                                            total: ordered.length,
-                                        })}{" "}
-                                        <button
-                                            type="button"
-                                            className="inline-link"
-                                            onClick={() =>
-                                                setLimit(limit + PAGE_ROWS)
-                                            }
-                                        >
-                                            {t("showMoreRows", {
-                                                count: Math.min(
-                                                    PAGE_ROWS,
-                                                    ordered.length -
-                                                        visible.length,
-                                                ),
+                                <span>
+                                    {ordered.length > visible.length
+                                        ? t("rowsShown", {
+                                              shown: visible.length,
+                                              total: ordered.length,
+                                          })
+                                        : whole
+                                          ? t("valueLimit")
+                                          : t("sampleLimit", {
+                                                count: preview.sample_limit,
                                             })}
-                                        </button>
-                                    </span>
-                                ) : (
-                                    <span>
-                                        {whole
-                                            ? t("valueLimit")
-                                            : t("sampleLimit", {
-                                                  count: preview.sample_limit,
-                                              })}
-                                    </span>
-                                )}
+                                </span>
                             </div>
                             <p className="scroll-hint">{t("scrollHint")}</p>
                         </>

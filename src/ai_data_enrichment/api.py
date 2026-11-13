@@ -32,13 +32,14 @@ from ai_data_enrichment.plan_run import PlanBodyLimit, PlanRunService, PlanRunSe
 from ai_data_enrichment.plan_run_worker import ExecutorFactory
 from ai_data_enrichment.planning.llm_planner import PlanCompletionClient
 from ai_data_enrichment.provider_settings import ProviderConfiguration, configuration_router
+from ai_data_enrichment.run_limits import MAX_TABLE_CELLS, MAX_TABLE_ROWS
 from ai_data_enrichment.workspace_errors import WorkspaceError
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_EXPANDED_BYTES = 32 * 1024 * 1024
-MAX_ROWS = 5001  # Includes the header.
+MAX_ROWS = MAX_TABLE_ROWS + 1  # Includes the header.
 MAX_COLUMNS = 100
-MAX_CELLS = 100_000
+MAX_CELLS = MAX_TABLE_CELLS
 MAX_DATASETS = 8
 # Hosted access code: unauthenticated paths, and limits on wrong-code attempts.
 ACCESS_OPEN_PATHS = frozenset({"/api/health", "/api/access"})

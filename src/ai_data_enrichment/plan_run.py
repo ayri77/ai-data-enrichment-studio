@@ -72,7 +72,12 @@ from ai_data_enrichment.review import (
     searched_item,
     user_chosen_steps,
 )
-from ai_data_enrichment.run_limits import DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS
+from ai_data_enrichment.run_limits import (
+    DEFAULT_TIMEOUT_SECONDS,
+    MAX_TABLE_CELLS,
+    MAX_TABLE_ROWS,
+    MAX_TIMEOUT_SECONDS,
+)
 from ai_data_enrichment.spellings import SuggestionError, suggest_names
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy, PlanValidator
 from ai_data_enrichment.workspace_errors import WorkspaceError
@@ -459,6 +464,10 @@ class PlanRunService:
         async def limits():
             # What one run accepts, so a client can say so before it is refused.
             return {
+                # A table of up to this size can be read and looked through;
+                # one run fills at most max_run_rows of its rows.
+                "max_table_rows": MAX_TABLE_ROWS,
+                "max_table_cells": MAX_TABLE_CELLS,
                 "max_run_rows": MAX_RUN_ROWS,
                 "max_timeout_seconds": MAX_TIMEOUT_SECONDS,
                 "default_timeout_seconds": DEFAULT_TIMEOUT_SECONDS,
