@@ -877,6 +877,10 @@ class PlanRunService:
         job_id = uuid4().hex
         directory = source.parent / job_id
         directory.mkdir()
+        # Runs of one plan share what the sources confirmed: a resume after
+        # review asks only for what the earlier run could not settle.
+        reuse_directory = source.parent / f"plan-{draft['plan_id']}"
+        reuse_directory.mkdir(exist_ok=True)
         job = {
             "job_id": job_id,
             "plan_id": draft["plan_id"],
@@ -913,6 +917,7 @@ class PlanRunService:
             existing_outputs=draft.get("existing_outputs", "keep"),
             resume_selections=resume_selections,
             previous_job_id=previous_job_id,
+            reuse_directory=reuse_directory,
         )
         self.jobs[job_id] = job
         self.selections[job_id] = dict(resume_selections or {})

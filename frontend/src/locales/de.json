@@ -357,7 +357,7 @@
     "review.progress": "Entschieden: {{decided}} von {{total}}",
     "review.accept": "Empfehlungen übernehmen",
     "review.resume": "Übrige Zeilen ausfüllen",
-    "review.resumeHint": "Startet einen neuen Lauf desselben freigegebenen Plans mit Ihrer Auswahl. Jede Auswahl wird erneut an der Quelle geprüft. Das frühere Ergebnis bleibt in der Diagnose.",
+    "review.resumeHint": "Startet einen neuen Lauf desselben freigegebenen Plans mit Ihrer Auswahl. Werte, die der frühere Lauf bereits bestätigt hat, werden ohne erneute Anfrage an die Quellen übernommen; jede Auswahl von Ihnen wird an der Quelle geprüft. Das frühere Ergebnis bleibt in der Diagnose.",
     "review.unapplied": "Ihre Auswahl ist noch nicht in den Ergebnissen. Füllen Sie die restlichen Zeilen aus, um sie anzuwenden.",
     "review.toResultsUnfilled": "Ohne Ausfüllen",
     "review.continued": "Dieser Lauf setzt einen früheren nach der Prüfung fort.",

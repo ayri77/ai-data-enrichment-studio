@@ -156,6 +156,10 @@ screen shows: [five-workspace interface](24-five-workspace-ui.md).
   exceptions are the single source request of a search under another name and
   the model requests for names and tasks, which run in the API process and
   are bounded by count.
+- **Runs of one plan share confirmed lookups, nothing else.** A resume or a
+  retry takes over the entities and source values an earlier run of the same
+  plan confirmed, for an hour; failures, user selections and computed values
+  are never taken over, and plans do not share them.
 - **Workbook preservation:** a run creates a separate output file and maps
   successful values to physical worksheet rows. Unsupported targets fail
   explicitly before execution.

@@ -357,7 +357,7 @@
     "review.progress": "Decided: {{decided}} of {{total}}",
     "review.accept": "Accept recommendations",
     "review.resume": "Fill in remaining rows",
-    "review.resumeHint": "Starts a new run of the same approved plan with your choices. Each choice is checked against the source again. The earlier result stays in Diagnostics.",
+    "review.resumeHint": "Starts a new run of the same approved plan with your choices. Values the earlier run already confirmed are taken over without asking the sources again; each choice of yours is checked against the source. The earlier result stays in Diagnostics.",
     "review.unapplied": "Your choices are not in the results yet. Fill in the remaining rows to apply them.",
     "review.toResultsUnfilled": "Skip to results",
     "review.continued": "This run continues an earlier one after review.",

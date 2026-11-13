@@ -11,7 +11,12 @@ from typing import Any
 
 from ai_data_enrichment.evaluation.smoke import OfflineWikidataTransport
 from ai_data_enrichment.execution.job_executor import JobExecutor
-from ai_data_enrichment.plan_run_worker import MountainPolicy, ResumeSelections, live_executor
+from ai_data_enrichment.plan_run_worker import (
+    MountainPolicy,
+    ResumeSelections,
+    Reuse,
+    live_executor,
+)
 from ai_data_enrichment.providers.open_meteo import GEOCODING_URL
 from ai_data_enrichment.providers.wikidata import WIKIDATA_API_URL
 
@@ -60,6 +65,7 @@ def offline_executor(
     max_rows: int,
     *,
     resume_selections: ResumeSelections | None = None,
+    reuse: Reuse | None = None,
 ) -> JobExecutor:
     """Top-level and picklable on Windows: same registered, audited live stack."""
     return live_executor(
@@ -68,6 +74,7 @@ def offline_executor(
         max_rows,
         transport=APITransportFixture(),
         resume_selections=resume_selections,
+        reuse=reuse,
     )
 
 
