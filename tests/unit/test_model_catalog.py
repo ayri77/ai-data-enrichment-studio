@@ -47,7 +47,7 @@ def test_a_model_without_reasoning_gets_the_answer_budget_and_no_effort() -> Non
 
 def test_a_reasoning_model_gets_its_effort_and_room_for_reasoning() -> None:
     spec = model_spec("gpt-6-luna")
-    assert spec.reasoning_effort and spec.reasoning_reserve_tokens > 0 and not spec.measured
+    assert spec.reasoning_effort and spec.reasoning_reserve_tokens > 0
     request = sent("gpt-6-luna")
     assert request["reasoning"] == {"effort": spec.reasoning_effort}
     # The answer keeps its budget; reasoning has its own on top.

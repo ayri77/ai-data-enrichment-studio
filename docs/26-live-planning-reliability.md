@@ -221,7 +221,7 @@ envelope) stay in the API as `invalid_output_mapping`: the model cannot repair t
 CLI planning passes no targets and is unchanged.
 
 
-## Supported planning models (measured 2026-11-11)
+## Supported planning models (measured 2026-11-11 and 2026-11-13)
 
 Repeated live runs with `scripts/experiment_planner.py`, standard sample instructions,
 10 runs per row, at most two repairs. "Before" is commit `0b515aa` or earlier, "after"
@@ -233,6 +233,8 @@ is `bf4f999` (required parameters and requested output targets merged).
 | Capitals | `gpt-4o-mini` | 9 of 10 (before), 10 of 10 (after) | 9 of 10, 7 of 10 |
 | Mountains | `gpt-4.1-mini` | 10 of 10 (after) | 10 of 10 |
 | Mountains | `gpt-4o-mini` | 1 of 10 (before), 0 of 10 (after) | 0 of 10, 0 of 10 |
+| Capitals | `gpt-6-luna`, effort `low` | 10 of 10 (2026-11-13) | 10 of 10 |
+| Mountains | `gpt-6-luna`, effort `low` | 10 of 10 (2026-11-13) | 10 of 10 |
 
 On Mountains `gpt-4o-mini` returns `unsupported` on the first attempt ("no capability
 to directly resolve mountain elevations"): it does not compose `resolve_entity` with
@@ -240,17 +242,18 @@ to directly resolve mountain elevations"): it does not compose `resolve_entity` 
 A first-attempt abstention is final by design, so the repair loop does not help.
 
 `gpt-4o-mini` is therefore removed from the model catalog (`planning/model_catalog.py`), and `gpt-4.1-mini` is the
-default when `OPENAI_MODEL` is unset. `gpt-4.1` remains selectable but has not been
+default when `OPENAI_MODEL` is unset. `gpt-6-luna` met the same bar on 2026-11-13 (section
+below) and is what the hosted demo runs. `gpt-4.1` remains selectable but has not been
 measured. Free-form and non-English instructions have not been measured on any model.
 The samples are small; treat the table as a floor for decisions, not as a rate.
 
 
-## Candidate models: the Luna tier (not measured)
+## The Luna tier: `gpt-6-luna` measured on 2026-11-13
 
 Asked on 2026-11-12: why not OpenAI's "Luna", which is cheaper and scores higher on
 public benchmarks. Two models carry the name. The Luna rows are from OpenAI's model pages
-on that day, the `gpt-4.1` prices from public price comparisons; nothing here has been
-run against this project.
+on that day, the `gpt-4.1` prices from public price comparisons. `gpt-6-luna` has since
+been run against this project (result below); `gpt-5.6-luna` has not.
 
 | Model | Input / output per 1M tokens | Released | Kind |
 | --- | --- | --- | --- |
@@ -259,7 +262,7 @@ run against this project.
 | `gpt-5.6-luna` | $0.20 / $1.20 | 2026-07 | reasoning, default effort `medium` |
 | `gpt-6-luna` | $0.10 / $0.50 | 2026-09 | reasoning, default effort `medium` |
 
-What follows from the facts, before any measurement:
+What followed from the facts before the measurement, kept as the reasoning behind it:
 
 - **Price is not the argument here.** One planning request for the samples is about
   3,100 input tokens (prompt, capability contracts, table profile and schema, estimated
@@ -292,9 +295,27 @@ uv run --env-file .env python -m scripts.experiment_planner --case mountains --m
 
 and the same two with `--reasoning-effort none`. Acceptance, the same bar the default
 model met: 10 of 10 valid plans on both tasks, no request over 30 s, no `incomplete`
-responses. If one effort passes, its catalog entry gets that effort and `measured=True`,
-the default stays `gpt-4.1-mini`, and this section becomes a row in the table above. If
-neither passes, the section records the result and the entry is removed.
+responses.
+
+### Result (2026-11-13, effort `low`)
+
+Run by the project owner with the two commands above, at the script's default output
+limit of 4,096 tokens.
+
+| Task | Valid plans | On the first attempt | Median request | Slowest request | Over 30 s |
+| --- | --- | --- | --- | --- | --- |
+| Capitals | 10 of 10 | 10 of 10 | 4.13 s | 9.95 s | 0 |
+| Mountains | 10 of 10 | 10 of 10 | 3.02 s | 4.05 s | 0 |
+
+No request needed a repair, so none came back `incomplete` or malformed; the extra
+message item reported on the forum did not show in these 20 requests. The catalog entry
+is therefore `measured=True` with effort `low`, and `render.yaml` names the model for the
+hosted demo. The default for a process without `OPENAI_MODEL` stays `gpt-4.1-mini`.
+
+What this does not cover: effort `none` and the other efforts; what a plan costs in
+practice, since the script does not record token usage; the two other requests the
+application sends to the model (other names for a place, tasks for a table), which have
+not been measured on any model; instructions other than the two standard ones.
 
 ### Where models are described
 
@@ -307,8 +328,9 @@ from it (`model_client`), and the default must be a measured entry. Adding a mod
 entry; nothing else in the application names a model. Tests, this document and
 `render.yaml` still do.
 
-`gpt-6-luna` is in the catalog with effort `low` and a reserve of 4096 tokens, both
-unmeasured guesses taken from the commands above, and `gpt-4.1` is there unmeasured as
-well. The interface shows "(not measured)" beside such a model. The measurement script
+`gpt-6-luna` is in the catalog with the measured effort `low` and a reserve of 4096
+tokens for reasoning; the reserve is headroom, since the measurement passed within 4,096
+tokens in total. `gpt-4.1` is there unmeasured, and the interface shows "(not measured)"
+beside such a model. The measurement script
 keeps its own `--reasoning-effort` and `--max-output-tokens` flags, because it exists to
 try values the catalog does not have yet.

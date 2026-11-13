@@ -18,8 +18,9 @@ services:
       # Used only on the server for planning; never sent to the browser.
       - key: OPENAI_API_KEY
         sync: false
+      # Measured for planning in docs/26-live-planning-reliability.md.
       - key: OPENAI_MODEL
-        value: gpt-4.1-mini
+        value: gpt-6-luna
       # Server network gate; each run still needs the visitor's own consent.
       - key: ENRICHMENT_ALLOW_NETWORK
         value: "1"
