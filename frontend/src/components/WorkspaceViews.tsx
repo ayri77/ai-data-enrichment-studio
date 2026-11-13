@@ -16,6 +16,7 @@ import { Advanced, useAdvanced, useHosted } from "../mode";
 import type { Workflow, Workspace } from "../useWorkflow";
 import { columnLetter, parseRange } from "../range";
 import { remainingSeconds, runOutcome } from "../runModel";
+import { occupiedRows } from "../tableModel";
 import { normalizeColumn, type OutputTarget } from "../workflowModel";
 import { clock, useElapsed } from "./ActivityBar";
 import { Button } from "./ui/button";
@@ -77,6 +78,65 @@ function BuildChecklist({
                 ))}
             </ul>
         </div>
+    );
+}
+
+/**
+ * A column chosen to be filled may already hold values in some rows. The
+ * person is told before the run, with the rows, and decides what happens to
+ * them; keeping them is the default.
+ */
+function ExistingOutputs({
+    w,
+    preview,
+}: {
+    w: Workflow;
+    preview: Preview | null;
+}) {
+    const { t } = useTranslation();
+    const occupied = w.mapping
+        .filter((target) => target.mode === "existing")
+        .map((target) => ({
+            column: target.name,
+            rows: occupiedRows(preview, target.name),
+        }))
+        .filter((entry) => entry.rows.length > 0);
+    if (occupied.length === 0) return null;
+    const total = preview?.rows?.values.length ?? 0;
+    const listed = (rows: number[]) =>
+        rows.length > 8 ? `${rows.slice(0, 8).join(", ")}, …` : rows.join(", ");
+    return (
+        <fieldset
+            className="existing-outputs"
+            data-testid="existing-outputs"
+            disabled={w.locked}
+        >
+            <legend>{t("existing.title")}</legend>
+            {occupied.map((entry) => (
+                <p key={entry.column}>
+                    {t("existing.found", {
+                        column: entry.column,
+                        count: entry.rows.length,
+                        total,
+                        rows: listed(entry.rows),
+                    })}
+                </p>
+            ))}
+            {(["keep", "replace"] as const).map((choice) => (
+                <label key={choice} className="existing-choice">
+                    <input
+                        type="radio"
+                        name="existing-outputs"
+                        checked={w.existingOutputs === choice}
+                        onChange={() =>
+                            w.edit(() => w.setExistingOutputs(choice))
+                        }
+                    />
+                    <span>{t(`existing.${choice}`)}</span>
+                </label>
+            ))}
+            <p className="muted">{t("existing.hint")}</p>
+        </fieldset>
     );
 }
 
@@ -368,6 +428,7 @@ export function DatasetConfiguration({
                             {t("workflow.addMapping")}
                         </Button>
                     )}
+                    <ExistingOutputs w={w} preview={preview} />
                     <Advanced>
                         <label>
                             {t("workflow.policy")}

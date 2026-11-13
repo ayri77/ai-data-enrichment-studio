@@ -1575,3 +1575,60 @@ def test_asking_the_model_needs_the_network_opt_in_and_a_configured_model(other_
     assert client.post(endpoint, json={}).json()["error"]["code"] == "network_disabled"
     refused = client.post(endpoint, json={"allow_network": True})
     assert refused.status_code == 403 and refused.json()["error"]["code"] == "network_disabled"
+
+
+def occupied_mountains(client, existing_outputs=None):
+    """Everest (found by the fixture) and K2 (not found) both already have a height."""
+    book = load_workbook("samples/mountains.xlsx")
+    book["Sheet1"]["C2"] = 1.0
+    book["Sheet1"]["C3"] = "=1+1"
+    buffer = BytesIO()
+    book.save(buffer)
+    book.close()
+    dataset_id = upload(client, "mountains", buffer.getvalue())
+    body = request_body(dataset_id, "mountains")
+    if existing_outputs:
+        body["existing_outputs"] = existing_outputs
+    response = client.post("/api/plans", json=body)
+    assert response.status_code == 201, response.text
+    job = wait(client, start(client, approve(client, response.json())))
+    report = client.get(job["artifacts"]["report"]).json()
+    output = load_workbook(BytesIO(client.get(job["artifacts"]["result"]).content))
+    try:
+        cells = {name: output["Sheet1"][name].value for name in ("C2", "C3", "C4")}
+    finally:
+        output.close()
+    return report, cells, {row["row"]: row for row in report["rows"]}
+
+
+def test_an_existing_value_is_kept_and_the_report_says_for_which_rows(client):
+    report, cells, rows = occupied_mountains(client)
+    assert cells["C2"] == 1.0 and cells["C3"] == "=1+1"
+    assert report["preserved_cells"] == ["C2", "C3"] and report["replaced_cells"] == {}
+    # The row was looked up, yet its cell holds what it held: the report says so.
+    assert rows[2]["kept_outputs"] == ["height"] and rows[2]["replaced_outputs"] == {}
+    assert rows[3]["kept_outputs"] == ["height"]
+    assert rows[4]["kept_outputs"] == [] and rows[4]["replaced_outputs"] == {}
+
+
+def test_an_existing_value_is_replaced_only_by_a_new_one_and_stays_on_record(client):
+    report, cells, rows = occupied_mountains(client, "replace")
+    # Everest was found: the new value is written and the old one is recorded.
+    assert cells["C2"] == 8848.86
+    assert report["replaced_cells"] == {"C2": 1.0}
+    assert rows[2]["replaced_outputs"] == {"height": 1.0} and rows[2]["kept_outputs"] == []
+    # K2 was not found: nothing replaces what the cell held, a formula included.
+    assert cells["C3"] == "=1+1"
+    assert report["preserved_cells"] == ["C3"]
+    assert rows[3]["kept_outputs"] == ["height"] and rows[3]["replaced_outputs"] == {}
+    assert report["source_unchanged"] is True
+
+
+def test_the_choice_about_existing_values_is_part_of_the_plan_and_survives_a_resume(client):
+    dataset_id = upload(client, "capitals", None)
+    body = {**request_body(dataset_id, "capitals"), "existing_outputs": "replace"}
+    plan = client.post("/api/plans", json=body).json()
+    assert plan["existing_outputs"] == "replace"
+    assert client.post("/api/plans", json={**body, "existing_outputs": "erase"}).status_code == 422
+    # Left out, existing values are kept.
+    assert draft(client)["existing_outputs"] == "keep"

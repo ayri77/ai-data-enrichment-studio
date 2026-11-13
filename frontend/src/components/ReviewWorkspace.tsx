@@ -30,6 +30,7 @@ import {
     candidateKey,
     countryName,
     foundCandidates,
+    hasCandidateChoice,
     mapEmbedUrl,
     MAP_SPANS,
     isCandidate,
@@ -982,6 +983,8 @@ function ReviewStage({ w }: { w: Workflow }) {
     const namable = (review?.informational ?? []).some(
         (item) => item.other_name,
     );
+    // Choices that were made here and are not in the results yet.
+    const pending = hasCandidateChoice(review, w.choices);
     const [foldSignal, setFoldSignal] = useState(0);
     return (
         <div className="stage-layout">
@@ -1061,22 +1064,6 @@ function ReviewStage({ w }: { w: Workflow }) {
                                     </Button>
                                 </>
                             )}
-                            <Button
-                                disabled={!w.canResume}
-                                onClick={() =>
-                                    void w.action(w.resume, "resume")
-                                }
-                            >
-                                {w.operation?.kind === "resume" ? (
-                                    <LoaderCircle
-                                        className="spin"
-                                        aria-hidden="true"
-                                    />
-                                ) : (
-                                    <Play aria-hidden="true" />
-                                )}
-                                {t("review.resume")}
-                            </Button>
                             <p className="muted">{t("review.resumeHint")}</p>
                             {!w.network && (
                                 <p className="muted">
@@ -1092,9 +1079,42 @@ function ReviewStage({ w }: { w: Workflow }) {
                     )}
                 </div>
                 <div className="workspace-actions">
+                    {/* The step that applies the choices sits where the eye
+                        goes for "what next": while choices wait, it is the
+                        main action and leaving for the results is not. */}
+                    {pending && (
+                        <p className="notice" data-testid="review-unapplied">
+                            {t("review.unapplied")}
+                        </p>
+                    )}
+                    {(total > 0 || namable) && (
+                        <Button
+                            className="review-fill"
+                            variant={pending ? "default" : "outline"}
+                            disabled={!w.canResume}
+                            onClick={() => void w.action(w.resume, "resume")}
+                        >
+                            {w.operation?.kind === "resume" ? (
+                                <LoaderCircle
+                                    className="spin"
+                                    aria-hidden="true"
+                                />
+                            ) : (
+                                <Play aria-hidden="true" />
+                            )}
+                            {t("review.resume")}
+                        </Button>
+                    )}
                     <Back w={w} to="execution" />
-                    <Button onClick={() => w.navigate("export")}>
-                        {t("ws.toExport")}
+                    <Button
+                        variant={pending ? "outline" : "default"}
+                        onClick={() => w.navigate("export")}
+                    >
+                        {t(
+                            pending
+                                ? "review.toResultsUnfilled"
+                                : "ws.toExport",
+                        )}
                         <ArrowRight />
                     </Button>
                 </div>
