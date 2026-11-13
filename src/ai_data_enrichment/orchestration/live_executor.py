@@ -6,6 +6,7 @@ from typing import Literal
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
 from ai_data_enrichment.execution.job_executor import JobExecutor
 from ai_data_enrichment.execution.job_models import JobExecutionPolicy
+from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
 from ai_data_enrichment.providers.geodesic import GeodesicDistanceHandler
 from ai_data_enrichment.providers.http_transport import JsonTransport, UrllibJsonTransport
 from ai_data_enrichment.providers.open_meteo import OpenMeteoGeocodingHandler
@@ -28,6 +29,7 @@ from ai_data_enrichment.providers.wikidata_resolution import (
 from ai_data_enrichment.resolution.models import ResolutionPolicy
 from ai_data_enrichment.resolution.other_name import OtherNameResolutionService
 from ai_data_enrichment.resolution.resume import OtherName, ResumeSelection
+from ai_data_enrichment.resolution.sqlite_cache import SQLiteResolutionCache
 
 
 def build_live_executor(
@@ -40,8 +42,17 @@ def build_live_executor(
     mountain_resolution_policy: Literal["strict", "verified_only"] = "strict",
     request_policies: Mapping[str, ProviderRequestPolicy] | None = None,
     transport: JsonTransport | None = None,
+    reuse: tuple[SQLiteOperationCache, SQLiteResolutionCache] | None = None,
+    reuse_seconds: float = 3600,
 ) -> JobExecutor:
-    """Bind built-in capabilities to explicitly approved providers."""
+    """Bind built-in capabilities to explicitly approved providers.
+
+    ``reuse`` lets a run take what an earlier run with the same caches already
+    confirmed instead of asking the source again: verified entities with their
+    reports, and values read from a source record. Only successes are kept, so
+    a name without a confirmed match is asked for again, and a user's own
+    selection never comes from a cache.
+    """
 
     selections = dict(resume_selections or {})
     approved_sources = {
@@ -140,14 +151,28 @@ def build_live_executor(
             memoizable_providers=frozenset(
                 (capability_id, provider_id) for capability_id, provider_id in selected.items()
             ),
+            # Lookups in a source only; a distance is computed, not looked up.
+            persistent_cache_ttls=(
+                {
+                    **({("resolve_entity", "wikidata"): reuse_seconds} if audit_mountains else {}),
+                    **({("geocode", "open-meteo"): reuse_seconds} if audit_capitals else {}),
+                    ("lookup_property", "wikidata"): reuse_seconds,
+                }
+                if reuse
+                else {}
+            ),
         ),
+        persistent_cache=reuse[0] if reuse else None,
+        resolution_cache=reuse[1] if reuse else None,
         capability_versions={
             **({"resolve_entity": "1.0"} if audit_mountains else {}),
             **({"geocode": "1.1"} if audit_capitals else {}),
+            **({"lookup_property": "1.0"} if reuse else {}),
         },
         provider_versions={
             **({"resolve_entity": "wikidata-v1"} if audit_mountains else {}),
             **({"geocode": "open-meteo-v1"} if audit_capitals else {}),
+            **({"lookup_property": "wikidata-v1"} if reuse else {}),
         },
         resolution_services={
             **({"resolve_entity": mountain_service} if audit_mountains else {}),

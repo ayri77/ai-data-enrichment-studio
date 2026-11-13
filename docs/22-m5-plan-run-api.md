@@ -258,6 +258,20 @@ plan. The response and the new job carry `previous_job_id` and
 `review_decisions` (both `null` for an ordinary run); the report stores them too. The first job, its workbook and its report are never
 modified, so a different choice can be made from the same starting point.
 
+A resume is a whole run of the plan over the same rows, but it does not ask the
+sources again for what an earlier run of the same plan confirmed. Each plan has
+a directory beside its runs with two SQLite caches (`orchestration/live_executor.py`,
+`reuse`): verified entities with their resolution reports, and values read from
+a source record. A later run of that plan — a resume or **Retry same approved
+plan** — takes those over for `RESULT_REUSE_SECONDS` (one hour, `run_limits.py`).
+Only successes are kept: a name without a confirmed match is asked for again, a
+user's own selection never comes from a cache and is verified against the source
+each time, and distances are computed, not kept. Plans do not share the caches,
+so another policy or another task never reuses a decision made under this one.
+The report says how much was taken over (`execution.metrics.persistent_cache_hits`)
+and counts only the requests actually sent (`execution.provider_requests`); a
+reused entity keeps its full resolution report and row links in the audit.
+
 The report of a resumed job also has `review_assistance` (`null` for an ordinary
 run), so that a value found under another name can be traced to where the name
 came from:

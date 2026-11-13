@@ -40,3 +40,8 @@ MAX_PROVIDER_WAIT_SECONDS = bounded("ENRICHMENT_MAX_PROVIDER_WAIT_SECONDS", 15, 
 # Upper bound for the run timeout a client may ask for.
 MAX_TIMEOUT_SECONDS = bounded("ENRICHMENT_MAX_TIMEOUT_SECONDS", 300, 86_400)
 DEFAULT_TIMEOUT_SECONDS = min(180, MAX_TIMEOUT_SECONDS)
+# How long a value one run of a plan confirmed may be reused by a later run of
+# the same plan (a resume after review, a retry) instead of asking the source
+# again. Fixed: long enough for a review, short enough that a source's data is
+# not treated as permanent.
+RESULT_REUSE_SECONDS = 3600

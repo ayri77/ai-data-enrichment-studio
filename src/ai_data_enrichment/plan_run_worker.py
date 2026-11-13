@@ -3,10 +3,11 @@
 import json
 import logging
 from collections.abc import Callable, Mapping, MutableSequence
+from contextlib import ExitStack
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.cell import column_index_from_string
@@ -15,6 +16,7 @@ from ai_data_enrichment.capabilities.definitions import get_builtin_capabilities
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan, required_input_columns
 from ai_data_enrichment.execution.job_executor import JobExecutor
+from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
 from ai_data_enrichment.ingestion.excel_records import read_input_batch
 from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.orchestration.excel_runner import ExcelEnrichmentRunner
@@ -22,19 +24,23 @@ from ai_data_enrichment.orchestration.live_executor import build_live_executor
 from ai_data_enrichment.providers.http_transport import JsonTransport
 from ai_data_enrichment.providers.request_policy import ProviderRequestPolicy
 from ai_data_enrichment.resolution.resume import OtherName, ResumeSelection
+from ai_data_enrichment.resolution.sqlite_cache import SQLiteResolutionCache
 from ai_data_enrichment.run_limits import (
     MAX_PROVIDER_REQUESTS,
     MAX_PROVIDER_WAIT_SECONDS,
     MAX_RUN_ROWS,
+    RESULT_REUSE_SECONDS,
 )
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy
 
 MountainPolicy = Literal["strict", "verified_only"]
 # Trusted application injection only; never supplied in an HTTP request.
 # Called as factory(capabilities, policy, max_rows); a resume additionally passes
-# resume_selections=... as a keyword.
+# resume_selections=... as a keyword, and a run whose plan keeps confirmed values
+# for its later runs passes reuse=... as a keyword.
 ExecutorFactory = Callable[..., JobExecutor]
 ResumeSelections = Mapping[tuple[str, str], ResumeSelection | OtherName]
+Reuse = tuple[SQLiteOperationCache, SQLiteResolutionCache]
 MAX_PLAN_STEPS = 12
 __all__ = ["MAX_PLAN_STEPS", "MAX_PROVIDER_REQUESTS", "MAX_RUN_ROWS"]
 
@@ -53,11 +59,14 @@ def live_executor(
     *,
     transport: JsonTransport | None = None,
     resume_selections: ResumeSelections | None = None,
+    reuse: Reuse | None = None,
 ) -> JobExecutor:
     return build_live_executor(
         builtin_registry(),
         max_rows=max_rows,
         resume_selections=resume_selections,
+        reuse=reuse,
+        reuse_seconds=RESULT_REUSE_SECONDS,
         audit_capitals="geocode" in capabilities,
         audit_mountains="resolve_entity" in capabilities,
         mountain_resolution_policy=policy if "resolve_entity" in capabilities else "strict",
@@ -89,6 +98,9 @@ class RunTask:
     # Set only for a user-approved resume of an earlier job.
     resume_selections: dict[tuple[str, str], ResumeSelection | OtherName] | None = None
     previous_job_id: str | None = None
+    # Where the runs of one plan keep what a source confirmed, so that a later
+    # run of the same plan does not ask for it again.
+    reuse_directory: Path | None = None
 
 
 def execute_workbook(
@@ -100,6 +112,11 @@ def execute_workbook(
 
     A terminated worker's files are discarded; partial files are never offered
     as a completed result, and no checkpoint/resume contract is implied.
+
+    What the sources confirmed is kept apart from those files, in the plan's
+    reuse directory: a later run of the same plan takes it over instead of
+    asking again. That holds lookups only, each written whole, never a row's
+    result, so a terminated run leaves nothing half-done there either.
 
     ``progress`` is the one exception to "nothing shared": two integers,
     finished rows and all rows, that the parent only reads to tell a person how
@@ -116,34 +133,38 @@ def execute_workbook(
         if sha256(task.source_path.read_bytes()).hexdigest() != task.source_sha256:
             raise ValueError("Source changed")
         capabilities = frozenset(step.capability for step in task.plan.steps)
-        runner = ExcelEnrichmentRunner(
-            registry=builtin_registry(),
-            executor=(
-                factory(
-                    capabilities,
-                    task.mountain_policy,
-                    MAX_RUN_ROWS,
-                    resume_selections=task.resume_selections,
+        options: dict[str, Any] = {}
+        if task.resume_selections:
+            options["resume_selections"] = task.resume_selections
+        with ExitStack() as opened:
+            if task.reuse_directory is not None:
+                options["reuse"] = (
+                    opened.enter_context(
+                        SQLiteOperationCache(task.reuse_directory / "values.sqlite")
+                    ),
+                    opened.enter_context(
+                        SQLiteResolutionCache(task.reuse_directory / "entities.sqlite")
+                    ),
                 )
-                if task.resume_selections
-                else factory(capabilities, task.mountain_policy, MAX_RUN_ROWS)
-            ),
-            max_rows=MAX_RUN_ROWS,
-            validation_policy=PlanValidationPolicy(max_steps=MAX_PLAN_STEPS),
-        )
-        result = runner.run(
-            source_path=task.source_path,
-            output_path=task.directory / "result.xlsx",
-            selection=task.selection,
-            plan=task.plan,
-            output_columns=task.output_columns,
-            dataset_id=task.dataset_id,
-            job_id=task.job_id,
-            previous_job_id=task.previous_job_id,
-            preserve_existing_outputs=True,
-            replace_existing_outputs=task.existing_outputs == "replace",
-            on_record_done=report if progress is not None else None,
-        )
+            runner = ExcelEnrichmentRunner(
+                registry=builtin_registry(),
+                executor=factory(capabilities, task.mountain_policy, MAX_RUN_ROWS, **options),
+                max_rows=MAX_RUN_ROWS,
+                validation_policy=PlanValidationPolicy(max_steps=MAX_PLAN_STEPS),
+            )
+            result = runner.run(
+                source_path=task.source_path,
+                output_path=task.directory / "result.xlsx",
+                selection=task.selection,
+                plan=task.plan,
+                output_columns=task.output_columns,
+                dataset_id=task.dataset_id,
+                job_id=task.job_id,
+                previous_job_id=task.previous_job_id,
+                preserve_existing_outputs=True,
+                replace_existing_outputs=task.existing_outputs == "replace",
+                on_record_done=report if progress is not None else None,
+            )
         if sha256(task.source_path.read_bytes()).hexdigest() != task.source_sha256:
             raise ValueError("Source changed")
         # The values each row was computed from, so a result can be read without

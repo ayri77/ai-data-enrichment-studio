@@ -32,7 +32,7 @@ from ai_data_enrichment.evaluation.plan_run_fixtures import (
     offline_executor,
 )
 from ai_data_enrichment.plan_run import TERMINAL, PlanRunSettings
-from ai_data_enrichment.plan_run_worker import MountainPolicy, ResumeSelections, live_executor
+from ai_data_enrichment.plan_run_worker import MountainPolicy, live_executor
 from ai_data_enrichment.providers.http_transport import UrllibJsonTransport
 from ai_data_enrichment.providers.wikidata import WIKIDATA_API_URL
 from ai_data_enrichment.run_limits import (
@@ -430,12 +430,12 @@ def test_exhausted_malformed_generation_has_safe_diagnostics(caplog):
         assert len(llm.calls) == 3
 
 
-def slow_executor(capabilities: frozenset[str], policy: MountainPolicy, max_rows: int):
+def slow_executor(capabilities: frozenset[str], policy: MountainPolicy, max_rows: int, **_):
     sleep(30)
     return offline_executor(capabilities, policy, max_rows)
 
 
-def broken_executor(capabilities: frozenset[str], policy: MountainPolicy, max_rows: int):
+def broken_executor(capabilities: frozenset[str], policy: MountainPolicy, max_rows: int, **_):
     raise RuntimeError("secret-token C:/private/path provider raw payload")
 
 
@@ -793,19 +793,9 @@ def quantity_statement(amount: str) -> dict[str, object]:
 
 
 def annapurna_executor(
-    capabilities: frozenset[str],
-    policy: MountainPolicy,
-    max_rows: int,
-    *,
-    resume_selections: ResumeSelections | None = None,
+    capabilities: frozenset[str], policy: MountainPolicy, max_rows: int, **options
 ):
-    return live_executor(
-        capabilities,
-        policy,
-        max_rows,
-        transport=AnnapurnaTransport(),
-        resume_selections=resume_selections,
-    )
+    return live_executor(capabilities, policy, max_rows, transport=AnnapurnaTransport(), **options)
 
 
 def test_single_confirmed_match_is_accepted_without_review_when_asked_and_marked():
@@ -831,6 +821,69 @@ def test_single_confirmed_match_is_accepted_without_review_when_asked_and_marked
             assert workbook["Sheet1"]["C11"].value == 8091
         finally:
             workbook.close()
+
+
+def test_a_resume_asks_the_source_only_for_what_the_first_run_did_not_settle():
+    with TestClient(create_app(offline_executor_factory=annapurna_executor)) as client:
+        _, first, review = reviewed_job(client, "mountains")
+        [item] = review["items"]
+        decision = {
+            "operation_id": item["operation_id"],
+            "source": "wikidata",
+            "entity_id": "Q9001",
+        }
+        response = client.post(
+            f"/api/jobs/{first['job_id']}/resume", json={"decisions": [decision]}
+        )
+        second = wait(client, response.json())
+        before = client.get(first["artifacts"]["report"]).json()["execution"]
+        report = client.get(second["artifacts"]["report"]).json()
+        after = report["execution"]
+        # The first run had nothing to take over and kept what it confirmed:
+        # the one mountain it found and that mountain's elevation.
+        assert before["metrics"]["persistent_cache_hits"] == 0
+        assert before["metrics"]["persistent_cache_writes"] == 2
+        # The resume takes both over, and asks only for the names without a
+        # confirmed match and for the summit the user chose.
+        assert after["metrics"]["persistent_cache_hits"] == 2
+        asked = "transport_attempts"
+        assert (
+            after["provider_requests"]["wikidata"][asked]
+            < (before["provider_requests"]["wikidata"][asked])
+        )
+        # A value taken over is the same value, with the same audited decision.
+        rows = {row["row"]: row for row in report["rows"]}
+        assert rows[2]["status"] == "success" and rows[11]["status"] == "success"
+        assert rows[11]["user_chosen_steps"] == ["resolve"] and rows[2]["user_chosen_steps"] == []
+        decided = {
+            link["record_id"]: operation["report"]["decision"]["selected"]
+            for operation in after["resolution_report"]["operations"]
+            for link in operation["record_links"]
+        }
+        assert decided[rows[2]["record_id"]] is not None
+        workbook = load_workbook(BytesIO(client.get(second["artifacts"]["result"]).content))
+        try:
+            assert workbook["Sheet1"]["C2"].value and workbook["Sheet1"]["C11"].value == 8091
+        finally:
+            workbook.close()
+
+
+def test_runs_of_different_plans_do_not_share_what_they_confirmed():
+    with TestClient(create_app(offline_executor_factory=annapurna_executor)) as client:
+        dataset = upload(client, "mountains")
+        hits = []
+        for _ in range(2):
+            plan = approve(
+                client, client.post("/api/plans", json=request_body(dataset, "mountains")).json()
+            )
+            job = wait(client, start(client, plan))
+            report = client.get(job["artifacts"]["report"]).json()
+            hits.append(report["execution"]["metrics"]["persistent_cache_hits"])
+            # The same plan run again does reuse.
+            again = wait(client, start(client, plan))
+            report = client.get(again["artifacts"]["report"]).json()
+            assert report["execution"]["metrics"]["persistent_cache_hits"] == 2
+        assert hits == [0, 0]
 
 
 def test_mountains_use_the_same_review_and_resume_routes():
@@ -1030,8 +1083,8 @@ class PacedTransport(APITransportFixture):
         return super().get_json(url=url, params=params, timeout_seconds=timeout_seconds)
 
 
-def paced_executor(capabilities: frozenset[str], policy: MountainPolicy, max_rows: int):
-    return live_executor(capabilities, policy, max_rows, transport=PacedTransport())
+def paced_executor(capabilities: frozenset[str], policy: MountainPolicy, max_rows: int, **options):
+    return live_executor(capabilities, policy, max_rows, transport=PacedTransport(), **options)
 
 
 def test_a_run_reports_how_many_rows_are_finished():
@@ -1095,19 +1148,9 @@ class TwoAmbiguousCities(APITransportFixture):
 
 
 def two_ambiguous_executor(
-    capabilities: frozenset[str],
-    policy: MountainPolicy,
-    max_rows: int,
-    *,
-    resume_selections=None,
+    capabilities: frozenset[str], policy: MountainPolicy, max_rows: int, **options
 ):
-    return live_executor(
-        capabilities,
-        policy,
-        max_rows,
-        transport=TwoAmbiguousCities(),
-        resume_selections=resume_selections,
-    )
+    return live_executor(capabilities, policy, max_rows, transport=TwoAmbiguousCities(), **options)
 
 
 def test_a_second_round_of_review_keeps_the_choices_of_the_first():
@@ -1242,19 +1285,9 @@ class OtherSpellings(APITransportFixture):
 
 
 def other_spellings_executor(
-    capabilities: frozenset[str],
-    policy: MountainPolicy,
-    max_rows: int,
-    *,
-    resume_selections=None,
+    capabilities: frozenset[str], policy: MountainPolicy, max_rows: int, **options
 ):
-    return live_executor(
-        capabilities,
-        policy,
-        max_rows,
-        transport=OtherSpellings(),
-        resume_selections=resume_selections,
-    )
+    return live_executor(capabilities, policy, max_rows, transport=OtherSpellings(), **options)
 
 
 @pytest.fixture
