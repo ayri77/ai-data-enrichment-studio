@@ -176,6 +176,8 @@ class PlanRunService:
         self.tasks: dict[str, asyncio.Task] = {}
         self.cancel_events: dict[str, asyncio.Event] = {}
         self.directories: dict[str, Path] = {}
+        # The user's choices each job ran with, so that a later resume keeps them.
+        self.selections: dict[str, dict] = {}
         self.router = APIRouter(prefix="/api")
         self._routes()
 
@@ -193,6 +195,7 @@ class PlanRunService:
 
     def _drop_job(self, job_id: str) -> None:
         del self.jobs[job_id]
+        self.selections.pop(job_id, None)
         self.tasks.pop(job_id, None)
         self.cancel_events.pop(job_id, None)
         rmtree(self.directories.pop(job_id), ignore_errors=True)
@@ -485,6 +488,10 @@ class PlanRunService:
                     raise WorkspaceError(
                         "no_decisions", "Choose a candidate for at least one item."
                     )
+                # A resume starts from the source workbook again, so the choices
+                # the reviewed job itself ran with are part of the next one: a
+                # second round of review must not undo the first.
+                selections = {**self.selections.get(job_id, {}), **selections}
                 return self.start_job(
                     draft,
                     body,
@@ -569,6 +576,7 @@ class PlanRunService:
             previous_job_id=previous_job_id,
         )
         self.jobs[job_id] = job
+        self.selections[job_id] = dict(resume_selections or {})
         self.directories[job_id] = directory
         self.cancel_events[job_id] = asyncio.Event()
         self.tasks[job_id] = asyncio.create_task(self.supervise(task, draft, job))
