@@ -39,6 +39,8 @@ class Client:
 def test_only_the_name_its_kind_country_and_source_are_sent() -> None:
     system, user = suggestion_messages(QUERY, "geocode")
     assert system["role"] == "system" and "data" in system["content"]
+    # A name may stand for a whole whose principal part the source lists instead.
+    assert "principal part" in system["content"]
     assert json.loads(user["content"]) == {
         "name": "Мюнхен",
         "kind": "city",

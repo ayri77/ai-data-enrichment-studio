@@ -324,7 +324,10 @@ again; `review_not_available` (409); `network_disabled` (403);
 names the source may list the query (`spellings.py`) and answers
 `{"operation_id": …, "names": […]}` with at most five names. The model request
 carries the name as written, the kind of place, the recognized country, the
-reference source and a name already tried; nothing else from the workbook. The
+reference source and a name already tried; nothing else from the workbook. It
+is asked for other names of the same place (English, local, transliterations)
+and, where the name stands for a whole whose parts the source lists separately
+(a massif and its summits), for the name of the principal part. The
 reply is untrusted: only a JSON object with a list is accepted, entries that are
 not one printable line of at most 100 characters, repeats and the row's own
 value are dropped, and any other shape is an error rather than an empty list.
