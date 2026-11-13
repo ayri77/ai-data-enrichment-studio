@@ -405,11 +405,28 @@ test("capitals: a name the source does not know is found under another name", as
     await expect(warsaw.getByTestId("review-chosen")).toContainText(
         "found under “Warszawa”",
     );
+    // The options of Kyiv are compared and chosen on the map, in place. The
+    // map itself comes from another site; the test supplies a blank page.
+    await page.route("https://www.openstreetmap.org/**", (route) =>
+        route.fulfill({ contentType: "text/html", body: "<html></html>" }),
+    );
     await page
         .getByTestId("review-Kyiv")
         .getByTestId("candidate-open-meteo:703448")
-        .getByRole("radio")
+        .getByRole("button", { name: "Map" })
         .click();
+    const map = page.getByTestId("candidate-map");
+    await expect(map.getByTestId("map-position")).toHaveText("Option 1 of 2");
+    await expect(map.locator("iframe")).toHaveAttribute(
+        "src",
+        /openstreetmap\.org\/export\/embed\.html\?bbox=.*marker=/,
+    );
+    await page.screenshot({ path: testInfo.outputPath("review-map.png") });
+    await map.getByRole("button", { name: "Choose this one" }).click();
+    await expect(map).toHaveCount(0);
+    await expect(
+        page.getByTestId("review-Kyiv").getByTestId("review-chosen"),
+    ).toBeVisible();
     await warsaw.scrollIntoViewIfNeeded();
     await page.screenshot({
         path: testInfo.outputPath("review-other-name.png"),

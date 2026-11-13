@@ -5,7 +5,10 @@ import {
     decisions,
     foundCandidates,
     hasCandidateChoice,
+    mapEmbedUrl,
+    MAP_SPANS,
     otherName,
+    placeOf,
     pendingRecommendations,
     pickedCandidate,
     rowList,
@@ -206,4 +209,38 @@ it("localizes country codes and links to an independent page per source", () => 
         sourceLink(candidate("Q513", { source: "wikidata", attributes: {} })),
     ).toEqual({ kind: "wikidata", href: "https://www.wikidata.org/wiki/Q513" });
     expect(sourceLink(candidate("1", { attributes: {} }))).toBeNull();
+});
+
+it("builds the embedded map address from the source's coordinates only", () => {
+    const berlin = candidate("1", {
+        attributes: { latitude: 52.52, longitude: 13.405 },
+    });
+    expect(placeOf(berlin)).toEqual({ latitude: 52.52, longitude: 13.405 });
+    // No coordinates, or impossible ones: no map is offered.
+    expect(placeOf(candidate("2", { attributes: {} }))).toBeNull();
+    expect(
+        placeOf(candidate("3", { attributes: { latitude: 95, longitude: 0 } })),
+    ).toBeNull();
+    expect(
+        placeOf(
+            candidate("4", { attributes: { latitude: "52", longitude: 13 } }),
+        ),
+    ).toBeNull();
+    const url = new URL(mapEmbedUrl(placeOf(berlin)!, MAP_SPANS[1]));
+    expect(url.origin + url.pathname).toBe(
+        "https://www.openstreetmap.org/export/embed.html",
+    );
+    expect(url.searchParams.get("marker")).toBe("52.52000,13.40500");
+    const [west, south, east, north] = url.searchParams
+        .get("bbox")!
+        .split(",")
+        .map(Number);
+    expect(west).toBeLessThan(13.405);
+    expect(east).toBeGreaterThan(13.405);
+    expect(south).toBeLessThan(52.52);
+    expect(north).toBeGreaterThan(52.52);
+    // A closer view shows a smaller area.
+    const close = new URL(mapEmbedUrl(placeOf(berlin)!, MAP_SPANS[0]));
+    const [closeWest] = close.searchParams.get("bbox")!.split(",").map(Number);
+    expect(closeWest).toBeGreaterThan(west);
 });
