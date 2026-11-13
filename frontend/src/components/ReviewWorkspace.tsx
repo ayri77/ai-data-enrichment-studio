@@ -1078,7 +1078,7 @@ function ReviewStage({ w }: { w: Workflow }) {
                         <p className="notice">{t("review.continued")}</p>
                     )}
                 </div>
-                <div className="workspace-actions">
+                <div className="workspace-actions review-actions">
                     {/* The step that applies the choices sits where the eye
                         goes for "what next": while choices wait, it is the
                         main action and leaving for the results is not. */}

@@ -1629,10 +1629,24 @@ button.candidate-link {
     gap: 6px;
 }
 
-/* Review: applying the choices is the step at the bottom of the panel. */
-.workspace-actions > .review-fill,
-.workspace-actions > .notice {
-    flex-basis: 100%;
+/* Review: applying the choices is the step at the bottom of the panel. The
+   footer is a grid, so its rows are the same in every language: the note, the
+   fill button, then the way back and the way on side by side. A label that is
+   too long for its cell wraps inside its button instead of taking a new row. */
+.workspace-actions.review-actions {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+}
+.review-actions > .review-fill,
+.review-actions > .notice {
+    grid-column: 1 / -1;
+}
+.review-actions > .ui-button {
+    min-width: 0;
+    height: auto;
+    min-height: 36px;
+    white-space: normal;
+    text-align: center;
 }
 .workspace-actions > .notice {
     margin: 0;
