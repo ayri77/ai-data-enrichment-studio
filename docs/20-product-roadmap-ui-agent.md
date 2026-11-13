@@ -2,6 +2,17 @@
 
 **Agreed:** 2026-11-09 · **Owner:** M5 [Epic #6](https://github.com/ayri77/ai-data-enrichment-studio/issues/6) · **Status:** design exploration and local E2E integration are in progress; not a claim of completed UI/agent work.
 
+> **Where this stands at the MVP (2026-11-13).** Delivered: the two-file
+> end-to-end workflow in the browser (section 2), the five workspaces with Basic
+> and Advanced modes, the review workbench with a verified second pass, three
+> interface languages and a hosted demo. Not started: observed execution traces
+> on the graph ([#102](https://github.com/ayri77/ai-data-enrichment-studio/issues/102)),
+> review at scale ([#105](https://github.com/ayri77/ai-data-enrichment-studio/issues/105))
+> and the autonomous agent track (section 4;
+> [#106](https://github.com/ayri77/ai-data-enrichment-studio/issues/106),
+> [#107](https://github.com/ayri77/ai-data-enrichment-studio/issues/107)).
+> The text below is the plan as agreed on 2026-11-09 and is kept unchanged.
+
 ## 1. Product direction
 
 One **AI Data Enrichment Studio**, with shared shell, navigation, state semantics, typography, accessibility, and API contracts, but three **different specialized working modes**:
