@@ -40,6 +40,12 @@ def _entity(
     }
 
 
+# A class that leads to "mountain" only through its parent. A candidate typed
+# with it cannot be decided from its own claims: the walk costs a lookup.
+PEAK = "Q9900"
+PEAK_CLASS = {PEAK: {"id": PEAK, "claims": {"P279": [entity_statement("Q8502")]}}}
+
+
 def _search_hit(
     qid: str, label: str = "Mount Everest", *, alias: bool = False
 ) -> dict[str, object]:
@@ -151,11 +157,11 @@ def test_complete_type_walk_can_reject_an_unrelated_candidate_without_blacklists
 
 @pytest.mark.parametrize("verified_only", [False, True])
 def test_claim_batches_do_not_hide_an_unfinished_candidate_scan(verified_only: bool) -> None:
-    entities = {f"Q{10000 + i}": _entity(f"Q{10000 + i}") for i in range(51)}
+    entities = {f"Q{10000 + i}": _entity(f"Q{10000 + i}", types=(PEAK,)) for i in range(51)}
     hits = [_search_hit(qid) for qid in entities]
     transport = _transport(
         [],
-        entities=entities,
+        entities={**entities, **PEAK_CLASS},
         search_pages=[{"search": hits[:50], "search-continue": 50}, {"search": hits[50:]}],
     )
     outcome = WikidataMountainResolutionService(transport, max_verify_candidates=1).resolve(
@@ -178,7 +184,9 @@ def test_claim_batches_do_not_hide_an_unfinished_candidate_scan(verified_only: b
         for call in transport.get_json.call_args_list
         if call.kwargs["params"]["action"] == "wbgetentities"
     ]
-    assert [len(batch) for batch in batches] == [50, 1, 1]
+    # Candidate claims in two batches, the one country, the class of the one
+    # candidate the budget allowed.
+    assert [len(batch) for batch in batches] == [50, 1, 1, 1]
 
 
 def test_a_plausible_namesake_is_examined_even_when_many_unrelated_ones_come_first() -> None:
@@ -187,9 +195,10 @@ def test_a_plausible_namesake_is_examined_even_when_many_unrelated_ones_come_fir
     # unrelated namesake and accepted nothing; a verified-only run would then
     # have had no idea that a second real candidate existed.
     unrelated = {f"Q1{i:03}": {"id": f"Q1{i:03}", "claims": {}} for i in range(14)}
-    real = {"Q513": _entity("Q513"), "Q9010": _entity("Q9010")}
+    real = {"Q513": _entity("Q513", types=(PEAK,)), "Q9010": _entity("Q9010", types=(PEAK,))}
     transport = _transport(
-        [_search_hit(qid) for qid in (*unrelated, *real)], entities={**unrelated, **real}
+        [_search_hit(qid) for qid in (*unrelated, *real)],
+        entities={**unrelated, **real, **PEAK_CLASS},
     )
     outcome = WikidataMountainResolutionService(transport, max_verify_candidates=1).resolve(
         inputs={"name": "Mount Everest", "country": "Nepal"},
@@ -229,16 +238,93 @@ def test_the_lookup_budget_follows_the_search_order_not_the_entity_ids() -> None
     by_id = {c.reference.entity_id: c for c in outcome.report.candidate_set.candidates}
     assert by_id["Q583"].verification == "verified"
     assert outcome.operation.value == EntityRef(source="wikidata", entity_id="Q583")
-    # The budget is unchanged: one street examined and ruled out, eleven left unexamined.
+    # The summit is typed as a mountain and its country is known, so it costs
+    # nothing. The budget of two goes to two streets in the same country, which
+    # are ruled out; ten are left unexamined.
     assert by_id["Q100"].reason_codes == ("no_mountain_class_path",)
-    assert sum(c.reason_codes == ("search_match_only",) for c in by_id.values()) == 11
+    assert by_id["Q101"].reason_codes == ("no_mountain_class_path",)
+    assert sum(c.reason_codes == ("search_match_only",) for c in by_id.values()) == 10
     assert not outcome.report.candidate_set.candidate_scan_complete
+
+
+def _calls(transport: Mock) -> list[list[str]]:
+    return [
+        call.kwargs["params"]["ids"].split("|")
+        for call in transport.get_json.call_args_list
+        if call.kwargs["params"]["action"] == "wbgetentities"
+    ]
+
+
+def test_namesake_mountains_in_other_countries_cost_no_lookup_and_no_budget() -> None:
+    # Twenty mountains with this name in the United States come first; the one in
+    # Nepal is last. The budget is one. Before, each namesake cost a request for
+    # its country's code and the budget ended at the first of them.
+    abroad = {f"Q7{i:02}": _entity(f"Q7{i:02}", countries=("Q30",)) for i in range(20)}
+    usa = {"Q30": {"id": "Q30", "claims": {"P297": [_iso("US")]}}}
+    transport = _transport(
+        [*(_search_hit(qid) for qid in abroad), _search_hit("Q513")],
+        entities={**abroad, **usa},
+    )
+    service = WikidataMountainResolutionService(transport, max_verify_candidates=1)
+    outcome = service.resolve(
+        inputs={"name": "Mount Everest", "country": "Nepal"},
+        policy=_policy(verified_only=True),
+    )
+    by_id = {c.reference.entity_id: c for c in outcome.report.candidate_set.candidates}
+    assert outcome.operation.value == EntityRef(source="wikidata", entity_id="Q513")
+    assert by_id["Q513"].verification == "verified"
+    # Elsewhere is still "not confirmed for this country", as before, not "ruled out".
+    assert all(by_id[q].reason_codes == ("country_or_type_unverified",) for q in abroad)
+    # Every candidate was examined, with two requests after the search:
+    # the candidates' claims, and the codes of the three countries they name.
+    assert outcome.report.candidate_set.candidate_scan_complete
+    assert [sorted(ids) for ids in _calls(transport)][1] == ["Q148", "Q30", "Q837"]
+    assert len(_calls(transport)) == 2
+
+    # The same countries in a later row of the same run are not asked about again.
+    transport.get_json.reset_mock()
+    service.resolve(
+        inputs={"name": "Mount Everest", "country": "United States"},
+        policy=_policy(verified_only=True),
+    )
+    assert len(_calls(transport)) == 1
+
+
+def test_a_namesake_of_another_type_abroad_is_not_walked_up_the_class_tree() -> None:
+    # The street's class is not in the scripted source at all: asking for it would fail.
+    street = _entity("Q100", types=("Q79007",), countries=("Q30",))
+    usa = {"Q30": {"id": "Q30", "claims": {"P297": [_iso("US")]}}}
+    transport = _transport(
+        [_search_hit("Q100"), _search_hit("Q513")], entities={"Q100": street, **usa}
+    )
+    outcome = WikidataMountainResolutionService(transport).resolve(
+        inputs={"name": "Mount Everest", "country": "Nepal"},
+        policy=_policy(verified_only=True),
+    )
+    by_id = {c.reference.entity_id: c for c in outcome.report.candidate_set.candidates}
+    assert by_id["Q513"].verification == "verified"
+    assert by_id["Q100"].reason_codes == ("country_or_type_unverified",)
+    assert not any("Q79007" in ids for ids in _calls(transport))
+
+
+def test_a_failed_country_request_is_reported_by_the_candidate_that_needs_it() -> None:
+    transport = _transport([_search_hit("Q513")], fail_on="Q837")
+    outcome = WikidataMountainResolutionService(transport).resolve(
+        inputs={"name": "Mount Everest", "country": "Nepal"}, policy=_policy()
+    )
+    assert outcome.operation.status == "failure"
+    assert outcome.report.decision.status == "provider_failure"
+    assert outcome.report.decision.selected is None
 
 
 def test_alias_matches_still_wait_behind_label_matches() -> None:
     transport = _transport(
         [_search_hit("Q9010", "Sagarmatha", alias=True), _search_hit("Q513")],
-        entities={"Q9010": _entity("Q9010")},
+        entities={
+            "Q513": _entity("Q513", types=(PEAK,)),
+            "Q9010": _entity("Q9010", types=(PEAK,)),
+            **PEAK_CLASS,
+        },
     )
     outcome = WikidataMountainResolutionService(transport, max_verify_candidates=1).resolve(
         inputs={"name": "Mount Everest", "country": "Nepal"},
@@ -451,8 +537,10 @@ def test_candidate_budget_prevents_uncertain_auto_acceptance_and_preserves_obser
     transport = _transport(
         [_search_hit("Q513"), _search_hit("Q9201"), _search_hit("Q9202")],
         entities={
-            "Q9201": _entity("Q9201"),
-            "Q9202": _entity("Q9202"),
+            "Q513": _entity("Q513", types=(PEAK,)),
+            "Q9201": _entity("Q9201", types=(PEAK,)),
+            "Q9202": _entity("Q9202", types=(PEAK,)),
+            **PEAK_CLASS,
         },
     )
     outcome = WikidataMountainResolutionService(transport, max_verify_candidates=2).resolve(

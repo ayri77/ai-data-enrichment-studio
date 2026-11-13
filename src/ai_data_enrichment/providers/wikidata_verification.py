@@ -4,7 +4,7 @@ Mountain type and country must both be positively verified.
 Fetched claims are reused; only indirect types require a bounded hierarchy walk.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from json import JSONDecodeError
 
 from ai_data_enrichment.execution.models import Evidence, OperationResult
@@ -16,8 +16,9 @@ from ai_data_enrichment.providers.wikidata_constants import (
     WIKIDATA_P_COUNTRY,
     WIKIDATA_P_INSTANCE_OF,
     WIKIDATA_P_SUBCLASS_OF,
+    WIKIDATA_Q_MOUNTAIN,
 )
-from ai_data_enrichment.providers.wikidata_country import verify_country
+from ai_data_enrichment.providers.wikidata_country import referenced_countries, verify_country
 from ai_data_enrichment.providers.wikidata_ontology import mountain_class_path
 from ai_data_enrichment.providers.wikidata_parsing import (
     _ranked_entity_ids,
@@ -75,6 +76,42 @@ def fetch_wikidata_candidate_entities(
     return results
 
 
+def decided_without_requests(
+    entity_data: object,
+    *,
+    accepted_country_codes: tuple[str, ...],
+    known_country_codes: Mapping[str, tuple[str, ...]],
+) -> bool:
+    """Whether verifying this already-fetched entity is certain to need no request.
+
+    True for a candidate without a class or a country (it cannot be positively
+    eligible), for one whose countries are all known and none is requested (the
+    class is then never walked), and for one in a requested country that is
+    typed as a mountain directly. Everything else, and anything unusual, may
+    need the provider and is counted against the lookup budget.
+    """
+    if not needs_provider_verification(entity_data):
+        return True
+    assert isinstance(entity_data, dict)
+    claims = entity_data["claims"]
+    countries = referenced_countries(claims)
+    if isinstance(countries, OperationResult):
+        return False
+    if any(country not in known_country_codes for country in countries):
+        return False
+    if not any(
+        code in accepted_country_codes
+        for country in countries
+        for code in known_country_codes[country]
+    ):
+        return True
+    instance_of = claims.get(WIKIDATA_P_INSTANCE_OF)
+    if not isinstance(instance_of, list):
+        return False
+    class_ids = _ranked_entity_ids(instance_of, property_id=WIKIDATA_P_INSTANCE_OF)
+    return not isinstance(class_ids, OperationResult) and WIKIDATA_Q_MOUNTAIN in class_ids
+
+
 def needs_provider_verification(entity_data: object) -> bool:
     """Whether verifying this already-fetched entity can require further requests.
 
@@ -98,8 +135,16 @@ def verify_wikidata_mountain_candidate(
     expected_country_code: str,
     accepted_country_codes: tuple[str, ...] | None = None,
     entities: Mapping[str, object] | None = None,
+    known_country_codes: MutableMapping[str, tuple[str, ...]] | None = None,
 ) -> OperationResult:
-    """Verify one candidate's entity type and country."""
+    """Verify one candidate's entity type and country.
+
+    With ``known_country_codes`` the country is checked first, from codes that
+    are remembered across candidates, and the class hierarchy is walked only
+    for a candidate in a requested country. Most namesakes of a mountain are
+    mountains elsewhere; they are then set aside without a request. Without it
+    the class is checked first, as before.
+    """
 
     if entities is None:
         fetched = fetch_wikidata_candidate_entities(transport, qids=(qid,))
@@ -170,6 +215,24 @@ def verify_wikidata_mountain_candidate(
             message="Candidate has no verifiable country property.",
         )
 
+    def check_country() -> OperationResult:
+        return verify_country(
+            transport,
+            qid=qid,
+            claims=claims,
+            expected_country_code=expected_country_code,
+            accepted_country_codes=accepted_country_codes,
+            known_country_codes=known_country_codes,
+        )
+
+    country_result: OperationResult | None = None
+
+    if known_country_codes is not None:
+        country_result = check_country()
+
+        if country_result.status != "success":
+            return country_result
+
     class_path = mountain_class_path(transport, class_ids)
 
     if isinstance(class_path, OperationResult):
@@ -182,16 +245,11 @@ def verify_wikidata_mountain_candidate(
             message="Candidate is not classified as a mountain.",
         )
 
-    country_result = verify_country(
-        transport,
-        qid=qid,
-        claims=claims,
-        expected_country_code=expected_country_code,
-        accepted_country_codes=accepted_country_codes,
-    )
+    if country_result is None:
+        country_result = check_country()
 
-    if country_result.status != "success":
-        return country_result
+        if country_result.status != "success":
+            return country_result
 
     # Record the subclass chain when an indirect type matched.
     if len(class_path) > 1:

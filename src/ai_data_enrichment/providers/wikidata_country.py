@@ -1,6 +1,7 @@
 """Verify mountain country references against Wikidata ISO country identifiers."""
 
 import re
+from collections.abc import MutableMapping
 from json import JSONDecodeError
 
 from ai_data_enrichment.execution.models import EntityRef, Evidence, OperationResult
@@ -37,26 +38,11 @@ def parse_country_codes(country: str) -> tuple[str, ...]:
     return tuple(sorted(codes))
 
 
-def verify_country(
-    transport: JsonTransport,
-    *,
-    qid: str,
-    claims: dict[str, object],
-    expected_country_code: str,
-    accepted_country_codes: tuple[str, ...] | None = None,
-) -> OperationResult:
-    """Verify mountain country through P17 and country P297 claims."""
-
-    allowed_codes = (
-        accepted_country_codes if accepted_country_codes is not None else (expected_country_code,)
-    )
+def referenced_countries(claims: dict[str, object]) -> list[str] | OperationResult:
+    """Read the best-ranked P17 country references of a candidate, in order."""
 
     def failure(code: str, message: str) -> OperationResult:
-        return OperationResult(
-            status="failure",
-            error_code=code,
-            message=message,
-        )
+        return OperationResult(status="failure", error_code=code, message=message)
 
     if WIKIDATA_P_COUNTRY not in claims:
         return failure(
@@ -118,7 +104,17 @@ def verify_country(
             "No verifiable mountain country references.",
         )
 
-    # Fetch all referenced country entities in one request.
+    return country_ids
+
+
+def fetch_country_codes(
+    transport: JsonTransport, country_ids: list[str]
+) -> dict[str, tuple[str, ...]] | OperationResult:
+    """Read the ISO codes (P297) of country entities in one request."""
+
+    def failure(code: str, message: str) -> OperationResult:
+        return OperationResult(status="failure", error_code=code, message=message)
+
     try:
         payload = transport.get_json(
             url=WIKIDATA_API_URL,
@@ -155,6 +151,8 @@ def verify_country(
             "Missing Wikidata country entities.",
         )
 
+    found: dict[str, tuple[str, ...]] = {}
+
     for country_qid in country_ids:
         entity_data = entities.get(country_qid)
 
@@ -180,10 +178,8 @@ def verify_country(
                 "Invalid Wikidata country claims.",
             )
 
-        if WIKIDATA_P_ISO_COUNTRY_CODE not in country_claims:
-            continue
-
-        codes = country_claims[WIKIDATA_P_ISO_COUNTRY_CODE]
+        iso_codes: list[str] = []
+        codes = country_claims.get(WIKIDATA_P_ISO_COUNTRY_CODE, [])
 
         if not isinstance(codes, list):
             return failure(
@@ -225,25 +221,72 @@ def verify_country(
                     "Malformed Wikidata ISO country code.",
                 )
 
-            if iso_code in allowed_codes:
-                return OperationResult(
-                    status="success",
-                    value=EntityRef(
+            iso_codes.append(iso_code)
+
+        found[country_qid] = tuple(iso_codes)
+
+    return found
+
+
+def verify_country(
+    transport: JsonTransport,
+    *,
+    qid: str,
+    claims: dict[str, object],
+    expected_country_code: str,
+    accepted_country_codes: tuple[str, ...] | None = None,
+    known_country_codes: MutableMapping[str, tuple[str, ...]] | None = None,
+) -> OperationResult:
+    """Verify mountain country through P17 and country P297 claims.
+
+    ``known_country_codes`` remembers the ISO codes of country entities that
+    were already read, so a table of namesakes in a handful of countries asks
+    about each country once, not once per namesake. What a country's code is
+    does not depend on which mountain refers to it.
+    """
+
+    allowed_codes = (
+        accepted_country_codes if accepted_country_codes is not None else (expected_country_code,)
+    )
+    known = known_country_codes if known_country_codes is not None else {}
+
+    country_ids = referenced_countries(claims)
+
+    if isinstance(country_ids, OperationResult):
+        return country_ids
+
+    unknown = [country_qid for country_qid in country_ids if country_qid not in known]
+
+    if unknown:
+        # Fetch all not yet known country entities in one request.
+        fetched = fetch_country_codes(transport, unknown)
+
+        if isinstance(fetched, OperationResult):
+            return fetched
+
+        known.update(fetched)
+
+    for country_qid in country_ids:
+        if any(iso_code in allowed_codes for iso_code in known[country_qid]):
+            return OperationResult(
+                status="success",
+                value=EntityRef(
+                    source="wikidata",
+                    entity_id=qid,
+                ),
+                evidence=(
+                    Evidence(
                         source="wikidata",
-                        entity_id=qid,
-                    ),
-                    evidence=(
-                        Evidence(
-                            source="wikidata",
-                            reference=(
-                                f"{qid}:{WIKIDATA_P_INSTANCE_OF},{WIKIDATA_P_COUNTRY};"
-                                f"{country_qid}:{WIKIDATA_P_ISO_COUNTRY_CODE}"
-                            ),
+                        reference=(
+                            f"{qid}:{WIKIDATA_P_INSTANCE_OF},{WIKIDATA_P_COUNTRY};"
+                            f"{country_qid}:{WIKIDATA_P_ISO_COUNTRY_CODE}"
                         ),
                     ),
-                )
+                ),
+            )
 
-    return failure(
-        "NOT_FOUND",
-        "Requested country could not be verified for the mountain.",
+    return OperationResult(
+        status="failure",
+        error_code="NOT_FOUND",
+        message="Requested country could not be verified for the mountain.",
     )

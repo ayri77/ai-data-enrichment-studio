@@ -14,11 +14,17 @@ from ai_data_enrichment.execution.models import Evidence, OperationResult, Runti
 from ai_data_enrichment.providers.http_transport import JsonTransport
 from ai_data_enrichment.providers.wikidata_candidates import normalize_wikidata_search_candidates
 from ai_data_enrichment.providers.wikidata_constants import (
+    WIKIDATA_ENTITY_BATCH_SIZE,
     WIKIDATA_MAX_VERIFY_CANDIDATES,
 )
-from ai_data_enrichment.providers.wikidata_country import parse_country_codes
+from ai_data_enrichment.providers.wikidata_country import (
+    fetch_country_codes,
+    parse_country_codes,
+    referenced_countries,
+)
 from ai_data_enrichment.providers.wikidata_search import fetch_wikidata_search
 from ai_data_enrichment.providers.wikidata_verification import (
+    decided_without_requests,
     fetch_wikidata_candidate_entities,
     needs_provider_verification,
     verify_wikidata_mountain_candidate,
@@ -66,6 +72,9 @@ class WikidataMountainResolutionService:
         self._max_verify_candidates = max_verify_candidates
         self._engine = ResolutionEngine()
         self._strategy = MountainRankingStrategy()
+        # ISO codes of the country entities seen so far. The service lives for
+        # one run, so each country is asked about once per run.
+        self._country_codes: dict[str, tuple[str, ...]] = {}
 
     def resolve(
         self,
@@ -164,15 +173,27 @@ class WikidataMountainResolutionService:
         # sub-Antarctic island was the only mountain ever examined.
         ordered = sorted(normalized.candidates, key=lambda c: _match_kind(c) != "label")
 
-        # The budget bounds provider work. Candidates decided from the claims that
-        # were already fetched (no class or no country) cost nothing and are always
-        # decided, so a namesake that could be a mountain is never left unexamined
-        # merely because films and ships with the same name came first.
+        # The budget bounds provider work, so it counts only candidates that may
+        # need a request. A candidate without a class or a country is decided
+        # from the claims already fetched. So is a namesake whose countries are
+        # all known and are not the requested ones, and a candidate in a
+        # requested country that is typed as a mountain directly. On live data
+        # most candidates are of these kinds (for twelve test names, 88 of 138
+        # candidates with a class and a country were mountains, mostly in other
+        # countries), and spending the budget on them left real candidates
+        # unexamined.
+        self._learn_countries(entities)
         lookups = 0
+        exceeded = False
         for candidate in ordered:
             qid = candidate.reference.entity_id
-            if needs_provider_verification(entities.get(qid)):
+            if not decided_without_requests(
+                entities.get(qid),
+                accepted_country_codes=country_codes,
+                known_country_codes=self._country_codes,
+            ):
                 if lookups >= self._max_verify_candidates:
+                    exceeded = True
                     continue
                 lookups += 1
             checked = verify_wikidata_mountain_candidate(
@@ -181,6 +202,7 @@ class WikidataMountainResolutionService:
                 expected_country_code=country_code,
                 accepted_country_codes=country_codes,
                 entities=entities,
+                known_country_codes=self._country_codes,
             )
             if checked.status == "success":
                 replacements[qid] = candidate.model_copy(
@@ -254,10 +276,6 @@ class WikidataMountainResolutionService:
             )
             return self._emit(candidate_set=candidate_set, policy=policy, failure=failure)
 
-        exceeded = (
-            sum(needs_provider_verification(entities.get(c.reference.entity_id)) for c in ordered)
-            > self._max_verify_candidates
-        )
         return self._emit(
             candidate_set=CandidateSet(
                 query=query,
@@ -276,6 +294,34 @@ class WikidataMountainResolutionService:
             ),
             policy=policy,
         )
+
+    def _learn_countries(self, entities: Mapping[str, object]) -> None:
+        """Read, in one request, the codes of the countries the candidates refer to.
+
+        Best effort: if the request fails nothing is remembered, and the first
+        candidate that needs a country asks again and reports the failure in
+        the usual way.
+        """
+        unknown: list[str] = []
+        for entity_data in entities.values():
+            if not needs_provider_verification(entity_data):
+                continue
+            assert isinstance(entity_data, dict)
+            countries = referenced_countries(entity_data["claims"])
+            if isinstance(countries, OperationResult):
+                continue
+            unknown.extend(
+                country
+                for country in countries
+                if country not in self._country_codes and country not in unknown
+            )
+        for start in range(0, len(unknown), WIKIDATA_ENTITY_BATCH_SIZE):
+            fetched = fetch_country_codes(
+                self._transport, unknown[start : start + WIKIDATA_ENTITY_BATCH_SIZE]
+            )
+            if isinstance(fetched, OperationResult):
+                return
+            self._country_codes.update(fetched)
 
     def _provider_failure(
         self,
