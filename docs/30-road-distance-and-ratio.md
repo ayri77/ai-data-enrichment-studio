@@ -1,9 +1,9 @@
 # Road distance and ratio: two capabilities added after 0.1.0
 
-**Status:** implemented and covered by offline tests. **Not verified against the
-live routing service** — the session that wrote it had no key and no network
-access to it. The live check at the end of this note is the owner's step, and
-the planning measurement has to be repeated because the capability set changed.
+**Status:** implemented, covered by offline tests, and run once against the
+live routing service by the owner on 2026-11-13 (recorded below). The service's
+failure answers were not seen in that run, and the planning measurement has to
+be repeated because the capability set changed.
 
 The note separates what the sources and the code show (evidence), what follows
 from it (inference) and what is proposed (recommendation).
@@ -124,17 +124,52 @@ No names and no other cell values.
   a short pause and then leaves the row empty with `RETRY_EXHAUSTED`. Requests
   are not paced to the limit.
 - **City coordinates are centre points.** Whether the service always finds a
-  road within its default search radius of them is not known; that is what
-  `POINT_NOT_ON_ROAD` would show in a live run. The radius was left at the
-  service's default on purpose: widening it changes which road a place is
-  attached to and should follow evidence, not precede it.
+  road within its default search radius of them is not known in general; in the
+  live run below it did for all eleven. The radius was left at the service's
+  default on purpose: widening it changes which road a place is attached to and
+  should follow evidence, not precede it.
+
+## Live run of 2026-11-13
+
+The owner ran the three-column task on `samples/capitals_roads.xlsx` (ten pairs
+of European capitals) with a key of the free plan. The audit does not record
+which model planned; the default is `gpt-6-luna`.
+
+**Evidence** (the job's audit report):
+
+- The planner returned the five-step plan with three outputs on its first
+  attempt, without a repair.
+- All ten rows were filled in all three columns. Evidence of the road step:
+  `openrouteservice driving-car:osm-2026-11-10T22:42:26Z`.
+- No row ended with `POINT_NOT_ON_ROAD`: for these eleven city points the
+  service's default search radius was enough.
+- Ratios lie between 1.13 (Warsaw to Kyiv) and 1.43 (Rome to Madrid), except
+  Athens to Istanbul with 1.94 (1,089 km by road, 560 km in a straight line).
+- The audited job was a resume after two cities were chosen in Review. It asked
+  the routing service 4 times, for the four rows that had waited for a choice;
+  the other six routes were taken over from the first run
+  (`persistent_cache_hits`: 19). It took 2.8 seconds.
+
+**Inference:**
+
+- London to Rome returned 1,843 km although no road leaves Great Britain, so
+  the route includes a ferry or the car train through the tunnel. "By road"
+  therefore means "a route for a car, crossings included". The capability
+  description and the note in the plan now say so. The path itself is not
+  requested, so which crossing was used is not known.
+- One plan is an observation, not a measurement of planning reliability.
+
+**Still not seen live:** the service's failure answers (codes 2004, 2009, 2010,
+a refused key), the answer above 40 requests a minute, and an installation
+without a key.
 
 ## Not covered
 
-- No live request was made. The request shape and the error codes follow the
-  service's documentation and public reports of its answers; the fixture
-  (`evaluation/plan_run_fixtures.py`) answers in that shape with round figures
-  for four cities and is not evidence about the service.
+- The request shape and the error codes follow the service's documentation and
+  public reports of its answers. The success path is confirmed by the run
+  above; the failure paths are not. The fixture
+  (`evaluation/plan_run_fixtures.py`) answers in the same shape with round
+  figures for four cities and is not evidence about the service.
 - The key is read from the environment only. It cannot be entered in the
   browser's provider settings.
 - Only `driving-car` and kilometres. Other profiles and travel time are
@@ -143,33 +178,50 @@ No names and no other cell values.
 - The hosted demo is unchanged until the key is set there. A shared instance
   spends one account's daily quota for all visitors.
 
+## The example
+
+With a key, the start screen offers a third example, "Capitals: straight line,
+by road, and how much longer" (`sample_catalog.py`, `capitals_roads`): the
+workbook above, the instruction of the live run and a prepared plan
+(`demo/capitals_roads_api_plan.json`), so it also runs without a request to the
+model. Without a key the example is not listed.
+
+In Basic mode several columns can be chosen to be filled; a new column is placed
+after the sheet's last one. With several columns chosen, "Suggest a task" asks
+the model for one task that fills them all instead of up to three alternatives:
+a plan has to fill every chosen column, so alternatives that each fill one
+would all be refused.
+
 ## Checks for the owner
 
-1. **Key.** Put `OPENROUTESERVICE_API_KEY=<key>` into the local `.env` and start
-   the server with `--env-file .env`. `GET /api/limits` then lists
-   `road_distance`, and the start screen names the road distance.
-2. **One live run.** In Advanced mode add three output columns to the Capitals
-   example and ask for the straight-line distance, the driving distance by road
-   and how many times longer the road is. Look in Results at the source record
-   of the road step and at any row left empty, and note its code.
-3. **Planning measurement,** with the key set and again without it:
+1. **Key.** Done on 2026-11-13: `OPENROUTESERVICE_API_KEY` in the local `.env`,
+   server started with `--env-file .env`.
+2. **One live run.** Done, see above. Worth adding once: a pair across an ocean,
+   to see which failure code the service answers with.
+3. **Planning measurement,** with the key set and again without it (the third
+   case needs the key):
 
    ```bash
    uv run --env-file .env python -m scripts.experiment_planner --case capitals \
      --model gpt-6-luna --reasoning-effort low --repeat 10
    uv run --env-file .env python -m scripts.experiment_planner --case mountains \
      --model gpt-6-luna --reasoning-effort low --repeat 10
+   uv run --env-file .env python -m scripts.experiment_planner --case capitals_roads \
+     --output-targets distance,road,detour \
+     --model gpt-6-luna --reasoning-effort low --repeat 10
    ```
 
    The script prints the capability set it measured and stores it in
-   `summary.json`. Deploy only after both tasks are still 10 of 10.
+   `summary.json`. Deploy only after the two released tasks are still 10 of 10.
+4. **Suggest a task with several columns.** Not measured: whether the model
+   returns one usable task for two or three chosen columns, in each interface
+   language.
 
 ## Recommendation
 
-- Keep `road_distance` behind its key until the live run and the measurement
-  are recorded here.
-- Decide after the live run, with its codes in hand, whether the search radius
-  around a point needs a stated value.
+- Keep the key off the hosted demo until the measurement is recorded here.
+- The search radius around a point stays at the service's default: the live run
+  gave no reason to change it.
 - Express both capabilities through the binding of
   [the design note](29-capability-extension-design.md) when its step 1 is
   done; they were written against today's structure and touch the places that

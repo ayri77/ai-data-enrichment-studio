@@ -1,0 +1,106 @@
+{
+  "version": "1.0",
+  "steps": [
+    {
+      "id": "from_city",
+      "capability": "geocode",
+      "inputs": {
+        "city": {
+          "kind": "column",
+          "name": "Capital_From"
+        },
+        "country": {
+          "kind": "column",
+          "name": "Country_From"
+        }
+      },
+      "parameters": {}
+    },
+    {
+      "id": "to_city",
+      "capability": "geocode",
+      "inputs": {
+        "city": {
+          "kind": "column",
+          "name": "Capital_To"
+        },
+        "country": {
+          "kind": "column",
+          "name": "Country_To"
+        }
+      },
+      "parameters": {}
+    },
+    {
+      "id": "distance",
+      "capability": "geodesic_distance",
+      "inputs": {
+        "point_a": {
+          "kind": "step_output",
+          "step_id": "from_city"
+        },
+        "point_b": {
+          "kind": "step_output",
+          "step_id": "to_city"
+        }
+      },
+      "parameters": {
+        "unit": "km"
+      }
+    },
+    {
+      "id": "road",
+      "capability": "road_distance",
+      "inputs": {
+        "point_a": {
+          "kind": "step_output",
+          "step_id": "from_city"
+        },
+        "point_b": {
+          "kind": "step_output",
+          "step_id": "to_city"
+        }
+      },
+      "parameters": {
+        "unit": "km"
+      }
+    },
+    {
+      "id": "detour",
+      "capability": "ratio",
+      "inputs": {
+        "numerator": {
+          "kind": "step_output",
+          "step_id": "road"
+        },
+        "denominator": {
+          "kind": "step_output",
+          "step_id": "distance"
+        }
+      },
+      "parameters": {}
+    }
+  ],
+  "outputs": [
+    {
+      "step_id": "distance",
+      "value_field": "value",
+      "target_column": "distance",
+      "expected_unit": "km"
+    },
+    {
+      "step_id": "road",
+      "value_field": "value",
+      "target_column": "road",
+      "expected_unit": "km"
+    },
+    {
+      "step_id": "detour",
+      "value_field": "value",
+      "target_column": "detour"
+    }
+  ],
+  "assumptions": [
+    "Resolve each literal city in its supplied country, including Istanbul."
+  ]
+}

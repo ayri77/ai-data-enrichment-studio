@@ -97,7 +97,7 @@ npm run dev
 
 Open <http://127.0.0.1:5173>.
 
-- **Without a key** you can try both examples: each comes with a prepared plan,
+- **Without a key** you can try the examples: each comes with a prepared plan,
   so no language model is needed. Lookups still go to Open-Meteo and Wikidata.
 - **With an OpenAI key** you can describe your own task. Enter the key under
   *Provider / Model settings* (it stays in the memory of the local process), or
@@ -154,8 +154,8 @@ Vite. Start reading the code with the
 
 - **Few tasks.** Cities and mountains only; adding a source or an operation
   means writing code. The driving distance is computed by a routing service and
-  has no source record to check it against; it was not yet verified in a live
-  run.
+  has no source record to check it against; it was run live once, on ten pairs
+  of capitals.
 - **One run fills up to 20 rows by default.** `ENRICHMENT_MAX_RUN_ROWS` raises
   this locally, up to 5,000. A run is stopped after 300 seconds. Runs are not
   parallel: 50 mountains took about two minutes in a live measurement.

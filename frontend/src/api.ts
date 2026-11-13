@@ -59,7 +59,8 @@ export interface Sample {
     sample_id: string;
     filename: string;
     instruction: string;
-    output: { name: string; column: string };
+    /** Every column the example fills, in the order of its instruction. */
+    outputs: { name: string; column: string }[];
     /** A prepared plan exists, so the example also works without the AI provider. */
     has_plan: boolean;
 }
@@ -392,6 +393,8 @@ export const api = {
         range_ref: string;
         language: string;
         allow_network: boolean;
+        /** Headers of the columns chosen to be filled, when there are several. */
+        fill_columns?: string[];
     }) => post<{ tasks: string[] }>("/api/task-ideas", body),
     /** Ask the model under which other names the source may know a query. */
     suggestNames: (id: string, operationId: string, allow_network: boolean) =>

@@ -116,6 +116,7 @@ def test_examples_are_listed_downloadable_and_pass_the_ordinary_upload_checks(
     site: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     granted = {"X-Access-Code": CODE}
+    monkeypatch.delenv("OPENROUTESERVICE_API_KEY", raising=False)
     with TestClient(create_app(access_code=CODE, static_dir=site)) as client:
         # Examples are part of the protected API like everything else.
         assert client.get("/api/samples").status_code == 401
@@ -123,7 +124,7 @@ def test_examples_are_listed_downloadable_and_pass_the_ordinary_upload_checks(
         assert [s["sample_id"] for s in listed] == ["capitals", "mountains"]
         capitals = listed[0]
         assert capitals["filename"] == "capitals.xlsx" and capitals["has_plan"] is True
-        assert capitals["output"] == {"name": "distance", "column": "E"}
+        assert capitals["outputs"] == [{"name": "distance", "column": "E"}]
         assert "distance" in capitals["instruction"]
         workbook = client.get("/api/samples/capitals/workbook", headers=granted)
         assert workbook.content == WORKBOOK
@@ -143,11 +144,45 @@ def test_examples_are_listed_downloadable_and_pass_the_ordinary_upload_checks(
                 "sheet_name": "Sheet1",
                 "range_ref": "A1:E11",
                 "instruction": capitals["instruction"],
-                "output_columns": {capitals["output"]["name"]: capitals["output"]["column"]},
+                "output_columns": {o["name"]: o["column"] for o in capitals["outputs"]},
                 "plan": plan,
             },
         )
         assert draft.status_code == 201 and draft.json()["validation"]["valid"] is True
+        # The three-column example needs a road distance: it is listed only where
+        # that is offered, and its prepared plan is valid for its own workbook.
+        monkeypatch.setenv("OPENROUTESERVICE_API_KEY", "key-for-the-offline-fixture")
+        listed = client.get("/api/samples", headers=granted).json()["samples"]
+        assert [s["sample_id"] for s in listed] == ["capitals", "mountains", "capitals_roads"]
+        roads = listed[2]
+        assert roads["has_plan"] is True
+        assert roads["outputs"] == [
+            {"name": "distance", "column": "E"},
+            {"name": "road", "column": "F"},
+            {"name": "detour", "column": "G"},
+        ]
+        uploaded = client.post(
+            "/api/datasets",
+            params={"filename": roads["filename"]},
+            content=client.get("/api/samples/capitals_roads/workbook", headers=granted).content,
+            headers=granted,
+        ).json()
+        assert uploaded["worksheets"][0]["table_range"] == "A1:G11"
+        draft = client.post(
+            "/api/plans",
+            headers=granted,
+            json={
+                "dataset_id": uploaded["dataset_id"],
+                "sheet_name": "Sheet1",
+                "range_ref": "A1:G11",
+                "instruction": roads["instruction"],
+                "output_columns": {o["name"]: o["column"] for o in roads["outputs"]},
+                "plan": client.get("/api/samples/capitals_roads/plan", headers=granted).json(),
+            },
+        )
+        assert draft.status_code == 201 and draft.json()["validation"]["valid"] is True
+        steps = [step["capability"] for step in draft.json()["plan"]["steps"]]
+        assert steps == ["geocode", "geocode", "geodesic_distance", "road_distance", "ratio"]
         for path in ("/api/samples/unknown/workbook", "/api/samples/unknown/plan"):
             response = client.get(path, headers=granted)
             assert response.status_code == 404

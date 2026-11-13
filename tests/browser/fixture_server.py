@@ -5,6 +5,7 @@ There are no new HTTP fixture switches or simulated execution results.
 """
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -27,9 +28,18 @@ class SamplePlanClient:
             return FixtureNamesClient().complete(messages=messages, response_schema=response_schema)
         context = json.loads(messages[1]["content"])
         columns = {column["name"] for column in context["dataset_profile"]["columns"]}
-        name = "capitals" if "distance" in columns else "mountains"
+        name = (
+            "capitals_roads"
+            if "road" in columns
+            else "capitals"
+            if "distance" in columns
+            else "mountains"
+        )
         plan = json.loads(Path(f"demo/{name}_api_plan.json").read_text("utf-8"))
         return FixturePlanClient(plan).complete(messages=messages, response_schema=response_schema)
 
 
+# Road distances are offered only with a routing key. The injected transport
+# answers every request itself, so this value never leaves the process.
+os.environ.setdefault("OPENROUTESERVICE_API_KEY", "offline-fixture")
 app = create_app(offline_plan_client=SamplePlanClient(), offline_executor_factory=offline_executor)

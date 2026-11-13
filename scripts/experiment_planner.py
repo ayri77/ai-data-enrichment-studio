@@ -4,6 +4,10 @@ Run it as a module from the repository root, so that ``tests.support`` is import
 
     uv run --env-file .env python -m scripts.experiment_planner --case capitals --model gpt-4.1-mini
 
+The three-column case mirrors the interface when the output targets are stated:
+
+    ... --case capitals_roads --output-targets distance,road,detour
+
 A reasoning model is measured with its effort stated, because the default effort is the
 model's own and its reasoning tokens count against the output budget:
 
@@ -27,6 +31,7 @@ from uuid import uuid4
 from openai import OpenAI
 from tests.support.planning import (
     CAPITALS_INSTRUCTION,
+    CAPITALS_ROADS_INSTRUCTION,
     MOUNTAINS_INSTRUCTION,
     workbook_profile,
 )
@@ -34,7 +39,16 @@ from tests.support.planning import (
 from ai_data_enrichment.plan_run_worker import MAX_PLAN_STEPS, builtin_registry
 from ai_data_enrichment.planning.llm_planner import LLMPlanner, PlanGenerationError
 from ai_data_enrichment.planning.openai_client import OpenAIPlanClient
+from ai_data_enrichment.providers.openrouteservice import ROUTING_KEY_VARIABLE
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy
+
+# The sample tasks, each with the instruction a visitor of the demo gets.
+INSTRUCTIONS = {
+    "capitals": CAPITALS_INSTRUCTION,
+    "mountains": MOUNTAINS_INSTRUCTION,
+    # Five steps and three columns; needs a routing key in the environment.
+    "capitals_roads": CAPITALS_ROADS_INSTRUCTION,
+}
 
 
 class RecordingClient:
@@ -95,7 +109,7 @@ def request_timing(records: list[dict[str, object]]) -> dict[str, object]:
 
 def run() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--case", choices=("capitals", "mountains"), required=True)
+    parser.add_argument("--case", choices=tuple(INSTRUCTIONS), required=True)
     parser.add_argument("--model", default=os.getenv("OPENAI_MODEL"))
     parser.add_argument("--repeat", type=int, default=3)
     parser.add_argument("--repairs", type=int, choices=(0, 1, 2), default=2)
@@ -130,9 +144,7 @@ def run() -> None:
     instruction = (
         args.prompt_file.read_text(encoding="utf-8").strip()
         if args.prompt_file
-        else CAPITALS_INSTRUCTION
-        if args.case == "capitals"
-        else MOUNTAINS_INSTRUCTION
+        else INSTRUCTIONS[args.case]
     )
     if not instruction:
         parser.error("Instruction cannot be empty")
@@ -141,6 +153,8 @@ def run() -> None:
     # of it only with a routing key, and the planner is measured on that set.
     registry = builtin_registry()
     offered = sorted(spec.id for spec in registry.list_all())
+    if args.case == "capitals_roads" and "road_distance" not in offered:
+        parser.error(f"--case capitals_roads needs {ROUTING_KEY_VARIABLE} in the environment")
     print(f"Capabilities offered to the planner: {', '.join(offered)}")
 
     experiment_dir = args.out / (

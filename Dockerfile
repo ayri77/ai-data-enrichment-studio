@@ -22,8 +22,9 @@ COPY pyproject.toml uv.lock ./
 COPY src ./src
 RUN uv sync --locked --no-dev
 # Example workbooks and their prepared plans, offered on the first screen.
-COPY samples/capitals.xlsx samples/mountains.xlsx ./samples/
-COPY demo/capitals_api_plan.json demo/mountains_api_plan.json ./demo/
+COPY samples/capitals.xlsx samples/mountains.xlsx samples/capitals_roads.xlsx ./samples/
+COPY demo/capitals_api_plan.json demo/mountains_api_plan.json \
+     demo/capitals_roads_api_plan.json ./demo/
 COPY --from=frontend /build/frontend/dist ./frontend/dist
 ENV ENRICHMENT_STATIC_DIR=/app/frontend/dist \
     PORT=10000

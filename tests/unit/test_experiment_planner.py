@@ -1,14 +1,18 @@
 """The planner measurement script: what it records besides the model's answers."""
 
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
 from scripts.experiment_planner import (
+    INSTRUCTIONS,
     SERVER_REQUEST_TIMEOUT_SECONDS,
     RecordingClient,
     request_timing,
 )
+from tests.support.planning import workbook_profile
 
+from ai_data_enrichment import sample_catalog
 from ai_data_enrichment.planning.openai_client import OpenAIPlanClient
 
 
@@ -54,3 +58,20 @@ def test_a_failed_request_is_timed_too() -> None:
     # A timeout is exactly the request whose duration matters.
     assert silent.completions[0]["error_type"] == "TimeoutError"
     assert cast(float, silent.completions[0]["seconds"]) >= 0
+
+
+def test_every_measured_case_is_an_example_with_its_own_instruction_and_table() -> None:
+    assert set(INSTRUCTIONS) == {sample.sample_id for sample in sample_catalog.SAMPLES}
+    for sample in sample_catalog.SAMPLES:
+        # Measured with the words a visitor of the demo gets.
+        assert INSTRUCTIONS[sample.sample_id] == sample.instruction
+        columns = [column.name for column in workbook_profile(sample.sample_id).columns]
+        # The columns the example fills are the last ones of its table.
+        names = [name for name, _ in sample.outputs]
+        assert columns[-len(names) :] == names
+
+
+def test_the_image_carries_every_example_and_its_prepared_plan() -> None:
+    image = Path("Dockerfile").read_text(encoding="utf-8")
+    for sample in sample_catalog.SAMPLES:
+        assert sample.workbook in image and sample.plan in image

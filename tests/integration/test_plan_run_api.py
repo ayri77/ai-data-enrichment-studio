@@ -1810,6 +1810,19 @@ def test_the_model_proposes_tasks_for_a_table_in_the_language_asked_for(ideas):
     assert len(model.calls) == 1
     german = task_ideas(client, dataset_id, language="de").json()["tasks"]
     assert german[0].startswith("[German]") and len(model.calls) == 2
+    # Several chosen columns are one task that fills them all, asked separately
+    # from the open question and kept apart from its answer.
+    chosen = ["distance", "road"]
+    [single] = task_ideas(client, dataset_id, language="uk", fill_columns=chosen).json()["tasks"]
+    assert single == "[Ukrainian] Fill distance, road for Capital_From and Capital_To."
+    assert len(model.calls) == 3
+    assert json.loads(model.calls[2]["messages"][1]["content"])["fill_columns"] == chosen
+    assert task_ideas(client, dataset_id, language="uk").json()["tasks"] == [task]
+    # One chosen column is the open question again.
+    again = task_ideas(client, dataset_id, language="uk", fill_columns=["distance"])
+    assert again.json()["tasks"] == [task] and len(model.calls) == 3
+    for bad in ([""], ["x" * 201], ["c"] * 21):
+        assert task_ideas(client, dataset_id, fill_columns=bad).status_code == 422
     # A proposal is text only: nothing was planned or started.
     mountains = upload(client, "mountains")
     assert "elevation" in task_ideas(client, mountains, "mountains").json()["tasks"][0]

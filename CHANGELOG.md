@@ -4,10 +4,16 @@
 
 - **Driving distance by road** between two points, computed by openrouteservice
   on OpenStreetMap data. Offered only when `OPENROUTESERVICE_API_KEY` is set;
-  without it nothing changes. Not yet verified in a live run.
+  without it nothing changes. Run once against the live service (ten pairs of
+  capitals); its failure answers were not seen yet.
 - **Ratio** of two quantities of the same unit.
 - A plan can branch and fill several columns, for example straight-line
-  distance, distance by road and how many times longer the road is.
+  distance, distance by road and how many times longer the road is. With a
+  routing key this is a third example with a prepared plan.
+- **Basic mode fills several columns:** each is chosen with the same plain
+  question, and new columns are placed after the sheet's last one.
+- **Suggest a task** proposes one task that fills all chosen columns when
+  several are chosen, instead of up to three alternatives.
 - The planning measurement of 0.1.0 was made with four capabilities and has to
   be repeated for the new sets
   ([road distance and ratio](docs/30-road-distance-and-ratio.md)).
