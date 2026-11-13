@@ -28,6 +28,7 @@ from ai_data_enrichment.evaluation.plan_run_fixtures import (
     APITransportFixture,
     FixtureNamesClient,
     FixturePlanClient,
+    FixtureTasksClient,
     offline_executor,
 )
 from ai_data_enrichment.plan_run import TERMINAL, PlanRunSettings
@@ -1634,3 +1635,68 @@ def test_the_choice_about_existing_values_is_part_of_the_plan_and_survives_a_res
     assert client.post("/api/plans", json={**body, "existing_outputs": "erase"}).status_code == 422
     # Left out, existing values are kept.
     assert draft(client)["existing_outputs"] == "keep"
+
+
+@pytest.fixture
+def ideas():
+    """A workspace whose model proposes tasks from the table's columns."""
+    model = FixtureTasksClient()
+    app = create_app(offline_executor_factory=offline_executor, offline_plan_client=model)
+    with TestClient(app) as client:
+        yield client, model
+
+
+def task_ideas(client, dataset_id, name="capitals", **extra):
+    body = {
+        "dataset_id": dataset_id,
+        "sheet_name": "Sheet1",
+        "range_ref": "A1:E11" if name == "capitals" else "A1:C11",
+        **extra,
+    }
+    return client.post("/api/task-ideas", json=body)
+
+
+def test_the_model_proposes_tasks_for_a_table_in_the_language_asked_for(ideas):
+    client, model = ideas
+    dataset_id = upload(client, "capitals")
+    response = task_ideas(client, dataset_id, language="uk")
+    assert response.status_code == 200, response.text
+    [task] = response.json()["tasks"]
+    assert task.startswith("[Ukrainian] Calculate the distance") and task.endswith("distance.")
+    # What was sent is the planning profile: columns, their emptiness, five sample rows.
+    [call] = model.calls
+    sent = json.loads(call["messages"][1]["content"])
+    assert [column["name"] for column in sent["columns"]][-1] == "distance"
+    assert sent["columns"][-1]["empty_cells"] == sent["rows"] == 10
+    assert len(sent["sample_rows"]) == 5
+    # The same question again costs nothing; another language is another question.
+    assert task_ideas(client, dataset_id, language="uk").json()["tasks"] == [task]
+    assert len(model.calls) == 1
+    german = task_ideas(client, dataset_id, language="de").json()["tasks"]
+    assert german[0].startswith("[German]") and len(model.calls) == 2
+    # A proposal is text only: nothing was planned or started.
+    mountains = upload(client, "mountains")
+    assert "elevation" in task_ideas(client, mountains, "mountains").json()["tasks"][0]
+
+
+def test_task_ideas_are_refused_or_reported_without_guessing(ideas, monkeypatch):
+    client, model = ideas
+    dataset_id = upload(client, "capitals")
+    assert task_ideas(client, "0" * 32).status_code == 404
+    assert task_ideas(client, dataset_id, language="fr").status_code == 422
+    bad_range = task_ideas(client, dataset_id, range_ref="A1:ZZ11")
+    assert bad_range.status_code == 422, bad_range.text
+    assert bad_range.json()["error"]["code"] == "invalid_selection"
+    assert not model.calls
+    monkeypatch.setattr(model, "complete", lambda **_: "Here are some ideas!")
+    failed = task_ideas(client, dataset_id)
+    assert failed.status_code == 502 and failed.json()["error"]["code"] == "task_ideas_failed"
+    monkeypatch.setattr(plan_run, "MAX_TASK_IDEA_REQUESTS", 2)
+    limited = task_ideas(client, dataset_id)
+    assert limited.status_code == 429 and limited.json()["error"]["code"] == "task_idea_limit"
+
+
+def test_task_ideas_need_the_network_opt_in_and_a_configured_model(client):
+    dataset_id = upload(client, "capitals")
+    refused = task_ideas(client, dataset_id, allow_network=True)
+    assert refused.status_code == 403 and refused.json()["error"]["code"] == "network_disabled"

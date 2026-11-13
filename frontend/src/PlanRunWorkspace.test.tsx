@@ -50,6 +50,7 @@ vi.mock("./api", async (original) => ({
         resumeJob: vi.fn(),
         searchOtherName: vi.fn(),
         suggestNames: vi.fn(),
+        suggestTasks: vi.fn(),
         artifact: vi.fn(),
     },
 }));
@@ -1520,6 +1521,65 @@ it("offers the fill for a run with nothing to choose once a search has a chosen 
         ),
     ).toBeVisible();
     expect(button("review.resume")).toBeDisabled();
+});
+
+it("asks the AI for a task in the interface language and puts the chosen one into the field", async () => {
+    const tasks = [
+        "Знайди відстань між столицями й запиши у «distance».",
+        "Знайди країну кожної столиці.",
+    ];
+    vi.mocked(api.suggestTasks)
+        .mockRejectedValueOnce(
+            new WorkspaceApiError("task_ideas_failed", "sanitized"),
+        )
+        .mockImplementation(async ({ language }) => ({
+            tasks: language === "uk" ? tasks : [],
+        }));
+    render(<App />);
+    await userEvent.upload(
+        screen.getByLabelText("Upload Excel workbook"),
+        new File(["x"], "capitals.xlsx"),
+    );
+    await userEvent.click(button("previewAction"));
+    const field = await screen.findByLabelText(i18n.t("workflow.instruction"));
+    // Advanced: nothing is sent before the person allows it.
+    expect(button("task.suggest")).toBeDisabled();
+    expect(screen.getByText(i18n.t("task.needsConsent"))).toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText(i18n.t("workflow.network")));
+    expect(screen.getByText(i18n.t("task.sends"))).toBeInTheDocument();
+    await userEvent.click(button("task.suggest"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+        i18n.t("error.task_ideas_failed"),
+    );
+    await act(() => i18n.changeLanguage("uk"));
+    await userEvent.click(button("task.suggest"));
+    expect(api.suggestTasks).toHaveBeenLastCalledWith({
+        dataset_id: "source",
+        sheet_name: "Sheet1",
+        range_ref: "A1:E11",
+        language: "uk",
+        allow_network: true,
+    });
+    const ideas = within(await screen.findByTestId("task-ideas"));
+    // A proposal is only text: the field is the person's until one is chosen.
+    expect(field).toHaveValue("");
+    expect(api.createPlan).not.toHaveBeenCalled();
+    await userEvent.click(ideas.getByRole("button", { name: tasks[0] }));
+    expect(field).toHaveValue(tasks[0]);
+    expect(ideas.getByRole("button", { name: tasks[0] })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+    );
+    // The text can be edited like any typed instruction.
+    await userEvent.type(field, " Км.");
+    expect(field).toHaveValue(`${tasks[0]} Км.`);
+    // Another language is another question; an empty answer says so.
+    await act(() => i18n.changeLanguage("de"));
+    await userEvent.click(button("task.suggest"));
+    expect(await screen.findByTestId("task-ideas")).toHaveTextContent(
+        i18n.t("task.none"),
+    );
+    expect(field).toHaveValue(`${tasks[0]} Км.`);
 });
 
 it("asks the AI for other names and searches the one that is chosen", async () => {

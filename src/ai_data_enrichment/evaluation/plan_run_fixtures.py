@@ -86,6 +86,35 @@ class FixtureNamesClient:
         return json.dumps({"names": self.NAMES.get(place["name"], [])})
 
 
+class FixtureTasksClient:
+    """Answer a request for task ideas from the table's column names."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def complete(self, *, messages: list[dict[str, str]], response_schema: dict[str, Any]) -> str:
+        self.calls.append({"messages": messages, "response_schema": response_schema})
+        table = json.loads(messages[1]["content"])
+        columns = [column["name"] for column in table["columns"]]
+        empty = [c["name"] for c in table["columns"] if c["empty_cells"] >= (table["rows"] or 0)]
+        if len(columns) >= 5 and empty:
+            task = f"Calculate the distance in km between {columns[0]} and {columns[2]}"
+            return json.dumps(
+                {"tasks": [f"[{table['language']}] {task} and write it to {empty[0]}."]}
+            )
+        if empty:
+            task = f"Find the elevation in metres of each {columns[0]}"
+            return json.dumps(
+                {"tasks": [f"[{table['language']}] {task} and write it to {empty[0]}."]}
+            )
+        return json.dumps({"tasks": []})
+
+
+def asks_for_tasks(response_schema: dict[str, Any]) -> bool:
+    """Whether a completion request is for task ideas rather than a plan."""
+    return "tasks" in response_schema.get("properties", {})
+
+
 def asks_for_names(response_schema: dict[str, Any]) -> bool:
     """Whether a completion request is for other names rather than a plan."""
     return "names" in response_schema.get("properties", {})

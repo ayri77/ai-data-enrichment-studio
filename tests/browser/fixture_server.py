@@ -12,13 +12,17 @@ from ai_data_enrichment.api import create_app
 from ai_data_enrichment.evaluation.plan_run_fixtures import (
     FixtureNamesClient,
     FixturePlanClient,
+    FixtureTasksClient,
     asks_for_names,
+    asks_for_tasks,
     offline_executor,
 )
 
 
 class SamplePlanClient:
     def complete(self, *, messages: list[dict[str, str]], response_schema: dict[str, Any]) -> str:
+        if asks_for_tasks(response_schema):
+            return FixtureTasksClient().complete(messages=messages, response_schema=response_schema)
         if asks_for_names(response_schema):
             return FixtureNamesClient().complete(messages=messages, response_schema=response_schema)
         context = json.loads(messages[1]["content"])

@@ -74,6 +74,7 @@ provide the dataset ID and actual worksheet/range; the range includes headers.
 
 | Action | Route | Behavior |
 | --- | --- | --- |
+| Task ideas from the model | `POST /api/task-ideas` | 200; up to three tasks that could be asked for with the selected table, in the language asked for; plans and writes nothing |
 | Create draft | `POST /api/plans` | 201; generate with `LLMPlanner`, or validate a supplied `plan` |
 | Read draft | `GET /api/plans/{plan_id}` | Plan JSON, binding, fingerprint, decision and validation |
 | Validate | `POST /api/plans/{plan_id}/validate` | Semantic DAG/type/parameter checks and explicit column bindings |
@@ -87,6 +88,27 @@ provide the dataset ID and actual worksheet/range; the range includes headers.
 | Search under another name | `POST /api/jobs/{job_id}/review/{operation_id}/search` | 200; what the source confirms for another name of one reviewed query; writes nothing |
 | Other names from the model | `POST /api/jobs/{job_id}/review/{operation_id}/suggestions` | 200; up to five names to search for; searches and writes nothing |
 | Resume | `POST /api/jobs/{job_id}/resume` | 202; a **new** job that applies the user's decisions to the same approved plan |
+
+`POST /api/task-ideas` with `{"dataset_id": …, "sheet_name": …, "range_ref": …,
+"language": "en" | "uk" | "de", "allow_network": true}` asks the configured
+language model what could be asked for with the selected table
+(`task_ideas.py`) and answers `{"tasks": […]}` with at most three tasks. The
+model request carries what a planning request already carries — column names,
+inferred types, the number of empty cells per column and the five sample rows of
+the profile — together with the capability descriptions of the registry and the
+language to write in. The reply is untrusted: only a JSON object with a list is
+accepted, entries that are not printable text of at most 400 characters and
+repeats are dropped, and any other shape is an error rather than an empty list.
+A task is only text for the instruction field: it is planned and validated like
+a typed instruction, and nothing is planned until the user asks for a plan. The
+answer is kept per workbook, sheet, range and language. It needs what planning
+needs (`network_disabled`, `llm_not_configured`, `missing_api_key`); further
+errors are `dataset_not_found` (404), `invalid_selection` (422),
+`suggestions_busy` (409), `task_idea_limit` (429) after 20 model requests for
+one workbook and `task_ideas_failed` (502). How well the proposed tasks plan has
+not been measured, and neither have instructions in Ukrainian or German
+([live planning reliability](26-live-planning-reliability.md) covers English
+instructions only).
 
 Example draft request after uploading Capitals:
 
