@@ -14,8 +14,7 @@ def workbook(
     tmp_path: Path, rows: list[tuple], *, first_row: int = 1, first_column: int = 1
 ) -> Path:
     book = Workbook()
-    sheet = book.active
-    sheet.title = "Data"
+    sheet = book.create_sheet("Data")
     for offset, row in enumerate(rows):
         for index, value in enumerate(row):
             sheet.cell(row=first_row + offset, column=first_column + index, value=value)
@@ -49,7 +48,8 @@ def test_cells_are_shown_as_plain_values(tmp_path) -> None:
             ("clock", time(9, 5)),
         ],
     )
-    values = dict(read_table_rows(path, selection=TableSelection("Data", "A1:B6")).values)
+    table = read_table_rows(path, selection=TableSelection("Data", "A1:B6"))
+    values = {str(name): value for name, value in table.values}
     assert values["long"] == "x" * 200
     assert values["flag"] is True
     assert values["day"] == "2026-11-13"
