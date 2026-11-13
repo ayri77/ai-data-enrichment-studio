@@ -1247,6 +1247,8 @@ button.candidate-link {
     font: inherit;
     color: var(--studio-accent);
     text-decoration: underline;
+    /* A long label in a narrow cell wraps like the sentence it ends. */
+    text-align: start;
 }
 .row-toggle {
     display: inline-flex;

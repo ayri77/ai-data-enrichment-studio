@@ -72,6 +72,14 @@ function Note({ row, w }: { row: ResultRow; w: Workflow }) {
         w.job?.status === "needs_review" &&
         w.review?.job_id === w.job.job_id &&
         w.review.items.length > 0;
+    // A name the source did not find may be known to it under another one.
+    const canSearch =
+        !row.filled &&
+        w.job?.status === "needs_review" &&
+        w.review?.job_id === w.job.job_id &&
+        w.review.informational.some(
+            (item) => item.other_name && item.query.name === row.cause?.subject,
+        );
     // A value found under another name says so itself; the rest are choices
     // between the matches of the row's own name.
     const plain = row.chosen.filter(
@@ -131,6 +139,18 @@ function Note({ row, w }: { row: ResultRow; w: Workflow }) {
                         subject: row.cause.subject ?? t("results.thisRow"),
                         code: row.cause.code,
                     })}
+                    {canSearch && (
+                        <>
+                            {" "}
+                            <button
+                                type="button"
+                                className="inline-link"
+                                onClick={() => w.navigate("review")}
+                            >
+                                {t("results.toSearch")}
+                            </button>
+                        </>
+                    )}
                     {row.cause.kind === "ambiguous" && canReview && (
                         <>
                             {" "}

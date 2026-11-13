@@ -802,14 +802,14 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
                                 <>
                                     <Advanced>
                                         <div className="plan-counts">
+                                            {t("ws.stepCount")}{" "}
                                             <strong>
                                                 {draft.plan.steps.length}
                                             </strong>{" "}
-                                            {t("ws.steps")} ·{" "}
+                                            · {t("ws.outputCount")}{" "}
                                             <strong>
                                                 {draft.plan.outputs.length}
-                                            </strong>{" "}
-                                            {t("ws.outputs")}
+                                            </strong>
                                         </div>
                                     </Advanced>
                                     <h3>{t("ws.outputs")}</h3>

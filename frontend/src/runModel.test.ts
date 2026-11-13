@@ -78,6 +78,30 @@ it("counts filled rows the way the Results screen does", () => {
     expect(
         runOutcome(job, report(false, false), plan, review(0)),
     ).toMatchObject({ key: "none", more: [{ key: "unconfirmed" }] });
+    // Names the source may know under another name are counted, with or
+    // without names to choose between.
+    const searchable = (items: number) => ({
+        ...review(items),
+        informational: [
+            { other_name: true },
+            { other_name: false },
+            { other_name: true },
+        ],
+    });
+    expect(
+        runOutcome(job, report(false, false), plan, searchable(0) as Review)
+            ?.more,
+    ).toEqual([
+        { key: "unconfirmed", values: {} },
+        { key: "searchable", values: { count: 2 } },
+    ]);
+    expect(
+        runOutcome(job, report(true, false), plan, searchable(1) as Review)
+            ?.more,
+    ).toEqual([
+        { key: "choices", values: { count: 1 } },
+        { key: "searchable", values: { count: 2 } },
+    ]);
     expect(
         runOutcome(
             { ...job, status: "completed" },
