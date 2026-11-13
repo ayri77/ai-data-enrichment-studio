@@ -14,6 +14,11 @@
   question, and new columns are placed after the sheet's last one.
 - **Suggest a task** proposes one task that fills all chosen columns when
   several are chosen, instead of up to three alternatives.
+- **What each step did:** after a run, Execution shows for every step of the
+  plan how many rows got a value, how many did not and how many never reached
+  it — in words in Basic, on the nodes of the graph in Advanced, with the
+  failure codes and the sources of the values for the selected step. Read from
+  the audit of the run; not live progress.
 - The planning measurement of 0.1.0 was made with four capabilities and has to
   be repeated for the new sets
   ([road distance and ratio](docs/30-road-distance-and-ratio.md)).

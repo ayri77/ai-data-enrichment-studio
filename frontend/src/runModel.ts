@@ -100,3 +100,81 @@ export function runOutcome(
                   ],
     };
 }
+
+/** What one step of the plan did over the rows of a finished run. */
+export interface StepOutcome {
+    /** Rows the run took. */
+    total: number;
+    /** Rows for which the step returned a value. */
+    filled: number;
+    /** Rows for which the step itself gave no value. */
+    failed: number;
+    /** Rows in which it was not reached: a step it needs gave no value. */
+    skipped: number;
+    /** Rows whose value follows a match the user chose during review. */
+    chosen: number;
+    /** The step's own failures by code, the most frequent first. */
+    codes: { code: string; count: number }[];
+    /** Where the returned values came from, as their evidence names it. */
+    sources: string[];
+}
+
+/**
+ * How many rows passed each step, read from the audit of the run. Nothing is
+ * estimated: a row counts for a step only if the audit holds that step's
+ * result for it, and a job without an audit has no outcomes at all.
+ */
+export function stepOutcomes(
+    job: Job | null,
+    report: AuditReport | null,
+    plan: EnrichmentPlan | null,
+): Map<string, StepOutcome> {
+    const outcomes = new Map<string, StepOutcome>();
+    const records = report?.execution?.records;
+    if (!job || !plan || !records || report.job_id !== job.job_id)
+        return outcomes;
+    const chosen = new Map(
+        (report.rows ?? []).map((row) => [
+            row.record_id,
+            row.user_chosen_steps ?? [],
+        ]),
+    );
+    const codes = new Map<string, Map<string, number>>();
+    for (const step of plan.steps)
+        outcomes.set(step.id, {
+            total: records.length,
+            filled: 0,
+            failed: 0,
+            skipped: 0,
+            chosen: 0,
+            codes: [],
+            sources: [],
+        });
+    for (const record of records)
+        for (const step of record.row_result.steps) {
+            const outcome = outcomes.get(step.step_id);
+            if (!outcome) continue;
+            if (step.result.status === "success") {
+                outcome.filled += 1;
+                if (chosen.get(record.record_id)?.includes(step.step_id))
+                    outcome.chosen += 1;
+                for (const evidence of step.result.evidence ?? [])
+                    if (!outcome.sources.includes(evidence.source))
+                        outcome.sources.push(evidence.source);
+            } else if (step.result.error_code === "DEPENDENCY_FAILED") {
+                outcome.skipped += 1;
+            } else {
+                outcome.failed += 1;
+                const code = step.result.error_code ?? "UNKNOWN";
+                const counted =
+                    codes.get(step.step_id) ?? new Map<string, number>();
+                counted.set(code, (counted.get(code) ?? 0) + 1);
+                codes.set(step.step_id, counted);
+            }
+        }
+    for (const [id, counted] of codes)
+        outcomes.get(id)!.codes = [...counted]
+            .map(([code, count]) => ({ code, count }))
+            .sort((a, b) => b.count - a.count || a.code.localeCompare(b.code));
+    return outcomes;
+}
