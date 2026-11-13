@@ -27,6 +27,21 @@ export function tableRows(preview: Preview): TableRow[] {
     }));
 }
 
+/**
+ * Worksheet rows in which a column already holds a value. Empty when the
+ * column is not in the table or the server sent no rows.
+ */
+export function occupiedRows(preview: Preview | null, column: string) {
+    const index =
+        preview?.profile.columns.findIndex((c) => c.name === column) ?? -1;
+    if (!preview?.rows || index < 0) return [];
+    return preview.rows.values.flatMap((cells, row) =>
+        cells[index] === null || cells[index] === undefined
+            ? []
+            : [preview.rows!.row_numbers[row]],
+    );
+}
+
 /** Rows in which some cell contains the text, ignoring case. */
 export function filterRows(rows: TableRow[], query: string, locale = "en") {
     const text = query.trim().toLocaleLowerCase(locale);

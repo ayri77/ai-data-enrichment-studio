@@ -394,3 +394,44 @@ def test_writer_rechecks_targets_after_preflight(
         assert workbook["Sheet"]["B2"].value == ("Added by another process")
     finally:
         workbook.close()
+
+
+def test_a_named_cell_may_be_replaced_and_no_other(tmp_path: Path) -> None:
+    source, output = tmp_path / "source.xlsx", tmp_path / "output.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet.title = "Cities"
+    sheet["B2"] = 99999
+    sheet["B3"] = "=1+1"
+    sheet["B4"] = "kept"
+    workbook.save(source)
+    workbook.close()
+    original = source.read_bytes()
+
+    # A cell that was not named stays protected, and nothing is written at all.
+    with pytest.raises(ValueError, match="Target cell is not empty: B4"):
+        write_excel_cells(
+            source,
+            output,
+            sheet_name="Cities",
+            writes={"B2": 1.0, "B4": 2.0},
+            replace=("B2",),
+        )
+    assert not output.exists()
+
+    write_excel_cells(
+        source,
+        output,
+        sheet_name="Cities",
+        writes={"B2": 391.5, "B3": 232.0, "B5": 7.0},
+        replace=("B2", "B3"),
+    )
+    written = load_workbook(output)
+    try:
+        cells = {name: written["Cities"][name].value for name in ("B2", "B3", "B4", "B5")}
+    finally:
+        written.close()
+    # A number and a formula are both replaced by the new value.
+    assert cells == {"B2": 391.5, "B3": 232.0, "B4": "kept", "B5": 7.0}
+    assert source.read_bytes() == original

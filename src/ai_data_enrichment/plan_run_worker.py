@@ -8,6 +8,9 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Literal
 
+from openpyxl.utils import get_column_letter
+from openpyxl.utils.cell import column_index_from_string
+
 from ai_data_enrichment.capabilities.definitions import get_builtin_capabilities
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan, required_input_columns
@@ -81,6 +84,8 @@ class RunTask:
     plan: EnrichmentPlan
     output_columns: dict[str, str]
     mountain_policy: MountainPolicy
+    # What to do with an output cell that already holds a value.
+    existing_outputs: Literal["keep", "replace"] = "keep"
     # Set only for a user-approved resume of an earlier job.
     resume_selections: dict[tuple[str, str], ResumeSelection | OtherName] | None = None
     previous_job_id: str | None = None
@@ -136,6 +141,7 @@ def execute_workbook(
             job_id=task.job_id,
             previous_job_id=task.previous_job_id,
             preserve_existing_outputs=True,
+            replace_existing_outputs=task.existing_outputs == "replace",
             on_record_done=report if progress is not None else None,
         )
         if sha256(task.source_path.read_bytes()).hexdigest() != task.source_sha256:
@@ -148,17 +154,38 @@ def execute_workbook(
             input_columns=required_input_columns(task.plan),
             max_rows=MAX_RUN_ROWS,
         )
+
+        def cells(row: int) -> list[tuple[str, str]]:
+            """Each output target with its cell in this row."""
+            return [
+                (target, f"{get_column_letter(column_index_from_string(letter))}{row}")
+                for target, letter in task.output_columns.items()
+            ]
+
         payload = {
             "execution": result.job_result.model_dump(mode="json"),
             "source_rows": {
                 record.record_id: {
                     "row": batch.row_by_record_id[record.record_id],
                     "inputs": record.model_dump(mode="json")["values"],
+                    # What happened to an output cell that already held a value:
+                    # kept as it was, or replaced (with what it held).
+                    "kept_outputs": sorted(
+                        target
+                        for target, cell in cells(batch.row_by_record_id[record.record_id])
+                        if cell in result.preserved_cells
+                    ),
+                    "replaced_outputs": {
+                        target: result.replaced_cells[cell]
+                        for target, cell in cells(batch.row_by_record_id[record.record_id])
+                        if cell in result.replaced_cells
+                    },
                 }
                 for record in batch.records
             },
             "source_unchanged": True,
             "preserved_cells": result.preserved_cells,
+            "replaced_cells": dict(result.replaced_cells),
             "result_sha256": sha256(result.output_path.read_bytes()).hexdigest(),
         }
         # Operation failure codes are useful; arbitrary handler messages are not

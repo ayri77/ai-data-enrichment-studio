@@ -102,6 +102,11 @@ export function useWorkflow(
     const [policy, setPolicy] = useState<"strict" | "verified_only">(
         "verified_only",
     );
+    // An output cell that already holds a value is kept unless the person
+    // asks for it to be replaced. A new workbook starts from "keep" again.
+    const [existingOutputs, setExistingOutputs] = useState<"keep" | "replace">(
+        "keep",
+    );
     const [timeout, setTimeout] = useState("180");
     const [plan, setPlan] = useState<PlanDraft | null>(null);
     const [job, setJob] = useState<Job | null>(null);
@@ -155,6 +160,7 @@ export function useWorkflow(
             },
         ]);
         setSavedPlan("");
+        setExistingOutputs("keep");
     }, [sourceKey]);
     // A table with exactly one empty column most likely wants that column
     // filled: propose it, as long as nothing was chosen yet. The user sees the
@@ -319,6 +325,7 @@ export function useWorkflow(
             ),
             allow_network: consent,
             mountain_resolution_policy: policy,
+            existing_outputs: existingOutputs,
             ...(supplied === undefined ? {} : { plan: supplied }),
         });
         if (mounted.current && revision === generation.current) {
@@ -550,6 +557,8 @@ export function useWorkflow(
         setNetwork,
         policy,
         setPolicy,
+        existingOutputs,
+        setExistingOutputs,
         timeout,
         setTimeout,
         plan,

@@ -46,6 +46,10 @@ export interface ResultRow {
     /** Keyed by target column; undefined means the cell stays empty. */
     outputs: Record<string, Scalar | undefined>;
     filled: boolean;
+    /** Output columns whose cell already held a value and was left as it was. */
+    kept: string[];
+    /** Output columns whose earlier value was replaced, with that value. */
+    replaced: Record<string, Scalar>;
     /** Source values whose match the user chose during review. */
     chosen: string[];
     /** Source values accepted automatically although other matches stayed unconfirmed. */
@@ -146,9 +150,17 @@ export function resultRows(
             status: row.status,
             inputs,
             outputs,
+            // Filled by this run: a kept cell holds its earlier value, not
+            // the one that was found.
             filled:
                 Object.keys(outputs).length > 0 &&
-                Object.values(outputs).every((v) => v !== undefined),
+                Object.entries(outputs).every(
+                    ([column, value]) =>
+                        value !== undefined &&
+                        !(row.kept_outputs ?? []).includes(column),
+                ),
+            kept: row.kept_outputs ?? [],
+            replaced: row.replaced_outputs ?? {},
             chosen: subjects(row.user_chosen_steps),
             automatic: subjects(row.auto_accepted_steps),
             cause: failed

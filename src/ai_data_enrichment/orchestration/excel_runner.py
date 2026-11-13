@@ -2,7 +2,9 @@
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import date, time
 from pathlib import Path
+from types import MappingProxyType
 
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
@@ -32,13 +34,29 @@ from ai_data_enrichment.validation.plan_validator import (
 )
 
 
+def _recorded(value: object) -> str | float | bool:
+    """An earlier cell value as it is recorded: a number, a flag, or its text.
+
+    A formula is recorded as its text, a date as its ISO form.
+    """
+    if isinstance(value, bool | str):
+        return value
+    if isinstance(value, int | float):
+        return float(value)
+    return str(value.isoformat()) if isinstance(value, date | time) else str(value)
+
+
 @dataclass(frozen=True, slots=True)
 class ExcelEnrichmentResult:
     """Published workbook and its source-independent execution result."""
 
     output_path: Path
     job_result: JobExecutionResult
+    # Output cells that already held a value and still hold it.
     preserved_cells: tuple[str, ...] = ()
+    # Output cells whose earlier value was replaced, with that value, so that
+    # nothing a person had in the table disappears without a record.
+    replaced_cells: Mapping[str, str | float | bool] = MappingProxyType({})
 
 
 class ExcelEnrichmentRunner:
@@ -72,12 +90,21 @@ class ExcelEnrichmentRunner:
         previous_job_id: str | None = None,
         job_id: str | None = None,
         preserve_existing_outputs: bool = False,
+        replace_existing_outputs: bool = False,
         on_record_done: Callable[[int, int], None] | None = None,
     ) -> ExcelEnrichmentResult:
         """Validate, execute and publish one selected Excel table.
 
         ``on_record_done(done, total)`` is passed to the executor unchanged.
+
+        Output cells that already hold a value are an error by default. With
+        ``preserve_existing_outputs`` they are tolerated and kept. Adding
+        ``replace_existing_outputs`` writes a new value over an earlier one, but
+        only where a new value was produced: a row whose lookup failed keeps
+        what it had. The source workbook is never changed either way.
         """
+        if replace_existing_outputs and not preserve_existing_outputs:
+            raise ValueError("Replacing existing outputs requires tolerating them.")
 
         # Reject obvious destination conflicts before provider execution.
         if source_path.resolve() == output_path.resolve():
@@ -144,18 +171,19 @@ class ExcelEnrichmentRunner:
 
         # The API may fill empty destinations while retaining existing values.
         # Keep the default strict behavior for existing CLI/library callers.
-        preserved: set[str] = set()
+        occupied: dict[str, str | float | bool] = {}
         if preserve_existing_outputs:
             workbook = load_workbook(source_path, read_only=False, data_only=False)
             try:
                 sheet = workbook[selection.sheet_name]
-                preserved = {
-                    coordinate
+                occupied = {
+                    coordinate: _recorded(sheet[coordinate].value)
                     for coordinate in target_coordinates
                     if coordinate not in header_writes and sheet[coordinate].value is not None
                 }
             finally:
                 workbook.close()
+        preserved = set(occupied)
 
         validate_excel_targets(
             source_path,
@@ -183,6 +211,14 @@ class ExcelEnrichmentRunner:
             existing_headers=existing_headers,
         )
 
+        # An earlier value gives way only to a new one, never to nothing.
+        replaced = (
+            {cell: occupied[cell] for cell in value_writes if cell in occupied}
+            if replace_existing_outputs
+            else {}
+        )
+        kept = preserved - set(replaced)
+
         # Publish only through the existing safe Excel writer.
         write_excel_cells(
             source_path,
@@ -191,12 +227,14 @@ class ExcelEnrichmentRunner:
             writes={
                 cell: value
                 for cell, value in {**header_writes, **value_writes}.items()
-                if cell not in preserved
+                if cell not in kept
             },
+            replace=tuple(replaced),
         )
 
         return ExcelEnrichmentResult(
             output_path=output_path,
             job_result=job_result,
-            preserved_cells=tuple(sorted(preserved)),
+            preserved_cells=tuple(sorted(kept)),
+            replaced_cells=MappingProxyType(dict(sorted(replaced.items()))),
         )
