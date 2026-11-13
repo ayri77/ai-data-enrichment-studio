@@ -194,6 +194,7 @@ branch, a pull request and CI.
 | [Resolution foundation](docs/08-resolution-foundation.md) · [Resolution report](docs/10-resolution-report-contract.md) | How an entity is found, verified and audited |
 | [Implementation reading guide](docs/14-implementation-reading-guide.md) | Reading order for the modules and the invariants they keep |
 | [Product roadmap](docs/20-product-roadmap-ui-agent.md) | What is planned after the MVP |
+| [Adding a capability](docs/29-capability-extension-design.md) | Design note: where a capability is declared today and a proposed contract for adding one |
 
 Documentation and code are in English.
 
