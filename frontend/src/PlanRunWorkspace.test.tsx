@@ -259,6 +259,15 @@ const review: Review = {
 };
 const radio = (id: string) =>
     within(screen.getByTestId(`candidate-open-meteo:${id}`)).getByRole("radio");
+// A card with a choice is folded: it shows the choice and a way back to the list.
+const chosen = (name: string) =>
+    within(screen.getByTestId(`review-${name}`)).getByTestId("review-chosen");
+const reopen = (name: string) =>
+    userEvent.click(
+        within(chosen(name)).getByRole("button", {
+            name: i18n.t("review.change"),
+        }),
+    );
 
 beforeEach(async () => {
     vi.resetAllMocks();
@@ -1026,18 +1035,60 @@ it("lets a person settle each ambiguous name once and resumes as a new job", asy
     );
     expect(screen.getByTestId("review-progress")).toHaveTextContent("1 of 2");
     expect(button("review.resume")).toBeDisabled();
+    // The decided card folds to its choice; the long list is out of the way.
+    expect(chosen("Kyiv")).toHaveTextContent(i18n.t("review.leaveEmpty"));
+    expect(
+        within(screen.getByTestId("review-Kyiv")).queryByRole("radio"),
+    ).toBeNull();
+    expect(screen.getByTestId("review-Berlin")).toHaveAttribute(
+        "data-folded",
+        "false",
+    );
 
     // A recommendation is applied only when the person accepts it.
     expect(radio("2950159")).not.toBeChecked();
     await userEvent.click(button("review.accept"));
-    expect(radio("2950159")).toBeChecked();
+    expect(chosen("Berlin")).toHaveTextContent("Berlin");
     expect(button("review.accept")).toBeDisabled();
+    // "Change" brings the list back with the choice still marked.
+    await reopen("Berlin");
+    expect(radio("2950159")).toBeChecked();
+    // An open card that has a choice can be folded by hand, and from the keyboard
+    // a choice does not fold it: arrow keys select while moving.
+    await userEvent.click(
+        within(screen.getByTestId("review-Berlin")).getByRole("button", {
+            name: i18n.t("review.fold"),
+        }),
+    );
+    // The keyboard stays on the card: focus moves to "Change".
+    expect(
+        within(chosen("Berlin")).getByRole("button", {
+            name: i18n.t("review.change"),
+        }),
+    ).toHaveFocus();
+    await reopen("Berlin");
+    radio("2950159").focus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(screen.getByTestId("review-Berlin")).toHaveAttribute(
+        "data-folded",
+        "false",
+    );
     await userEvent.click(radio("2950157"));
+    expect(
+        within(screen.getByTestId("review-Berlin")).queryByRole("radio"),
+    ).toBeNull();
+    await reopen("Berlin");
     expect(radio("2950159")).not.toBeChecked();
+    expect(radio("2950157")).toBeChecked();
 
-    // Choices survive navigation and language changes.
+    // Choices survive navigation and language changes; decided cards come back folded.
     await navigate("execution");
     await navigate("review");
+    expect(screen.getByTestId("review-Berlin")).toHaveAttribute(
+        "data-folded",
+        "true",
+    );
+    await reopen("Berlin");
     for (const locale of ["uk", "de", "en"] as const) {
         await act(() => i18n.changeLanguage(locale));
         expect(radio("2950157")).toBeChecked();
@@ -1102,6 +1153,7 @@ it("reports a rejected resume with a localized message and keeps the choices", a
         i18n.t("error.invalid_decision"),
     );
     // Still on Review, with the choice intact, and no second job was started.
+    await reopen("Kyiv");
     expect(radio("703448")).toBeChecked();
     expect(api.getJob).toHaveBeenCalledTimes(1);
 });

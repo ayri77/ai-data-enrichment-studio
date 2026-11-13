@@ -308,6 +308,8 @@
     "review.blocker.type": "it is a different kind of object",
     "review.leaveEmpty": "Leave empty",
     "review.leaveEmptyHint": "The cells in these rows stay empty.",
+    "review.change": "Change",
+    "review.fold": "Hide the options",
     "review.population": "population {{value}}",
     "review.type.city": "City",
     "review.type.settlement": "Settlement",

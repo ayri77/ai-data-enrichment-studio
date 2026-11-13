@@ -349,7 +349,10 @@ test("capitals: a chosen candidate resumes as a new audited job and fills the ro
     await page
         .getByTestId("candidate-open-meteo:703448")
         .getByRole("radio")
-        .check();
+        .click();
+    // The decided card folds to the choice, with a way back to the list.
+    await expect(page.getByTestId("review-chosen")).toContainText("Kyiv");
+    await expect(page.getByRole("button", { name: "Change" })).toBeFocused();
     await expect(page.getByTestId("review-progress")).toHaveText(
         "Decided: 1 of 1",
     );
@@ -365,6 +368,8 @@ test("capitals: a chosen candidate resumes as a new audited job and fills the ro
             .selectOption(locale);
         await expect(page.getByRole("button", { name: label })).toBeEnabled();
     }
+    // The technical layer belongs to the open list.
+    await kyiv.getByRole("button", { name: "Change" }).click();
     await expect(kyiv.getByText("geonames:703448")).toBeHidden();
     await kyiv.getByText("Technical details").click();
     await expect(kyiv.getByText("geonames:703448")).toBeVisible();

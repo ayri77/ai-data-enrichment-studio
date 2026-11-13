@@ -1,10 +1,12 @@
 import {
     ArrowRight,
+    Check,
     CircleAlert,
     ExternalLink,
     LoaderCircle,
     Play,
 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReviewCandidate, ReviewItem } from "../api";
 import { useAdvanced } from "../mode";
@@ -71,14 +73,23 @@ function Facts({ candidate }: { candidate: ReviewCandidate }) {
     ) : null;
 }
 
+/**
+ * A choice made with the pointer folds the card. A choice made from the
+ * keyboard does not: arrow keys select as they move through the options, and
+ * folding on the first one would end the browsing.
+ */
+const byPointer = (event: { detail: number }) => event.detail > 0;
+
 function Candidate({
     item,
     candidate,
     w,
+    onPicked,
 }: {
     item: ReviewItem;
     candidate: ReviewCandidate;
     w: Workflow;
+    onPicked: () => void;
 }) {
     const { t } = useTranslation();
     const code = useCode();
@@ -105,6 +116,7 @@ function Candidate({
                             entity_id: candidate.entity_id,
                         })
                     }
+                    onClick={(event) => byPointer(event) && onPicked()}
                 />
                 <span className="candidate-body">
                     <span className="candidate-title">
@@ -221,6 +233,7 @@ function Blocked({ item, w }: { item: ReviewItem; w: Workflow }) {
                         item={item}
                         candidate={candidate}
                         w={w}
+                        onPicked={() => undefined}
                     />
                 ))}
             </div>
@@ -228,15 +241,50 @@ function Blocked({ item, w }: { item: ReviewItem; w: Workflow }) {
     );
 }
 
-function ReviewCard({ item, w }: { item: ReviewItem; w: Workflow }) {
+function ReviewCard({
+    item,
+    w,
+    foldSignal,
+}: {
+    item: ReviewItem;
+    w: Workflow;
+    /** Raised when choices were made for many cards at once. */
+    foldSignal: number;
+}) {
     const { t, i18n } = useTranslation();
     const code = useCode();
     const locale = i18n.resolvedLanguage ?? "en";
     const choice = w.choices[item.operation_id];
+    // A long list of look-alike places is only needed while choosing. A card
+    // that already has a choice shows that choice and a way back to the list.
+    const [open, setOpen] = useState(!choice);
+    const change = useRef<HTMLButtonElement>(null);
+    const moveFocus = useRef(false);
+    const fold = () => {
+        moveFocus.current = true;
+        setOpen(false);
+    };
+    const decided = useRef(!!choice);
+    decided.current = !!choice;
+    useEffect(() => {
+        if (foldSignal > 0 && decided.current) setOpen(false);
+    }, [foldSignal]);
+    useEffect(() => {
+        // The chosen radio is gone once the card folds; keep the keyboard here.
+        if (!open && moveFocus.current) change.current?.focus();
+        moveFocus.current = false;
+    }, [open]);
+    const picked = isCandidate(choice)
+        ? item.candidates.find(
+              (candidate) => candidateKey(candidate) === candidateKey(choice),
+          )
+        : undefined;
+    const folded = !open && !!choice;
     return (
         <article
             className="review-card"
             data-decided={!!choice}
+            data-folded={folded}
             data-testid={`review-${item.query.name}`}
         >
             <header>
@@ -252,44 +300,87 @@ function ReviewCard({ item, w }: { item: ReviewItem; w: Workflow }) {
                     {t("review.rows", { rows: rowList(item) })}
                 </span>
             </header>
-            <fieldset
-                className="candidate-list"
-                aria-label={t("review.candidates", { name: item.query.name })}
-            >
-                {item.candidates
-                    .filter((candidate) => candidate.selectable)
-                    .map((candidate) => (
-                        <Candidate
-                            key={candidateKey(candidate)}
-                            item={item}
-                            candidate={candidate}
-                            w={w}
-                        />
-                    ))}
-                <div className="candidate" data-selected={choice === "empty"}>
-                    <label>
-                        <input
-                            type="radio"
-                            name={item.operation_id}
-                            checked={choice === "empty"}
-                            disabled={w.locked}
-                            onChange={() =>
-                                w.choose(item.operation_id, "empty")
-                            }
-                        />
-                        <span className="candidate-body">
-                            <span className="candidate-title">
-                                {t("review.leaveEmpty")}
-                            </span>
-                            <span className="muted">
-                                {t("review.leaveEmptyHint")}
-                            </span>
+            {folded ? (
+                <div className="review-chosen" data-testid="review-chosen">
+                    <Check aria-hidden="true" />
+                    <span className="candidate-body">
+                        <span className="candidate-title">
+                            {picked ? picked.label : t("review.leaveEmpty")}
                         </span>
-                    </label>
+                        {picked && <Facts candidate={picked} />}
+                    </span>
+                    <button
+                        type="button"
+                        className="inline-link"
+                        ref={change}
+                        aria-expanded={false}
+                        disabled={w.locked}
+                        onClick={() => setOpen(true)}
+                    >
+                        {t("review.change")}
+                    </button>
                 </div>
-            </fieldset>
-            <Blocked item={item} w={w} />
-            <Technical item={item} />
+            ) : (
+                <>
+                    <fieldset
+                        className="candidate-list"
+                        aria-label={t("review.candidates", {
+                            name: item.query.name,
+                        })}
+                    >
+                        {item.candidates
+                            .filter((candidate) => candidate.selectable)
+                            .map((candidate) => (
+                                <Candidate
+                                    key={candidateKey(candidate)}
+                                    item={item}
+                                    candidate={candidate}
+                                    w={w}
+                                    onPicked={fold}
+                                />
+                            ))}
+                        <div
+                            className="candidate"
+                            data-selected={choice === "empty"}
+                        >
+                            <label>
+                                <input
+                                    type="radio"
+                                    name={item.operation_id}
+                                    checked={choice === "empty"}
+                                    disabled={w.locked}
+                                    onChange={() =>
+                                        w.choose(item.operation_id, "empty")
+                                    }
+                                    onClick={(event) =>
+                                        byPointer(event) && fold()
+                                    }
+                                />
+                                <span className="candidate-body">
+                                    <span className="candidate-title">
+                                        {t("review.leaveEmpty")}
+                                    </span>
+                                    <span className="muted">
+                                        {t("review.leaveEmptyHint")}
+                                    </span>
+                                </span>
+                            </label>
+                        </div>
+                    </fieldset>
+                    {choice && (
+                        <button
+                            type="button"
+                            className="inline-link review-fold"
+                            aria-expanded={true}
+                            onClick={fold}
+                        >
+                            {t("review.fold")}
+                        </button>
+                    )}
+                    <Blocked item={item} w={w} />
+                    <Technical item={item} />
+                </>
+            )}
         </article>
     );
 }
@@ -380,6 +471,7 @@ export function ReviewWorkspace({ w }: { w: Workflow }) {
         (item) => w.choices[item.operation_id],
     ).length;
     const suggestions = pendingRecommendations(review, w.choices);
+    const [foldSignal, setFoldSignal] = useState(0);
     return (
         <div className="stage-layout">
             <section className="workspace-panel panel-scroll summary-content">
@@ -422,6 +514,7 @@ export function ReviewWorkspace({ w }: { w: Workflow }) {
                                 key={item.operation_id}
                                 item={item}
                                 w={w}
+                                foldSignal={foldSignal}
                             />
                         ))}
                         {review.informational.length > 0 && (
@@ -442,7 +535,11 @@ export function ReviewWorkspace({ w }: { w: Workflow }) {
                             <Button
                                 variant="outline"
                                 disabled={!suggestions || w.locked}
-                                onClick={w.acceptRecommendations}
+                                onClick={() => {
+                                    w.acceptRecommendations();
+                                    // Accepted cards fold; the others stay open.
+                                    setFoldSignal((n) => n + 1);
+                                }}
                             >
                                 {t("review.accept")}
                             </Button>
