@@ -72,19 +72,31 @@ export function runOutcome(
     // Until the review has arrived nothing is said about the remaining rows:
     // a sentence that changes a second later reads as a mistake.
     const settled = review?.job_id === job.job_id ? review : null;
+    // Names without a match that the source may know under another name.
+    const searchable = (settled?.informational ?? []).filter(
+        (item) => item.other_name,
+    ).length;
     return {
         key,
         values: { filled, total },
         more:
             filled >= total || job.status !== "needs_review" || !settled
                 ? []
-                : settled.items.length > 0
-                  ? [
-                        {
-                            key: "choices",
-                            values: { count: settled.items.length },
-                        },
-                    ]
-                  : [{ key: "unconfirmed", values: {} }],
+                : [
+                      settled.items.length > 0
+                          ? {
+                                key: "choices",
+                                values: { count: settled.items.length },
+                            }
+                          : { key: "unconfirmed", values: {} },
+                      ...(searchable
+                          ? [
+                                {
+                                    key: "searchable",
+                                    values: { count: searchable },
+                                },
+                            ]
+                          : []),
+                  ],
     };
 }

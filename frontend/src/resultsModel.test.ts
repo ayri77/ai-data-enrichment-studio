@@ -150,6 +150,60 @@ it("names the other name a value was found under and who gave it", () => {
     expect(rows[0].searched).toEqual([]);
 });
 
+it("names the source value behind a step that works on another step's result", () => {
+    const step = (id: string, inputs: Record<string, unknown>) => ({
+        id,
+        capability: id,
+        inputs,
+        parameters: {},
+    });
+    const from = (id: string) => ({ kind: "step_output", step_id: id });
+    const mountains = {
+        ...plan,
+        steps: [
+            step("mountain", { name: { kind: "column", name: "Mountain" } }),
+            step("elevation", { entity: from("mountain") }),
+            step("other", { name: { kind: "column", name: "Other" } }),
+            step("between", { a: from("mountain"), b: from("other") }),
+        ],
+        outputs: [],
+    } as unknown as EnrichmentPlan;
+    const cause = (failing: string) =>
+        resultRows(
+            {
+                rows: [
+                    {
+                        record_id: "r",
+                        status: "failure",
+                        row: 2,
+                        inputs: { Mountain: "Fuji", Other: "Elbrus" },
+                    },
+                ],
+                execution: {
+                    provider_requests: {},
+                    records: [
+                        {
+                            record_id: "r",
+                            row_result: {
+                                steps: [
+                                    {
+                                        step_id: failing,
+                                        result: failed("NOT_FOUND"),
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+            } as unknown as AuditReport,
+            mountains,
+        )[0].cause;
+    // The elevation of the mountain found before it is about that mountain.
+    expect(cause("elevation")).toMatchObject({ subject: "Fuji" });
+    // A step between two results is about neither of them alone.
+    expect(cause("between")).toMatchObject({ subject: null });
+});
+
 it("reads older reports without source values or row numbers", () => {
     const old = {
         rows: [{ record_id: "excel-row-2", status: "partial" }],

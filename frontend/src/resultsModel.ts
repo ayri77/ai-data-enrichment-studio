@@ -75,24 +75,39 @@ const scalar = (value: unknown): value is Scalar =>
     typeof value === "number" ||
     typeof value === "boolean";
 
-/** The source value a step looked up, e.g. the city name for a geocode step. */
+/**
+ * The source value a step looked up, e.g. the city name for a geocode step.
+ * A step that works on the result of another one (the elevation of the
+ * mountain found before it) is about that step's source value.
+ */
 function subject(
     step: EnrichmentPlan["steps"][number] | undefined,
     inputs: Record<string, ReviewValue>,
-) {
-    for (const raw of Object.values(step?.inputs ?? {})) {
-        if (
-            raw &&
-            typeof raw === "object" &&
-            "kind" in raw &&
-            raw.kind === "column" &&
-            "name" in raw &&
-            typeof raw.name === "string"
-        ) {
+    steps: Map<string, EnrichmentPlan["steps"][number]>,
+    depth = 0,
+): string | null {
+    const refs = Object.values(step?.inputs ?? {}).filter(
+        (raw): raw is Record<string, unknown> =>
+            !!raw && typeof raw === "object",
+    );
+    for (const raw of refs) {
+        if (raw.kind === "column" && typeof raw.name === "string") {
             const value = inputs[raw.name];
             if (value !== null && value !== undefined) return String(value);
         }
     }
+    // Only a step with a single source: a distance between two places is
+    // about neither of them alone.
+    const sources = refs.filter(
+        (raw) => raw.kind === "step_output" && typeof raw.step_id === "string",
+    );
+    if (sources.length === 1 && depth < 8)
+        return subject(
+            steps.get(sources[0].step_id as string),
+            inputs,
+            steps,
+            depth + 1,
+        );
     return null;
 }
 
@@ -144,7 +159,7 @@ export function resultRows(
         }
         const subjects = (ids: string[] | undefined) =>
             (ids ?? []).flatMap((id) => {
-                const value = subject(planSteps.get(id), inputs);
+                const value = subject(planSteps.get(id), inputs, planSteps);
                 return value ? [value] : [];
             });
         const failed = steps.find(
@@ -170,7 +185,7 @@ export function resultRows(
             chosen: subjects(row.user_chosen_steps),
             searched: Object.entries(row.other_names ?? {}).map(
                 ([id, found]) => ({
-                    subject: subject(planSteps.get(id), inputs),
+                    subject: subject(planSteps.get(id), inputs, planSteps),
                     searchedAs: found.searched_as,
                     origin: found.origin ?? null,
                 }),
@@ -180,7 +195,11 @@ export function resultRows(
                 ? {
                       kind: CAUSES[failed.errorCode ?? ""] ?? "other",
                       code: failed.errorCode ?? "UNKNOWN",
-                      subject: subject(planSteps.get(failed.stepId), inputs),
+                      subject: subject(
+                          planSteps.get(failed.stepId),
+                          inputs,
+                          planSteps,
+                      ),
                   }
                 : null,
             steps,

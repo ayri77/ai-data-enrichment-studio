@@ -17,6 +17,50 @@ async function navigate(page: Page, name: string) {
         .getByRole("button", { name, exact: true })
         .click();
 }
+/**
+ * The other languages have longer labels: the same screen must still fit, no
+ * button may cut its text off, and no footer label may wrap.
+ */
+async function languagesFit(page: Page, info: TestInfo, label: string) {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    const language = page.locator(".studio-preferences select").nth(1);
+    // The tallest button of the footer: a label that wraps makes it taller
+    // than one line of text with its padding.
+    const footer = () =>
+        page.evaluate(() =>
+            Math.max(
+                0,
+                ...[
+                    ...document.querySelectorAll(".workspace-actions button"),
+                ].map((b) => b.getBoundingClientRect().height),
+            ),
+        );
+    expect(await footer(), "en").toBeLessThanOrEqual(40);
+    for (const locale of ["uk", "de"]) {
+        await language.selectOption(locale);
+        expect(await footer(), locale).toBeLessThanOrEqual(40);
+        const fit = await page.evaluate(() => ({
+            width: document.documentElement.scrollWidth,
+            viewportWidth: innerWidth,
+            clipped: [...document.querySelectorAll("button")]
+                .filter(
+                    (b) =>
+                        b.getClientRects().length > 0 &&
+                        b.scrollWidth > b.clientWidth + 1,
+                )
+                .map((b) => b.textContent),
+        }));
+        expect(fit.width, locale).toBeLessThanOrEqual(fit.viewportWidth);
+        expect(fit.clipped, locale).toEqual([]);
+        for (const action of await page.locator(".workspace-actions").all())
+            await expect(action).toBeInViewport();
+        await page.screenshot({
+            path: info.outputPath(`${label}-${locale}.png`),
+        });
+    }
+    await language.selectOption("en");
+    await page.setViewportSize({ width: 1440, height: 900 });
+}
 async function screenshotWorkspace(
     page: Page,
     info: TestInfo,
@@ -45,6 +89,7 @@ async function screenshotWorkspace(
             ),
         });
     }
+    await languagesFit(page, info, `${name}-${workspace}`);
     await page.setViewportSize({ width: 1440, height: 900 });
 }
 for (const name of ["capitals", "mountains"]) {
@@ -137,11 +182,11 @@ for (const name of ["capitals", "mountains"]) {
         );
         await expect(
             page.getByRole("button", {
-                name: "Approve / Continue to Execution",
+                name: "Approve and continue",
             }),
         ).toBeEnabled();
         await page
-            .getByRole("button", { name: "Approve / Continue to Execution" })
+            .getByRole("button", { name: "Approve and continue" })
             .click();
         await expect(
             page.getByRole("button", { name: "Start bounded run" }),
@@ -278,7 +323,7 @@ for (const name of ["capitals", "mountains"]) {
         expect(check.status, check.stdout + check.stderr).toBe(0);
         await navigate(page, "Execution");
         for (const [locale, status] of [
-            ["uk", "Потребує перегляду"],
+            ["uk", "Потребує перевірки"],
             ["de", "Prüfung erforderlich"],
             ["en", "Needs review"],
         ]) {
@@ -389,9 +434,7 @@ book.save(sys.argv[1])
     const draft = await (await planned).json();
     // The plan is made for the run's rows, not for the table that is shown.
     expect(draft.range_ref).toBe("A1:E4");
-    await page
-        .getByRole("button", { name: "Approve / Continue to Execution" })
-        .click();
+    await page.getByRole("button", { name: "Approve and continue" }).click();
     await page.getByRole("button", { name: "Start bounded run" }).click();
     await expect(page.getByTestId("metric-total_rows")).toHaveText("3", {
         timeout: 30_000,
@@ -471,9 +514,7 @@ book.save(sys.argv[1])
         )
         .check();
     await page.getByRole("button", { name: "Build Plan", exact: true }).click();
-    await page
-        .getByRole("button", { name: "Approve / Continue to Execution" })
-        .click();
+    await page.getByRole("button", { name: "Approve and continue" }).click();
     await page.getByRole("button", { name: "Start bounded run" }).click();
     await expect(page.getByTestId("metric-successful_rows")).toHaveText("1", {
         timeout: 30_000,
@@ -525,9 +566,7 @@ test("capitals: a name the source does not know is found under another name", as
         )
         .check();
     await page.getByRole("button", { name: "Build Plan", exact: true }).click();
-    await page
-        .getByRole("button", { name: "Approve / Continue to Execution" })
-        .click();
+    await page.getByRole("button", { name: "Approve and continue" }).click();
     const firstRun = page.waitForResponse(
         (r) => r.url().endsWith("/runs") && r.request().method() === "POST",
     );
@@ -698,9 +737,7 @@ test("capitals: a chosen candidate resumes as a new audited job and fills the ro
         )
         .check();
     await page.getByRole("button", { name: "Build Plan", exact: true }).click();
-    await page
-        .getByRole("button", { name: "Approve / Continue to Execution" })
-        .click();
+    await page.getByRole("button", { name: "Approve and continue" }).click();
     const firstRun = page.waitForResponse(
         (r) => r.url().endsWith("/runs") && r.request().method() === "POST",
     );
@@ -812,7 +849,7 @@ test("capitals: a chosen candidate resumes as a new audited job and fills the ro
 
 test("example: one click fills the task; the prepared plan runs without an AI request", async ({
     page,
-}) => {
+}, testInfo) => {
     const planning: string[] = [];
     page.on("request", (r) => {
         if (r.url().endsWith("/api/plans") && r.method() === "POST")
@@ -838,6 +875,7 @@ test("example: one click fills the task; the prepared plan runs without an AI re
             "Allow external network requests for planning and execution",
         ),
     ).toHaveCount(0);
+    await languagesFit(page, testInfo, "basic-dataset");
     await page
         .getByRole("button", { name: "Use it instead of asking the AI" })
         .click();
@@ -863,7 +901,7 @@ test("example: one click fills the task; the prepared plan runs without an AI re
     // The plan is put into words; the graph belongs to Advanced.
     await expect(page.locator(".plan-steps li")).toHaveText([
         /Find the mountain.*Name: column “Mountain” · Country: column “Country”/,
-        /Look up the elevation.*Object: result of step 1.*Written to column “height” \(C\), m/,
+        /Look up the elevation.*For: result of step 1.*Written to column “height” \(C\), m/,
     ]);
     await expect(
         page.getByRole("region", { name: "Planned workflow" }),
@@ -872,6 +910,7 @@ test("example: one click fills the task; the prepared plan runs without an AI re
     // The submitted request carried the prepared plan itself.
     expect(planning).toHaveLength(1);
     expect(JSON.parse(planning[0]).plan.steps.length).toBeGreaterThan(0);
+    await languagesFit(page, testInfo, "basic-plan");
     // One press approves the plan and starts the run.
     await page.getByRole("button", { name: "Approve and run" }).click();
     // The run is summed up in a sentence; the counters belong to Advanced.
@@ -880,6 +919,12 @@ test("example: one click fills the task; the prepared plan runs without an AI re
         { timeout: 30_000 },
     );
     await expect(page.getByTestId("metric-total_rows")).toHaveCount(0);
+    await languagesFit(page, testInfo, "basic-execution");
+    await page.getByRole("button", { name: "Review", exact: true }).click();
+    await languagesFit(page, testInfo, "basic-review");
+    await page.getByRole("button", { name: "Results", exact: true }).click();
+    await languagesFit(page, testInfo, "basic-results");
+    await page.getByRole("button", { name: "Execution", exact: true }).click();
     // Starting over warns that the filled table goes with the workbook, and
     // brings the examples back.
     await page
@@ -1021,7 +1066,7 @@ test("invalid saved plan cannot be approved; source selection clears its draft",
         "Validation failed",
     );
     await expect(
-        page.getByRole("button", { name: "Approve / Continue to Execution" }),
+        page.getByRole("button", { name: "Approve and continue" }),
     ).toBeDisabled();
     await navigate(page, "Execution");
     await expect(
@@ -1087,9 +1132,7 @@ test("new column outside selection: collision protection, offline validation, re
     await expect(page.getByTestId("validation")).toHaveText(
         "Validation passed",
     );
-    await page
-        .getByRole("button", { name: "Approve / Continue to Execution" })
-        .click();
+    await page.getByRole("button", { name: "Approve and continue" }).click();
     await expect(
         page.getByRole("button", { name: "Start bounded run" }),
     ).toBeDisabled();
@@ -1105,9 +1148,7 @@ test("new column outside selection: collision protection, offline validation, re
     await expect(page.getByTestId("validation")).toHaveText(
         "Validation passed",
     );
-    await page
-        .getByRole("button", { name: "Approve / Continue to Execution" })
-        .click();
+    await page.getByRole("button", { name: "Approve and continue" }).click();
     await page.getByRole("button", { name: "Start bounded run" }).click();
     await expect(page.getByTestId("job-status")).toContainText("Needs review", {
         timeout: 30_000,

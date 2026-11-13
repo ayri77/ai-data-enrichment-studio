@@ -21,6 +21,18 @@ describe("workspace preferences and resources", () => {
             for (const value of Object.values(resource))
                 expect(value.trim()).not.toBe("");
     });
+    it("uses the same placeholders in every language", () => {
+        const placeholders = (text: string) =>
+            [...text.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]).sort();
+        for (const [key, text] of Object.entries(messages.en))
+            for (const locale of ["uk", "de"] as const)
+                expect(
+                    placeholders(
+                        (messages[locale] as Record<string, string>)[key],
+                    ),
+                    `${locale}: ${key}`,
+                ).toEqual(placeholders(text));
+    });
     it("defaults to English and dark and restores only supported saved choices", () => {
         localStorage.clear();
         expect(initialLocale()).toBe("en");
