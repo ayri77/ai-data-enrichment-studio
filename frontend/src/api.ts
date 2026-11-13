@@ -2,6 +2,13 @@ export interface Worksheet {
     name: string;
     columns: string[];
     row_count: number;
+    /** Where the table most likely is; absent when nothing looks like one. */
+    table?: {
+        first_row: number;
+        first_column: number;
+        last_row: number;
+        last_column: number;
+    } | null;
 }
 export interface Dataset {
     dataset_id: string;

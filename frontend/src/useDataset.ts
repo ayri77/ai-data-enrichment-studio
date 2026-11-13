@@ -52,6 +52,11 @@ export function useDataset(
         const rows = options.auto
             ? Math.min(selected.row_count, options.maxRows)
             : selected.row_count;
+        // The server looks for the table: a title above it or empty columns
+        // beside it must not make a person type the range by hand.
+        const table = selected.table;
+        if (table)
+            return `${columnLetter(table.first_column)}${table.first_row}:${columnLetter(table.last_column)}${table.first_row + Math.max(1, rows)}`;
         return `A1:${columnLetter(Math.max(1, selected.columns.length))}${Math.max(1, rows + 1)}`;
     };
     // The caller holds `pending`; a failure leaves the error and no preview.
