@@ -901,6 +901,52 @@ test("Basic: an uploaded workbook needs an instruction and nothing else", async 
     await expect(page.getByLabel("Worksheet")).toHaveValue("Sheet1");
 });
 
+test("Basic: the AI proposes a task for the table, in the language of the interface", async ({
+    page,
+}, testInfo) => {
+    const asked: { language: string; range_ref: string }[] = [];
+    page.on("request", (r) => {
+        if (r.url().endsWith("/api/task-ideas"))
+            asked.push(JSON.parse(r.postData() ?? "{}"));
+    });
+    await page.goto("/");
+    await page
+        .getByLabel("Upload Excel workbook")
+        .setInputFiles(resolve("../samples/capitals.xlsx"));
+    await expect(page.getByLabel("Which column to fill?")).toHaveValue("E");
+    const field = page.getByLabel("Enrichment instruction");
+    // What leaves the browser is said next to the button.
+    await expect(page.getByText(/five sample rows to the AI/)).toBeVisible();
+    await page.getByRole("button", { name: "Suggest a task" }).click();
+    const idea = page.getByTestId("task-ideas").getByRole("button");
+    await expect(idea).toHaveText(
+        "[English] Calculate the distance in km between Capital_From and Capital_To and write it to distance.",
+    );
+    // A proposal is not an instruction until it is chosen.
+    await expect(field).toHaveValue("");
+    await expect(
+        page.getByRole("button", { name: "Build Plan" }),
+    ).toBeDisabled();
+    await idea.click();
+    await expect(field).toHaveValue(/^\[English\] Calculate the distance/);
+    await page.screenshot({ path: testInfo.outputPath("task-ideas.png") });
+    // The chosen text is planned and checked like a typed one.
+    await page.getByRole("button", { name: "Build Plan" }).click();
+    await expect(page.locator(".plan-steps li").last()).toContainText(
+        "Written to column “distance” (E), km",
+    );
+    // Another interface language asks again, in that language.
+    await navigate(page, "Dataset");
+    await page.locator(".studio-preferences select").nth(1).selectOption("uk");
+    await page.getByRole("button", { name: "Запропонувати завдання" }).click();
+    await expect(page.getByTestId("task-ideas").getByRole("button")).toHaveText(
+        /^\[Ukrainian\]/,
+    );
+    expect(asked.map((x) => x.language)).toEqual(["en", "uk"]);
+    expect(asked[0].range_ref).toBe("A1:E11");
+    await page.screenshot({ path: testInfo.outputPath("task-ideas-uk.png") });
+});
+
 test("invalid saved plan cannot be approved; source selection clears its draft", async ({
     page,
 }) => {

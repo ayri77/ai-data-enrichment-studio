@@ -584,5 +584,15 @@
     "startOver.action": "Mit einer anderen Tabelle neu beginnen",
     "startOver.warning": "Die aktuelle Tabelle und ihre Ergebnisse werden aus dieser Sitzung entfernt. Laden Sie die ausgefüllte Tabelle vorher herunter, wenn Sie sie brauchen.",
     "startOver.confirm": "Entfernen und neu beginnen",
-    "startOver.keep": "Behalten"
+    "startOver.keep": "Behalten",
+    "task.suggest": "Aufgabe vorschlagen",
+    "task.sends": "Sendet die Spaltennamen, ihre Typen und fünf Beispielzeilen an den KI-Anbieter, wie beim Erstellen eines Plans. Die KI schlägt nur einen Text vor; Sie können ihn ändern.",
+    "task.needsConsent": "Zuerst externe Netzwerkanfragen erlauben (Kontrollkästchen unten): Die Spaltennamen und fünf Beispielzeilen werden an den KI-Anbieter gesendet.",
+    "task.unavailable": "Benötigt ein KI-Modell und einen Schlüssel, wie die Planung. Siehe Anbieter- / Modelleinstellungen.",
+    "task.proposed": "Von der KI vorgeschlagene Aufgaben. Wählen Sie eine aus – sie wird ins Feld übernommen und lässt sich dort bearbeiten:",
+    "task.none": "Die KI hat für diese Tabelle keine Aufgabe gefunden, die sie vorschlagen kann. Beschreiben Sie die Aufgabe selbst.",
+    "activity.ideas": "Die KI wird nach einer Aufgabe gefragt",
+    "activity.ideasDetail": "Gesendet werden Spaltennamen, Typen und fünf Beispielzeilen. Noch wird nichts geplant oder eingetragen.",
+    "error.task_ideas_failed": "Die KI hat keine brauchbaren Aufgaben geliefert. Versuchen Sie es erneut oder beschreiben Sie die Aufgabe selbst.",
+    "error.task_idea_limit": "Für diese Arbeitsmappe wurde die KI zu oft nach Aufgaben gefragt. Beschreiben Sie die Aufgabe selbst."
 }

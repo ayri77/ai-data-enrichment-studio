@@ -378,6 +378,14 @@ export const api = {
             `/api/jobs/${id}/review/${encodeURIComponent(operationId)}/search`,
             { name, allow_network },
         ),
+    /** Ask the model what could be asked for with the selected table. */
+    suggestTasks: (body: {
+        dataset_id: string;
+        sheet_name: string;
+        range_ref: string;
+        language: string;
+        allow_network: boolean;
+    }) => post<{ tasks: string[] }>("/api/task-ideas", body),
     /** Ask the model under which other names the source may know a query. */
     suggestNames: (id: string, operationId: string, allow_network: boolean) =>
         post<{ operation_id: string; names: string[] }>(

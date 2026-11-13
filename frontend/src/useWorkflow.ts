@@ -46,6 +46,7 @@ export type Operation =
     | "resume"
     | "search"
     | "suggest"
+    | "ideas"
     | "cancel"
     | "download";
 export function useWorkflow(
@@ -137,6 +138,9 @@ export function useWorkflow(
     const [suggestions, setSuggestions] = useState<Record<string, string[]>>(
         {},
     );
+    // Tasks the AI proposed for this table; they are only text for the field.
+    // Kept per interface language: asked in another language is another answer.
+    const [taskIdeas, setTaskIdeas] = useState<Record<string, string[]>>({});
     const [history, setHistory] = useState<
         { job: Job; report: AuditReport | null; plan: PlanDraft | null }[]
     >([]);
@@ -167,6 +171,7 @@ export function useWorkflow(
     // Any change of the selection invalidates the plan and the run made for it.
     useEffect(() => {
         invalidate();
+        setTaskIdeas({});
     }, [sourceKey]);
     // The task itself belongs to the table, not to its boundaries: adjusting
     // the range keeps the instruction, the output column and a pasted plan.
@@ -508,6 +513,26 @@ export function useWorkflow(
         if (mounted.current)
             setSuggestions((old) => ({ ...old, [operationId]: names }));
     }
+    // The AI needs what planning needs: consent, a model and a key.
+    const canSuggestTasks =
+        !!preview &&
+        consent &&
+        !locked &&
+        (planningReadiness === "ready" || planningReadiness === "offline");
+    async function suggestTasks(language: string) {
+        if (!canSuggestTasks || !preview) return;
+        const asked = generation.current;
+        const { tasks } = await api.suggestTasks({
+            dataset_id: preview.dataset_id,
+            sheet_name: preview.sheet_name,
+            range_ref: preview.range_ref,
+            language,
+            allow_network: consent,
+        });
+        // An answer for a table that was left in the meantime is not shown.
+        if (mounted.current && asked === generation.current)
+            setTaskIdeas((old) => ({ ...old, [language]: tasks }));
+    }
     function acceptRecommendations() {
         if (review && !locked)
             setChoices((old) => withRecommendations(review, old));
@@ -596,6 +621,9 @@ export function useWorkflow(
         searchOtherName,
         suggestions,
         suggestNames,
+        taskIdeas,
+        canSuggestTasks,
+        suggestTasks,
         acceptRecommendations,
         canResume,
         resume,

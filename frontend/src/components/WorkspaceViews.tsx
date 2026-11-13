@@ -8,6 +8,7 @@ import {
     LoaderCircle,
     Play,
     RotateCcw,
+    Sparkles,
     X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -189,6 +190,63 @@ function ExistingOutputs({
     );
 }
 
+/** Tasks the AI proposes for the table: text for the field above, nothing more. */
+function TaskIdeas({ w }: { w: Workflow }) {
+    const { t, i18n } = useTranslation();
+    const language =
+        ["uk", "de"].find((x) => x === i18n.resolvedLanguage) ?? "en";
+    const ideas = w.taskIdeas[language];
+    const ready =
+        w.planningReadiness === "ready" || w.planningReadiness === "offline";
+    if (ideas === undefined)
+        return (
+            <div className="task-ideas">
+                <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!w.canSuggestTasks}
+                    onClick={() =>
+                        void w.action(() => w.suggestTasks(language), "ideas")
+                    }
+                >
+                    <Sparkles aria-hidden="true" />
+                    {t("task.suggest")}
+                </Button>
+                <p className="muted">
+                    {t(
+                        !ready
+                            ? "task.unavailable"
+                            : w.consent
+                              ? "task.sends"
+                              : "task.needsConsent",
+                    )}
+                </p>
+            </div>
+        );
+    if (!ideas.length)
+        return (
+            <p className="muted" data-testid="task-ideas">
+                {t("task.none")}
+            </p>
+        );
+    return (
+        <div className="task-ideas" data-testid="task-ideas">
+            <p className="muted">{t("task.proposed")}</p>
+            {ideas.map((idea) => (
+                <button
+                    key={idea}
+                    type="button"
+                    className="task-idea"
+                    aria-pressed={w.instruction === idea}
+                    onClick={() => w.edit(() => w.setInstruction(idea))}
+                >
+                    {idea}
+                </button>
+            ))}
+        </div>
+    );
+}
+
 export function DatasetConfiguration({
     workflow: w,
     preview,
@@ -259,6 +317,7 @@ export function DatasetConfiguration({
                     <p className="muted" id="instruction-hint">
                         {t("workflow.instructionHint")}
                     </p>
+                    <TaskIdeas w={w} />
                     {single ? (
                         <>
                             <label>

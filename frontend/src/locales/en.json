@@ -584,5 +584,15 @@
     "startOver.action": "Start over with another table",
     "startOver.warning": "The current table and its results will be removed from this session. Download the filled table first if you need it.",
     "startOver.confirm": "Remove and start over",
-    "startOver.keep": "Keep working"
+    "startOver.keep": "Keep working",
+    "task.suggest": "Suggest a task",
+    "task.sends": "Sends the column names, their types and five sample rows to the AI provider, as building a plan does. The AI only proposes a text; you can change it.",
+    "task.needsConsent": "First allow external network requests (the checkbox below): the column names and five sample rows are sent to the AI provider.",
+    "task.unavailable": "Needs an AI model and key, as planning does. See Provider / Model settings.",
+    "task.proposed": "Tasks proposed by the AI. Choose one to put it into the field; you can then edit it:",
+    "task.none": "The AI found no task to propose for this table. Describe the task yourself.",
+    "activity.ideas": "Asking the AI for a task",
+    "activity.ideasDetail": "Column names, types and five sample rows are sent. Nothing is planned or written yet.",
+    "error.task_ideas_failed": "The AI did not return usable tasks. Try again, or describe the task yourself.",
+    "error.task_idea_limit": "This workbook has asked the AI for tasks too many times. Describe the task yourself."
 }

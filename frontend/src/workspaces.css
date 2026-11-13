@@ -319,6 +319,39 @@
 .configuration textarea {
     min-height: 76px;
 }
+/* Task ideas: proposals under the instruction field, each a button with its text. */
+.task-ideas {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+}
+.task-ideas > .muted {
+    margin: 0;
+}
+.studio .task-idea {
+    width: 100%;
+    border: 1px solid var(--studio-control-border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    background: var(--studio-surface0);
+    color: inherit;
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.45;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+}
+.studio .task-idea:hover:not(:disabled),
+.studio .task-idea[aria-pressed="true"] {
+    border-color: var(--studio-accent);
+}
+.studio .task-idea:disabled {
+    cursor: default;
+    opacity: 0.6;
+}
 .configuration .muted {
     font-size: 11px;
     line-height: 1.5;

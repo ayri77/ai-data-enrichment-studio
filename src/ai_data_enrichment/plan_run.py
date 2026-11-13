@@ -79,6 +79,7 @@ from ai_data_enrichment.run_limits import (
     MAX_TIMEOUT_SECONDS,
 )
 from ai_data_enrichment.spellings import SuggestionError, suggest_names
+from ai_data_enrichment.task_ideas import TaskIdeaError, suggest_tasks
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy, PlanValidator
 from ai_data_enrichment.workspace_errors import WorkspaceError
 
@@ -195,6 +196,19 @@ MAX_REVIEW_SEARCHES = 100
 # How many times one job may ask the model for other names. Each is a paid
 # request; answers are kept, so a person asks once per name.
 MAX_REVIEW_SUGGESTIONS = 40
+# How many times the model may be asked for task ideas for one workbook.
+MAX_TASK_IDEA_REQUESTS = 20
+
+
+class TaskIdeasRequest(BaseModel):
+    """Ask the model what could be asked for with a table."""
+
+    model_config = ConfigDict(extra="forbid")
+    dataset_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    sheet_name: str = Field(min_length=1, max_length=31)
+    range_ref: str = Field(min_length=1, max_length=32)
+    language: Literal["en", "uk", "de"] = "en"
+    allow_network: bool = False
 
 
 class SuggestionRequest(BaseModel):
@@ -238,6 +252,10 @@ class PlanRunService:
         self.suggestions: dict[str, dict[str, tuple[str, ...]]] = {}
         self.suggestion_counts: dict[str, int] = {}
         self.suggesting = False
+        # Task ideas a model proposed for a table and a language, and how many
+        # times a workbook has asked.
+        self.task_ideas: dict[str, dict[tuple[str, str, str], tuple[str, ...]]] = {}
+        self.task_idea_counts: dict[str, int] = {}
         self.router = APIRouter(prefix="/api")
         self._routes()
 
@@ -472,6 +490,43 @@ class PlanRunService:
                 "max_timeout_seconds": MAX_TIMEOUT_SECONDS,
                 "default_timeout_seconds": DEFAULT_TIMEOUT_SECONDS,
             }
+
+        @router.post("/task-ideas")
+        async def task_ideas(body: TaskIdeasRequest):
+            async with self.lock:
+                path = self.datasets.get(body.dataset_id)
+                if path is None:
+                    raise WorkspaceError("dataset_not_found", "Upload the workbook again.", 404)
+                # Workbooks come and go; what was kept for a removed one goes too.
+                for kept in (self.task_ideas, self.task_idea_counts):
+                    for stale in set(kept) - set(self.datasets):
+                        del kept[stale]
+                key = (body.sheet_name, body.range_ref, body.language)
+                known = self.task_ideas.get(body.dataset_id, {}).get(key)
+                if known is not None:
+                    return {"tasks": list(known)}
+                self.model_gate(body.allow_network)
+                if self.suggesting:
+                    raise WorkspaceError("suggestions_busy", "Wait for the current answer.", 409)
+                if self.task_idea_counts.get(body.dataset_id, 0) >= MAX_TASK_IDEA_REQUESTS:
+                    raise WorkspaceError(
+                        "task_idea_limit", "This workbook has asked the model too many times.", 429
+                    )
+                self.task_idea_counts[body.dataset_id] = (
+                    self.task_idea_counts.get(body.dataset_id, 0) + 1
+                )
+                self.suggesting = True
+            try:
+                ideas = await run_in_threadpool(self.task_ideas_once, path, body)
+            except TaskIdeaError:
+                raise WorkspaceError(
+                    "task_ideas_failed", "The model did not return usable tasks.", 502
+                ) from None
+            finally:
+                self.suggesting = False
+            if body.dataset_id in self.datasets:
+                self.task_ideas.setdefault(body.dataset_id, {})[key] = ideas
+            return {"tasks": list(ideas)}
 
         @router.post("/plans", status_code=201)
         async def create(body: PlanRequest):
@@ -709,6 +764,23 @@ class PlanRunService:
             directory = self.datasets[job["dataset_id"]].parent / job_id
             name = "result.xlsx" if artifact == "result" else "report.json"
             return FileResponse(directory / name, filename=f"{job_id}-{name}")
+
+    def task_ideas_once(self, path: Path, body: TaskIdeasRequest) -> tuple[str, ...]:
+        """Profile the table as planning does and ask the model once."""
+        try:
+            selection = TableSelection(body.sheet_name, body.range_ref)
+            min_col, min_row, max_col, max_row = selection.bounds
+            if max_row - min_row > MAX_TABLE_ROWS or max_col > 100 or min_col < 1:
+                raise ValueError("Selection limit")
+            profile = profile_worksheet(path, body.sheet_name, body.dataset_id, selection=selection)
+        except ValueError as exc:
+            raise WorkspaceError(
+                "invalid_selection", "Select a valid table within the size the server reads."
+            ) from exc
+        with self.model_client(answer_tokens=1024) as client:
+            return suggest_tasks(
+                client, profile=profile, registry=builtin_registry(), language=body.language
+            )
 
     def suggest_once(self, query: ResolutionQuery, capability: str) -> tuple[str, ...]:
         """Ask the model once for other names; nothing is searched here."""
