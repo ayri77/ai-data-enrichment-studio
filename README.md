@@ -155,7 +155,7 @@ Vite. Start reading the code with the
 - **Nothing is stored.** Workbooks, plans, runs and keys live in the memory of
   one process and are gone after a restart. One run at a time.
 - **One model provider** (OpenAI). Planning was measured on two models,
-  `gpt-4.1-mini` (the default) and `gpt-6-luna`: 10 of 10 valid plans on each
+  `gpt-6-luna` (the default) and `gpt-4.1-mini`: 10 of 10 valid plans on each
   sample task ([live planning reliability](docs/26-live-planning-reliability.md)).
   Instructions were measured in English only.
 - **Accuracy is not measured at scale.** The two 10-row samples were run against
