@@ -18,7 +18,7 @@ from ai_data_enrichment.orchestration.excel_runner import ExcelEnrichmentRunner
 from ai_data_enrichment.orchestration.live_executor import build_live_executor
 from ai_data_enrichment.providers.http_transport import JsonTransport
 from ai_data_enrichment.providers.request_policy import ProviderRequestPolicy
-from ai_data_enrichment.resolution.resume import ResumeSelection
+from ai_data_enrichment.resolution.resume import OtherName, ResumeSelection
 from ai_data_enrichment.run_limits import (
     MAX_PROVIDER_REQUESTS,
     MAX_PROVIDER_WAIT_SECONDS,
@@ -31,7 +31,7 @@ MountainPolicy = Literal["strict", "verified_only"]
 # Called as factory(capabilities, policy, max_rows); a resume additionally passes
 # resume_selections=... as a keyword.
 ExecutorFactory = Callable[..., JobExecutor]
-ResumeSelections = Mapping[tuple[str, str], ResumeSelection]
+ResumeSelections = Mapping[tuple[str, str], ResumeSelection | OtherName]
 MAX_PLAN_STEPS = 12
 __all__ = ["MAX_PLAN_STEPS", "MAX_PROVIDER_REQUESTS", "MAX_RUN_ROWS"]
 
@@ -82,7 +82,7 @@ class RunTask:
     output_columns: dict[str, str]
     mountain_policy: MountainPolicy
     # Set only for a user-approved resume of an earlier job.
-    resume_selections: dict[tuple[str, str], ResumeSelection] | None = None
+    resume_selections: dict[tuple[str, str], ResumeSelection | OtherName] | None = None
     previous_job_id: str | None = None
 
 

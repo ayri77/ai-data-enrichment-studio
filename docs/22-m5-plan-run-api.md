@@ -84,6 +84,7 @@ provide the dataset ID and actual worksheet/range; the range includes headers.
 | Download | `GET /api/jobs/{job_id}/artifacts/result` | Separate enriched XLSX after successful publication |
 | Report | `GET /api/jobs/{job_id}/artifacts/report` | JSON audit for every terminal job, including stops/failures |
 | Review | `GET /api/jobs/{job_id}/review` | Ambiguous queries of a finished job, grouped once per query, with source candidates |
+| Search under another name | `POST /api/jobs/{job_id}/review/{operation_id}/search` | 200; what the source confirms for another name of one reviewed query; writes nothing |
 | Resume | `POST /api/jobs/{job_id}/resume` | 202; a **new** job that applies the user's decisions to the same approved plan |
 
 Example draft request after uploading Capitals:
@@ -191,6 +192,13 @@ jobs and reads only the stored report:
   `incomplete_verification` with at least one selectable candidate.
   **`informational`** lists other non-resolved queries (nothing found, provider
   error); they are shown for context and cannot be approved.
+- **`other_name`** says whether searching the query under another name could
+  change its outcome: true for `needs_review`, `unresolved` and
+  `incomplete_verification`, except when the row's country was not recognized.
+  It is independent of the list an entry is in: a name with no match and a name
+  with several can both be searched under another one.
+  **`query.searched_as`** is the name the source was searched for when the user
+  already gave one; `query.name` is always the row's own value.
 - **`selectable` / `blocker`.** A candidate is selectable only if the source
   verified it and did not exclude it. Otherwise `blocker` is `unverified`,
   `excluded` or `type`. The same function (`approval_blocker`) guards the
@@ -208,7 +216,8 @@ jobs and reads only the stored report:
 ```json
 {"decisions": [
   {"operation_id": "<opaque>", "source": "open-meteo", "entity_id": "703448"},
-  {"operation_id": "<other>"}
+  {"operation_id": "<other>"},
+  {"operation_id": "<third>", "source": "open-meteo", "entity_id": "756135", "name": "Warszawa"}
 ]}
 ```
 
@@ -229,9 +238,49 @@ candidate is accepted only if the source still verifies it; the decision is then
 audited as `basis: user_override`. Otherwise the operation fails with
 `APPROVAL_NOT_REVERIFIED` and the cell stays empty.
 
+**Another name.** A name in the workbook can be one the source does not know:
+another language, another spelling, a typo. Two routes serve it.
+
+`POST /api/jobs/{job_id}/review/{operation_id}/search` with
+`{"name": "Warszawa", "allow_network": true}` asks the source once, at once, for
+that name. It uses the lookup, the country of the reviewed query, the checks and
+the decision policy a job would use (`resolution/other_name.py`, `search_under`),
+and the provider limits of one job. The answer is a review item for the same
+operation: `query.name` is the row's value, `query.searched_as` the name
+searched, `candidates` what the source returned with the usual `selectable`
+flag, and `status` the outcome (`resolved` for one confirmed match,
+`needs_review` for several, `unresolved` for none, `provider_failure` when the
+source did not answer). A search writes nothing and changes neither the job nor
+its review. The server keeps its own record of the latest search per operation.
+Errors: `invalid_search` (422) for an unknown operation, one that cannot use
+another name, a blank name, a name over 512 characters or the row's own value
+again; `review_not_available` (409); `network_disabled` (403);
+`search_busy` (409) while another search is running; `search_limit` (429) after
+100 searches for one job; `search_failed` (502).
+
+A resume decision may then carry the chosen candidate together with the name
+that found it: `{"operation_id": …, "source": …, "entity_id": …, "name": …}`.
+The server accepts it only if that candidate is a confirmed, not excluded
+candidate of its own record of the latest search under exactly that name
+(`build_searched_selections`); a candidate sent with a name that was not
+searched, or that an newer search replaced, is an `invalid_decision`. The new
+job verifies the candidate again under the given name and audits it as
+`basis: user_override`, also when the search confirmed only one match: the row's
+own value did not find it, so it is the user's choice.
+
+A decision with `name` alone is accepted too: the new job then searches under
+that name itself and its policy decides (one confirmed match is written and
+marked as the user's decision, several come back as a review item). The
+interface does not use this form.
+
+In both forms the workbook is not changed, the audit keeps the row's value in
+`query.name` and the name searched in `query.searched_as`, and the choice stays
+in force in later rounds of the same chain. A step whose inputs do not come
+straight from workbook columns cannot be given another name.
+
 Errors: `review_not_available` when the job is not in a reviewable state,
-`invalid_decision` for an unknown or duplicate operation or a candidate that
-cannot be approved, `no_decisions` when every decision leaves its query empty
+`invalid_decision` for an unknown or duplicate operation, a candidate that
+cannot be approved or a name that cannot be used, `no_decisions` when every decision leaves its query empty
 (a new job would change nothing). Messages do not contain record identifiers.
 
 Known limits: the resume recomputes the whole selected table (up to

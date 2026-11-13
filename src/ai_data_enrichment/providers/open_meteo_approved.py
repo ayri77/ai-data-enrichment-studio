@@ -16,13 +16,14 @@ from ai_data_enrichment.providers.open_meteo_resolution import (
     GeocodingResolutionOutcome,
     OpenMeteoResolutionService,
 )
-from ai_data_enrichment.resolution.approvals import ResolutionApproval
+from ai_data_enrichment.resolution.approvals import ResolutionApproval, approvable_statuses
 from ai_data_enrichment.resolution.geography import normalize_country_code
 from ai_data_enrichment.resolution.models import (
     ResolutionDecision,
     ResolutionPolicy,
     ResolutionReport,
 )
+from ai_data_enrichment.resolution.other_name import searched_under
 
 PROVIDER_ID = "open-meteo"
 
@@ -51,7 +52,7 @@ class ApprovedOpenMeteoResolutionService:
             raise ValueError("Approved location and source report must both use Open-Meteo.")
         if query.entity_type != "city":
             raise ValueError("Approved location must come from a city resolution query.")
-        if source_report.decision.status not in {"needs_review", "incomplete_verification"}:
+        if source_report.decision.status not in approvable_statuses(source_report):
             raise ValueError("Source resolution does not require user review.")
         if re.fullmatch(r"[1-9]\d*", approval.entity_id) is None:
             raise ValueError("Approved Open-Meteo location has an invalid ID.")
@@ -77,6 +78,9 @@ class ApprovedOpenMeteoResolutionService:
         self._service = OpenMeteoResolutionService(transport)
         self._reference = reference
         self._name = query.name
+        # The earlier search may have used another name the user gave for the
+        # row. The repeat uses it too; the row is still checked by its own value.
+        self._searched_as = query.searched_as
         self._country_code = country_code
         self._area = area
         self._parameters: dict[str, str] = (
@@ -126,11 +130,14 @@ class ApprovedOpenMeteoResolutionService:
         if dict(parameters or {}) != self._parameters:
             raise ValueError("Current geocoding parameters differ from the approved source query.")
 
-        fresh = self._service.resolve(inputs=inputs, policy=policy, parameters=self._parameters)
+        lookup = inputs if self._searched_as is None else {**inputs, "city": self._searched_as}
+        fresh = self._service.resolve(inputs=lookup, policy=policy, parameters=self._parameters)
         report = fresh.report
+        if self._searched_as is not None:
+            report = searched_under(report, row_name=self._name, searched_as=self._searched_as)
         if report.candidate_set.provider_error_code is not None:
             # A provider failure is reported as such; approval cannot replace evidence.
-            return fresh
+            return GeocodingResolutionOutcome(operation=fresh.operation, report=report)
 
         candidate = next(
             (c for c in report.candidate_set.candidates if c.reference == self._reference), None

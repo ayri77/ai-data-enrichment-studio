@@ -201,9 +201,16 @@ for (const name of ["capitals", "mountains"]) {
             await expect(
                 page.getByTestId("unresolved-Annapurna"),
             ).toBeAttached();
+            // No candidates, but a name can be searched under another one;
+            // until one is given there is nothing to fill.
+            await expect(
+                page
+                    .getByTestId("unresolved-Annapurna")
+                    .getByText("Search under another name"),
+            ).toBeVisible();
             await expect(
                 page.getByRole("button", { name: "Fill in remaining rows" }),
-            ).toHaveCount(0);
+            ).toBeDisabled();
         }
         await screenshotWorkspace(page, testInfo, name, "review");
         await page.getByRole("button", { name: "Continue to results" }).click();
@@ -304,6 +311,105 @@ for (const name of ["capitals", "mountains"]) {
         ).toBeDisabled();
     });
 }
+
+test("capitals: a name the source does not know is found under another name", async ({
+    page,
+}, testInfo) => {
+    await advanced(page);
+    await page.goto("/");
+    await page
+        .getByLabel("Upload Excel workbook")
+        .setInputFiles(resolve("../samples/capitals.xlsx"));
+    await expect(page.getByLabel("Worksheet")).toHaveValue("Sheet1");
+    await page.getByRole("button", { name: "Preview selection" }).click();
+    await page
+        .getByLabel("Enrichment instruction")
+        .fill("Calculate distances in km between the city pairs.");
+    await page.getByLabel("Output column 1", { exact: true }).selectOption("E");
+    await page
+        .getByLabel(
+            "Allow external network requests for planning and execution",
+        )
+        .check();
+    await page.getByRole("button", { name: "Build Plan", exact: true }).click();
+    await page
+        .getByRole("button", { name: "Approve / Continue to Execution" })
+        .click();
+    const firstRun = page.waitForResponse(
+        (r) => r.url().endsWith("/runs") && r.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Start bounded run" }).click();
+    const first = await (await firstRun).json();
+    await expect(page.getByTestId("metric-successful_rows")).toHaveText("1", {
+        timeout: 30_000,
+    });
+    await page.getByRole("button", { name: "Review issues" }).click();
+    // The offline source knows Warsaw under its Polish name only.
+    const warsaw = page.getByTestId("unresolved-Warsaw");
+    await warsaw.getByText("Search under another name").click();
+    await warsaw
+        .getByLabel("Name to search for instead of “Warsaw”")
+        .fill("Warszawa");
+    await warsaw.getByRole("button", { name: "Search" }).click();
+    // The source is asked at once and the confirmed match is offered.
+    const match = warsaw.getByTestId("found-open-meteo:756135");
+    await expect(match).toContainText("Warszawa");
+    await page.screenshot({
+        path: testInfo.outputPath("review-other-name-found.png"),
+    });
+    await match.getByRole("radio").click();
+    await expect(warsaw.getByTestId("review-chosen")).toContainText(
+        "found under “Warszawa”",
+    );
+    await page
+        .getByTestId("review-Kyiv")
+        .getByTestId("candidate-open-meteo:703448")
+        .getByRole("radio")
+        .click();
+    await warsaw.scrollIntoViewIfNeeded();
+    await page.screenshot({
+        path: testInfo.outputPath("review-other-name.png"),
+    });
+    const resumeRequest = page.waitForRequest((r) =>
+        r.url().endsWith(`/api/jobs/${first.job_id}/resume`),
+    );
+    await page.getByRole("button", { name: "Fill in remaining rows" }).click();
+    const sent = (await resumeRequest).postDataJSON();
+    expect(sent.decisions).toHaveLength(2);
+    expect(sent.decisions[1]).toMatchObject({
+        source: "open-meteo",
+        entity_id: "756135",
+        name: "Warszawa",
+    });
+    // Kyiv–Paris and Warsaw–Kyiv are now complete.
+    await expect(page.getByTestId("metric-successful_rows")).toHaveText("3", {
+        timeout: 30_000,
+    });
+    await page.getByRole("button", { name: "Review issues" }).click();
+    await expect(page.getByTestId("unresolved-Warsaw")).toHaveCount(0);
+    await page.getByRole("button", { name: "Continue to results" }).click();
+    // A value found under the given name is marked as the user's decision.
+    const chosen = page.locator(
+        '[data-testid="row-outcome"][data-chosen="true"]',
+    );
+    await expect(chosen.nth(1)).toContainText("After your choice");
+    await expect(chosen.nth(1)).toContainText("Warsaw");
+    const reportDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download JSON audit" }).click();
+    const reportPath = testInfo.outputPath("other-name-report.json");
+    await (await reportDownload).saveAs(reportPath);
+    const audit = JSON.parse(await readFile(reportPath, "utf8"));
+    const queries = audit.execution.resolution_report.operations
+        .map((operation: any) => operation.report)
+        .filter((report: any) => report.candidate_set.query.name === "Warsaw")
+        .map((report: any) => [
+            report.candidate_set.query.searched_as,
+            report.decision.basis,
+            report.decision.selected.entity_id,
+        ]);
+    // The audit keeps the row's value, the name searched and whose choice it was.
+    expect(queries).toEqual([["Warszawa", "user_override", "756135"]]);
+});
 
 test("capitals: a chosen candidate resumes as a new audited job and fills the row", async ({
     page,

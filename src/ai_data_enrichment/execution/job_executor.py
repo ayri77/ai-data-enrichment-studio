@@ -80,6 +80,16 @@ class JobExecutor:
         self._resolution_cache = resolution_cache
         self._approved_resolution_services = dict(approved_resolution_services or {})
 
+    def audited_resolution(self, capability: str) -> tuple[ResolutionService, ResolutionPolicy]:
+        """The audited lookup of one capability and the policy it decides under.
+
+        For a single search outside a job, such as a name the user asks to try
+        during review. Requests still pass this executor's provider limits.
+        """
+        if capability not in self._resolution_services:
+            raise ValueError("No audited resolution is bound to this capability.")
+        return self._resolution_services[capability], self._resolution_policies[capability]
+
     def execute(
         self,
         plan: EnrichmentPlan,

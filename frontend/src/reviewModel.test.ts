@@ -3,8 +3,11 @@ import type { Review, ReviewCandidate, ReviewItem } from "./api";
 import {
     countryName,
     decisions,
+    foundCandidates,
     hasCandidateChoice,
+    otherName,
     pendingRecommendations,
+    pickedCandidate,
     rowList,
     sourceLink,
     validChoices,
@@ -94,6 +97,84 @@ it("sends only explicit decisions and needs at least one chosen candidate", () =
     ]);
     expect(hasCandidateChoice(review, choices)).toBe(true);
     expect(hasCandidateChoice(null, choices)).toBe(false);
+});
+
+it("sends a candidate found by a search with the name that found it", () => {
+    const unmatched = { ...item("oslo", []), other_name: true };
+    const named: Review = {
+        ...review,
+        items: review.items.map((entry) => ({ ...entry, other_name: true })),
+        informational: [unmatched, item("bergen", [])],
+    };
+    const found = (entity_id: string, name: string) => ({
+        ...pick(entity_id),
+        name,
+    });
+    const choices: Choices = {
+        kyiv: found("9", "Kiev"),
+        oslo: found("7", "Kristiania"),
+        // Not offered a search: nothing of it survives a reload of the review.
+        bergen: found("8", "Bjørgvin"),
+    };
+    expect(decisions(named, choices)).toEqual([
+        {
+            operation_id: "kyiv",
+            source: "open-meteo",
+            entity_id: "9",
+            name: "Kiev",
+        },
+        {
+            operation_id: "oslo",
+            source: "open-meteo",
+            entity_id: "7",
+            name: "Kristiania",
+        },
+        {
+            operation_id: "bergen",
+            source: "open-meteo",
+            entity_id: "8",
+            name: "Bjørgvin",
+        },
+    ]);
+    expect(validChoices(named, choices)).toEqual({
+        kyiv: found("9", "Kiev"),
+        oslo: found("7", "Kristiania"),
+    });
+    expect(hasCandidateChoice(named, { oslo: found("7", "Kristiania") })).toBe(
+        true,
+    );
+    // A listed candidate is not accepted for a name that has none.
+    expect(validChoices(named, { oslo: pick("7") })).toEqual({});
+});
+
+it("finds what a choice stands for among the listed and the searched candidates", () => {
+    const [berlin] = review.items;
+    const search = {
+        ...item("berlin", [candidate("77", { label: "Berlin (Spree)" })]),
+        query: { ...berlin.query, searched_as: "Spree-Athen" },
+    };
+    expect(foundCandidates(search).map((c) => c.entity_id)).toEqual(["77"]);
+    expect(foundCandidates(undefined)).toEqual([]);
+    expect(pickedCandidate(berlin, pick("1"), search)?.entity_id).toBe("1");
+    const chosen = { ...pick("77"), name: "Spree-Athen" };
+    expect(pickedCandidate(berlin, chosen, search)?.label).toBe(
+        "Berlin (Spree)",
+    );
+    // The search was replaced or is gone: the choice stands for nothing.
+    expect(
+        pickedCandidate(berlin, { ...chosen, name: "Athen" }, search),
+    ).toBeUndefined();
+    expect(pickedCandidate(berlin, chosen, undefined)).toBeUndefined();
+    expect(pickedCandidate(berlin, "empty", search)).toBeUndefined();
+});
+
+it("takes another name only when it can help", () => {
+    const row = item("München", []);
+    expect(otherName(row, "  Munich  ")).toBe("Munich");
+    expect(otherName(row, "Frankfurt   am  Main")).toBe("Frankfurt am Main");
+    expect(otherName(row, " münchen ")).toBeNull();
+    expect(otherName(row, "   ")).toBeNull();
+    expect(otherName(row, "M".repeat(201))).toBeNull();
 });
 
 it("drops choices the current review does not offer", () => {

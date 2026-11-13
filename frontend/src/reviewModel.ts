@@ -6,16 +6,61 @@ import type {
     ReviewValue,
 } from "./api";
 
-/** A chosen candidate, or an explicit "leave this query empty". */
-export type Choice = { source: string; entity_id: string } | "empty";
+/**
+ * A chosen candidate, or an explicit "leave this query empty". A candidate
+ * found by a search under another name carries that name.
+ */
+export type Choice =
+    { source: string; entity_id: string; name?: string } | "empty";
 export type Choices = Record<string, Choice>;
+/** What the latest search under another name found, by operation. */
+export type Searches = Record<string, ReviewItem>;
 
 export const candidateKey = (c: { source: string; entity_id: string }) =>
     `${c.source}:${c.entity_id}`;
 export const isCandidate = (
     choice: Choice | undefined,
-): choice is { source: string; entity_id: string } =>
+): choice is { source: string; entity_id: string; name?: string } =>
     !!choice && choice !== "empty";
+/** A candidate that a search under another name found. */
+export const isSearched = (
+    choice: Choice | undefined,
+): choice is { source: string; entity_id: string; name: string } =>
+    isCandidate(choice) && choice.name !== undefined;
+
+const spelled = (text: string) => text.trim().replace(/\s+/g, " ");
+/** The longest name the field accepts; the server allows more. */
+export const MAX_OTHER_NAME = 200;
+/**
+ * The name as it will be sent, or null when it cannot help: blank, too long,
+ * or the row's own value again.
+ */
+export function otherName(item: ReviewItem, text: string) {
+    const name = spelled(text);
+    const same =
+        name.toLocaleLowerCase() ===
+        spelled(item.query.name).toLocaleLowerCase();
+    return name && name.length <= MAX_OTHER_NAME && !same ? name : null;
+}
+/** The candidates of a search that can be chosen. */
+export const foundCandidates = (found: ReviewItem | undefined) =>
+    (found?.candidates ?? []).filter((candidate) => candidate.selectable);
+/** The candidate a choice stands for, among the listed or the searched ones. */
+export function pickedCandidate(
+    item: ReviewItem,
+    choice: Choice | undefined,
+    found: ReviewItem | undefined,
+) {
+    if (!isCandidate(choice)) return undefined;
+    const from = isSearched(choice)
+        ? found?.query.searched_as === choice.name
+            ? found.candidates
+            : []
+        : item.candidates;
+    return from.find(
+        (candidate) => candidateKey(candidate) === candidateKey(choice),
+    );
+}
 
 /** Drop choices that the current review no longer offers. */
 export function validChoices(review: Review | null, choices: Choices): Choices {
@@ -24,13 +69,22 @@ export function validChoices(review: Review | null, choices: Choices): Choices {
         const choice = choices[item.operation_id];
         if (
             choice === "empty" ||
-            (choice &&
+            // What a search found is checked by the server when it is sent.
+            (isSearched(choice) && item.other_name) ||
+            (isCandidate(choice) &&
+                !isSearched(choice) &&
                 item.candidates.some(
                     (c) =>
                         c.selectable &&
                         candidateKey(c) === candidateKey(choice),
                 ))
         )
+            next[item.operation_id] = choice;
+    }
+    // A name with no match offers nothing to choose but what a search finds.
+    for (const item of review?.informational ?? []) {
+        const choice = choices[item.operation_id];
+        if (isSearched(choice) && item.other_name)
             next[item.operation_id] = choice;
     }
     return next;
@@ -61,13 +115,20 @@ export function pendingRecommendations(
 }
 /** Undecided queries are omitted: the backend leaves them as they were. */
 export function decisions(review: Review, choices: Choices): ReviewDecision[] {
-    return review.items.flatMap((item) => {
+    const chosen = review.items.flatMap((item) => {
         const choice = choices[item.operation_id];
         if (!choice) return [];
         return choice === "empty"
             ? [{ operation_id: item.operation_id }]
             : [{ operation_id: item.operation_id, ...choice }];
     });
+    const searched = review.informational.flatMap((item) => {
+        const choice = choices[item.operation_id];
+        return isSearched(choice)
+            ? [{ operation_id: item.operation_id, ...choice }]
+            : [];
+    });
+    return [...chosen, ...searched];
 }
 /** A resume needs at least one chosen candidate; "leave empty" alone changes nothing. */
 export const hasCandidateChoice = (review: Review | null, choices: Choices) =>

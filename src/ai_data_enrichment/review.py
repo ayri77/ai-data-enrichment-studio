@@ -19,12 +19,14 @@ from ai_data_enrichment.resolution.approvals import (
     approval_blocker,
 )
 from ai_data_enrichment.resolution.geographic import GeographicRankingStrategy
+from ai_data_enrichment.resolution.input_errors import MAX_NAME_LENGTH
 from ai_data_enrichment.resolution.models import (
     ResolutionJobReport,
     ResolutionOperationAudit,
     ResolutionPolicy,
     ResolutionReport,
 )
+from ai_data_enrichment.resolution.resume import accepts_other_name
 
 # Advisory only: ranks candidates for a suggestion and never selects one.
 _RECOMMENDATION_POLICY = ResolutionPolicy(
@@ -41,12 +43,15 @@ _RECOMMENDATION_REASONS = (
 
 
 class ReviewDecision(BaseModel):
-    """Choose one listed candidate for an operation, or leave it empty on purpose."""
+    """Choose a candidate, give another name to search for, or leave it empty."""
 
     model_config = ConfigDict(extra="forbid")
     operation_id: str = Field(min_length=1, max_length=128)
     source: str | None = Field(default=None, min_length=1, max_length=64)
     entity_id: str | None = Field(default=None, min_length=1, max_length=64)
+    # Alone: search the source under this name when the job runs. With a
+    # candidate: that candidate was found by a search under this name.
+    name: str | None = Field(default=None, min_length=1, max_length=MAX_NAME_LENGTH)
 
     @model_validator(mode="after")
     def candidate_is_complete(self) -> "ReviewDecision":
@@ -123,12 +128,16 @@ def _item(operation: ResolutionOperationAudit, capabilities: dict[str, str]) -> 
         "provider_id": report.candidate_set.provider_id,
         "query": {
             "name": report.candidate_set.query.name,
+            # The name the source was searched for, when the user gave another one.
+            "searched_as": report.candidate_set.query.searched_as,
             "entity_type": report.candidate_set.query.entity_type,
             "context": {a.name: a.value for a in report.candidate_set.query.context},
         },
         "status": report.decision.status,
         "reason_codes": list(report.decision.reason_codes),
         "search_complete": report.candidate_set.search_complete,
+        # Whether searching under another name could change this outcome.
+        "other_name": accepts_other_name(report),
         "affected": [
             {
                 "record_id": link.record_id,
@@ -184,6 +193,10 @@ def approvals_from_decisions(
             raise ValueError("An operation has more than one decision.")
         seen.add(decision.operation_id)
         operation = operations.get(decision.operation_id)
+        if decision.name is not None:
+            # Decisions that carry a name are validated on their own: see
+            # names_from_decisions and searched_from_decisions.
+            continue
         if operation is None or operation.report.decision.status not in REVIEWABLE_STATUSES:
             raise ValueError("A decision targets an operation that does not need review.")
         if decision.source is None or decision.entity_id is None:
@@ -207,12 +220,40 @@ def approvals_from_decisions(
     )
 
 
+def names_from_decisions(decisions: list[ReviewDecision]) -> dict[str, str]:
+    """The operations the user gave another name for, with that name."""
+    return {
+        decision.operation_id: decision.name
+        for decision in decisions
+        if decision.name is not None and decision.entity_id is None
+    }
+
+
+def searched_from_decisions(decisions: list[ReviewDecision]) -> dict[str, tuple[str, str, str]]:
+    """Candidates chosen from a search under another name: name, source, entity ID."""
+    return {
+        decision.operation_id: (decision.name, decision.source, decision.entity_id)
+        for decision in decisions
+        if decision.name is not None
+        and decision.source is not None
+        and decision.entity_id is not None
+    }
+
+
+def searched_item(
+    operation: ResolutionOperationAudit, found: ResolutionReport, plan: EnrichmentPlan
+) -> dict[str, Any]:
+    """A review item for what a search under another name found for an operation."""
+    capabilities = {step.id: step.capability for step in plan.steps}
+    return _item(operation.model_copy(update={"report": found}), capabilities)
+
+
 def _steps_where(
     resolution_report: dict[str, Any] | None, accept: Callable[[dict[str, Any]], bool]
 ) -> dict[str, set[str]]:
     steps: dict[str, set[str]] = {}
     for operation in (resolution_report or {}).get("operations", ()):
-        if accept(operation["report"]["decision"]):
+        if accept(operation["report"]):
             for link in operation.get("record_links", ()):
                 steps.setdefault(link["record_id"], set()).add(link["step_id"])
     return steps
@@ -222,9 +263,19 @@ def user_chosen_steps(resolution_report: dict[str, Any] | None) -> dict[str, set
     """Map each record to the steps whose entity the user chose during review.
 
     Reads the serialized job report, so the public report can mark values that
-    exist only because of a user decision.
+    exist only because of a user decision. A value found under a name the user
+    gave is one of them, whichever candidate the source then confirmed.
     """
-    return _steps_where(resolution_report, lambda d: d.get("basis") == "user_override")
+    return _steps_where(
+        resolution_report,
+        lambda report: (
+            report["decision"].get("basis") == "user_override"
+            or (
+                report["decision"].get("selected") is not None
+                and report["candidate_set"]["query"].get("searched_as") is not None
+            )
+        ),
+    )
 
 
 def auto_accepted_steps(resolution_report: dict[str, Any] | None) -> dict[str, set[str]]:
@@ -236,8 +287,8 @@ def auto_accepted_steps(resolution_report: dict[str, Any] | None) -> dict[str, s
     """
     return _steps_where(
         resolution_report,
-        lambda d: (
-            d.get("basis") == "verified_only"
-            and "unchecked_alternatives_remain" in d.get("reason_codes", ())
+        lambda report: (
+            report["decision"].get("basis") == "verified_only"
+            and "unchecked_alternatives_remain" in report["decision"].get("reason_codes", ())
         ),
     )

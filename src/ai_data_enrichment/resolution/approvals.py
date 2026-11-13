@@ -75,6 +75,17 @@ def workbook_sha256(path: Path) -> str:
 REVIEWABLE_STATUSES = frozenset({"needs_review", "incomplete_verification"})
 
 
+def approvable_statuses(source_report: ResolutionReport) -> frozenset[str]:
+    """Outcomes from which a user may approve a confirmed candidate.
+
+    A search under a name the user gave may confirm exactly one match. That is
+    still the user's choice to make: the row's own value did not find it.
+    """
+    if source_report.candidate_set.query.searched_as is not None:
+        return REVIEWABLE_STATUSES | {"resolved"}
+    return REVIEWABLE_STATUSES
+
+
 def approval_blocker(
     candidate: ResolutionCandidate, source_report: ResolutionReport
 ) -> Literal["unverified", "excluded", "type"] | None:

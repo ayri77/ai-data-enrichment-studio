@@ -18,10 +18,12 @@ import { validMappings, type OutputTarget } from "./workflowModel";
 import {
     decisions,
     hasCandidateChoice,
+    isSearched,
     validChoices,
     withRecommendations,
     type Choice,
     type Choices,
+    type Searches,
 } from "./reviewModel";
 
 export type Requirement =
@@ -41,6 +43,7 @@ export type Operation =
     | "approve"
     | "start"
     | "resume"
+    | "search"
     | "cancel"
     | "download";
 export function useWorkflow(
@@ -105,6 +108,8 @@ export function useWorkflow(
     // Candidates a person can choose between, and the choices made so far.
     const [review, setReview] = useState<Review | null>(null);
     const [choices, setChoices] = useState<Choices>({});
+    // What the latest search under another name found for each name.
+    const [searches, setSearches] = useState<Searches>({});
     const [history, setHistory] = useState<
         { job: Job; report: AuditReport | null; plan: PlanDraft | null }[]
     >([]);
@@ -212,6 +217,7 @@ export function useWorkflow(
         setReport(null);
         setReview(null);
         setChoices({});
+        setSearches({});
         setError("");
         setPollError("");
     }
@@ -343,6 +349,7 @@ export function useWorkflow(
         setReport(null);
         setReview(null);
         setChoices({});
+        setSearches({});
         setPollError("");
         setJob(started);
         setJobSince(Date.now());
@@ -428,6 +435,35 @@ export function useWorkflow(
     function choose(operationId: string, choice: Choice) {
         if (!locked) setChoices((old) => ({ ...old, [operationId]: choice }));
     }
+    function unchoose(operationId: string) {
+        if (!locked)
+            setChoices((old) =>
+                Object.fromEntries(
+                    Object.entries(old).filter(([id]) => id !== operationId),
+                ),
+            );
+    }
+    // The source is asked at once; nothing is written until a found candidate
+    // is chosen and the remaining rows are filled.
+    async function searchOtherName(operationId: string, name: string) {
+        if (!job || !consent) return;
+        const found = await api.searchOtherName(
+            job.job_id,
+            operationId,
+            name,
+            consent,
+        );
+        if (!mounted.current) return;
+        setSearches((old) => ({ ...old, [operationId]: found }));
+        // A choice from the search this one replaces has nothing behind it now.
+        setChoices((old) =>
+            isSearched(old[operationId])
+                ? Object.fromEntries(
+                      Object.entries(old).filter(([id]) => id !== operationId),
+                  )
+                : old,
+        );
+    }
     function acceptRecommendations() {
         if (review && !locked)
             setChoices((old) => withRecommendations(review, old));
@@ -446,6 +482,7 @@ export function useWorkflow(
             setReport(null);
             setReview(null);
             setChoices({});
+            setSearches({});
             setPollError("");
             setJob(started);
             setJobSince(Date.now());
@@ -503,6 +540,9 @@ export function useWorkflow(
         review,
         choices,
         choose,
+        unchoose,
+        searches,
+        searchOtherName,
         acceptRecommendations,
         canResume,
         resume,

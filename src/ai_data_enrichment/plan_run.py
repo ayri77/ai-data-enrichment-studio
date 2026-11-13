@@ -47,13 +47,28 @@ from ai_data_enrichment.planning.llm_planner import (
 )
 from ai_data_enrichment.planning.openai_client import OpenAIPlanClient
 from ai_data_enrichment.provider_settings import ProviderConfiguration
-from ai_data_enrichment.resolution.models import ResolutionJobReport
-from ai_data_enrichment.resolution.resume import build_resume_selections
+from ai_data_enrichment.resolution.input_errors import MAX_NAME_LENGTH
+from ai_data_enrichment.resolution.models import (
+    ResolutionJobReport,
+    ResolutionQuery,
+    ResolutionReport,
+)
+from ai_data_enrichment.resolution.other_name import OtherNameCapability, search_under
+from ai_data_enrichment.resolution.resume import (
+    build_other_names,
+    build_resume_selections,
+    build_searched_selections,
+    other_name_capability,
+    usable_other_name,
+)
 from ai_data_enrichment.review import (
     ReviewDecision,
     approvals_from_decisions,
     auto_accepted_steps,
+    names_from_decisions,
     review_payload,
+    searched_from_decisions,
+    searched_item,
     user_chosen_steps,
 )
 from ai_data_enrichment.run_limits import DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS
@@ -155,6 +170,20 @@ class ResumeRequest(RunRequest):
     decisions: list[ReviewDecision] = Field(min_length=1, max_length=MAX_RUN_ROWS * MAX_PLAN_STEPS)
 
 
+class SearchRequest(BaseModel):
+    """Search the source once for another name of a reviewed query."""
+
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH)
+    allow_network: bool = False
+
+
+# How many times one job's names may be searched under another name. A person
+# trying spellings stays far below it; a script does not get an open relay to
+# the data sources.
+MAX_REVIEW_SEARCHES = 100
+
+
 class PlanRunService:
     """In-memory identities with temporary on-disk artifacts; one active run."""
 
@@ -178,6 +207,12 @@ class PlanRunService:
         self.directories: dict[str, Path] = {}
         # The user's choices each job ran with, so that a later resume keeps them.
         self.selections: dict[str, dict] = {}
+        # The latest search under another name for each operation of a job, so
+        # that a candidate chosen from it is checked against the server's own
+        # record, and how many such searches the job has had.
+        self.searches: dict[str, dict[str, ResolutionReport]] = {}
+        self.search_counts: dict[str, int] = {}
+        self.searching = False
         self.router = APIRouter(prefix="/api")
         self._routes()
 
@@ -196,6 +231,8 @@ class PlanRunService:
     def _drop_job(self, job_id: str) -> None:
         del self.jobs[job_id]
         self.selections.pop(job_id, None)
+        self.searches.pop(job_id, None)
+        self.search_counts.pop(job_id, None)
         self.tasks.pop(job_id, None)
         self.cancel_events.pop(job_id, None)
         rmtree(self.directories.pop(job_id), ignore_errors=True)
@@ -454,6 +491,62 @@ class PlanRunService:
             report, draft = self.resolution_report(job)
             return review_payload(job_id, report, EnrichmentPlan.model_validate(draft["plan"]))
 
+        @router.post("/jobs/{job_id}/review/{operation_id}/search")
+        async def search(job_id: str, operation_id: str, body: SearchRequest):
+            async with self.lock:
+                job = self.get_job(job_id)
+                if job["status"] != "needs_review":
+                    raise WorkspaceError(
+                        "review_not_available", "This job has nothing left to review.", 409
+                    )
+                report, draft = self.resolution_report(job)
+                plan = EnrichmentPlan.model_validate(draft["plan"])
+                operation = (
+                    next(
+                        (item for item in report.operations if item.operation_id == operation_id),
+                        None,
+                    )
+                    if report
+                    else None
+                )
+                try:
+                    if operation is None:
+                        raise ValueError("Unknown operation.")
+                    capability = other_name_capability(operation, plan)
+                    query = operation.report.candidate_set.query
+                    searched_as = usable_other_name(body.name, query.name)
+                except ValueError:
+                    raise WorkspaceError(
+                        "invalid_search", "This name cannot be searched for this item."
+                    ) from None
+                if self.offline_executor_factory is None:
+                    self.network_gate(body.allow_network)
+                if self.searching:
+                    raise WorkspaceError("search_busy", "Wait for the current search.", 409)
+                if self.search_counts.get(job_id, 0) >= MAX_REVIEW_SEARCHES:
+                    raise WorkspaceError("search_limit", "This run has had too many searches.", 429)
+                self.search_counts[job_id] = self.search_counts.get(job_id, 0) + 1
+                self.searching = True
+            try:
+                found = await run_in_threadpool(
+                    self.search_once,
+                    capability,
+                    draft["mountain_resolution_policy"],
+                    query,
+                    searched_as,
+                )
+            except Exception:
+                logging.getLogger(__name__).exception("Search under another name failed")
+                raise WorkspaceError(
+                    "search_failed", "The search could not be completed.", 502
+                ) from None
+            finally:
+                self.searching = False
+            # The job may have been dropped while the source was being asked.
+            if job_id in self.jobs:
+                self.searches.setdefault(job_id, {})[operation_id] = found
+            return searched_item(operation, found, plan)
+
         @router.post("/jobs/{job_id}/resume", status_code=202)
         async def resume(job_id: str, body: ResumeRequest):
             async with self.lock:
@@ -471,22 +564,38 @@ class PlanRunService:
                     manifest = approvals_from_decisions(
                         body.decisions, report, workbook_sha256=draft["source_sha256"]
                     )
-                    selections = (
-                        build_resume_selections(
-                            manifest=manifest, report=report, plan=plan, source_path=source
-                        )
-                        if manifest is not None
-                        else {}
-                    )
+                    selections = {
+                        **(
+                            build_resume_selections(
+                                manifest=manifest, report=report, plan=plan, source_path=source
+                            )
+                            if manifest is not None
+                            else {}
+                        ),
+                        # A name the user gave is searched by the new job, under
+                        # its limits; nothing is looked up here.
+                        **build_other_names(
+                            names=names_from_decisions(body.decisions), report=report, plan=plan
+                        ),
+                        # A candidate chosen from a search under another name is
+                        # checked against the server's record of that search.
+                        **build_searched_selections(
+                            choices=searched_from_decisions(body.decisions),
+                            searches=self.searches.get(job_id, {}),
+                            report=report,
+                            plan=plan,
+                        ),
+                    }
                 except ValueError:
                     # Validation messages can name record IDs; keep the public error generic.
                     raise WorkspaceError(
                         "invalid_decision",
-                        "Choose listed, selectable candidates for operations that need review.",
+                        "Choose listed, selectable candidates, or give another name to "
+                        "search for, for operations that need review.",
                     ) from None
                 if not selections:
                     raise WorkspaceError(
-                        "no_decisions", "Choose a candidate for at least one item."
+                        "no_decisions", "Choose a candidate or give another name for one item."
                     )
                 # A resume starts from the source workbook again, so the choices
                 # the reviewed job itself ran with are part of the next one: a
@@ -497,7 +606,11 @@ class PlanRunService:
                     body,
                     resume_selections=selections,
                     previous_job_id=job_id,
-                    decisions=[d.model_dump(mode="json") for d in body.decisions],
+                    decisions=[
+                        # A name is recorded only where one was given.
+                        d.model_dump(mode="json", exclude=set() if d.name else {"name"})
+                        for d in body.decisions
+                    ],
                 )
 
         @router.get("/jobs/{job_id}/artifacts/{artifact}")
@@ -508,6 +621,21 @@ class PlanRunService:
             directory = self.datasets[job["dataset_id"]].parent / job_id
             name = "result.xlsx" if artifact == "result" else "report.json"
             return FileResponse(directory / name, filename=f"{job_id}-{name}")
+
+    def search_once(
+        self,
+        capability: OtherNameCapability,
+        mountain_policy: MountainPolicy,
+        query: ResolutionQuery,
+        searched_as: str,
+    ) -> ResolutionReport:
+        """Ask the source for one name, with the lookup and limits a job would use."""
+        factory = self.offline_executor_factory or live_executor
+        executor = factory(frozenset({capability}), mountain_policy, MAX_RUN_ROWS)
+        service, policy = executor.audited_resolution(capability)
+        return search_under(
+            service, policy, capability=capability, query=query, searched_as=searched_as
+        )
 
     def resolution_report(self, job: dict) -> tuple[ResolutionJobReport | None, dict]:
         """Read the audited decisions of a finished job from its private report."""

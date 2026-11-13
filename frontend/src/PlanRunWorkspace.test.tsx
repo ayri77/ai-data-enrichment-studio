@@ -20,6 +20,7 @@ import {
     type Preview,
     type Review,
     type ReviewCandidate,
+    type ReviewItem,
 } from "./api";
 import i18n, { messages } from "./i18n";
 
@@ -47,6 +48,7 @@ vi.mock("./api", async (original) => ({
         cancelJob: vi.fn(),
         getReview: vi.fn(),
         resumeJob: vi.fn(),
+        searchOtherName: vi.fn(),
         artifact: vi.fn(),
     },
 }));
@@ -1175,6 +1177,187 @@ it("offers nothing to decide when a run only has names without a match", async (
         screen.queryByRole("button", { name: i18n.t("review.resume") }),
     ).toBeNull();
     expect(button("ws.toExport")).toBeEnabled();
+});
+
+it("searches a name under another one at once and offers what the source confirmed", async () => {
+    const [berlin, kyiv] = review.items;
+    const [oslo] = review.informational;
+    vi.mocked(api.getReview).mockResolvedValue({
+        ...review,
+        items: [berlin, { ...kyiv, other_name: true }],
+        informational: [
+            {
+                ...oslo,
+                other_name: true,
+                query: { ...oslo.query, searched_as: "Christiania" },
+            },
+        ],
+    });
+    const found = (item: ReviewItem, name: string, ...ids: string[]) => ({
+        ...item,
+        status: ids.length ? "needs_review" : "unresolved",
+        query: { ...item.query, searched_as: name },
+        candidates: ids.map((id) => place(id, { label: name })),
+    });
+    vi.mocked(api.searchOtherName).mockImplementation(
+        async (_job, operationId, name) =>
+            operationId === "op-oslo"
+                ? found(
+                      oslo,
+                      name,
+                      ...(name === "Kristiania" ? ["3143244"] : []),
+                  )
+                : found(kyiv, name, "703448", "9001"),
+    );
+    render(<App />);
+    await start();
+    await navigate("review");
+    const search = { name: i18n.t("review.otherName.search") };
+    const unmatched = within(await screen.findByTestId("unresolved-Oslo"));
+    // The name tried by the earlier run is shown; the row's own value cannot be searched again.
+    expect(unmatched.getByTestId("searched-as")).toHaveTextContent(
+        i18n.t("review.searchedAs", { name: "Christiania" }),
+    );
+    const field = unmatched.getByLabelText(
+        i18n.t("review.otherName.label", { name: "Oslo" }),
+    );
+    await userEvent.type(field, " oslo ");
+    expect(unmatched.getByRole("button", search)).toBeDisabled();
+
+    // Nothing confirmed under one name: it says so and another can be tried.
+    await userEvent.clear(field);
+    await userEvent.type(field, "Kristiana{Enter}");
+    expect(api.searchOtherName).toHaveBeenLastCalledWith(
+        "job",
+        "op-oslo",
+        "Kristiana",
+        true,
+    );
+    expect(
+        await unmatched.findByText(
+            i18n.t("review.otherName.none", { name: "Kristiana" }),
+        ),
+    ).toBeVisible();
+    expect(button("review.resume")).toBeDisabled();
+
+    await userEvent.clear(field);
+    await userEvent.type(field, " Kristiania ");
+    await userEvent.click(unmatched.getByRole("button", search));
+    const match = await unmatched.findByTestId("found-open-meteo:3143244");
+    // A search writes nothing: the match still has to be chosen.
+    expect(button("review.resume")).toBeDisabled();
+    await userEvent.click(within(match).getByRole("radio"));
+    const chosenOslo = unmatched.getByTestId("review-chosen");
+    expect(chosenOslo).toHaveTextContent("Kristiania");
+    expect(chosenOslo).toHaveTextContent(
+        i18n.t("review.otherName.foundAs", { name: "Kristiania" }),
+    );
+    expect(button("review.resume")).toBeEnabled();
+    // The choice can be taken back; the found match stays on offer.
+    await userEvent.click(
+        within(chosenOslo).getByRole("button", {
+            name: i18n.t("review.otherName.clear"),
+        }),
+    );
+    expect(button("review.resume")).toBeDisabled();
+    await userEvent.click(
+        within(unmatched.getByTestId("found-open-meteo:3143244")).getByRole(
+            "radio",
+        ),
+    );
+
+    // A name that has candidates can be searched under another one as well;
+    // the same place found by the search is a separate option.
+    const card = within(screen.getByTestId("review-Kyiv"));
+    await userEvent.type(
+        card.getByLabelText(i18n.t("review.otherName.label", { name: "Kyiv" })),
+        "Kiev{Enter}",
+    );
+    const again = await card.findByTestId("found-open-meteo:703448");
+    expect(radio("703448")).not.toBeChecked();
+    await userEvent.click(within(again).getByRole("radio"));
+    expect(chosen("Kyiv")).toHaveTextContent(
+        i18n.t("review.otherName.foundAs", { name: "Kiev" }),
+    );
+    expect(screen.getByTestId("review-progress")).toHaveTextContent(
+        i18n.t("review.progress", { decided: 1, total: 2 }),
+    );
+    // Berlin was not offered a search.
+    expect(
+        within(screen.getByTestId("review-Berlin")).queryByText(
+            i18n.t("review.otherName.toggle"),
+        ),
+    ).toBeNull();
+
+    vi.mocked(api.resumeJob).mockResolvedValue({
+        ...queued,
+        job_id: "job-2",
+        previous_job_id: "job",
+    });
+    await userEvent.click(button("review.resume"));
+    expect(api.resumeJob).toHaveBeenCalledWith(
+        "job",
+        [
+            {
+                operation_id: "op-kyiv",
+                source: "open-meteo",
+                entity_id: "703448",
+                name: "Kiev",
+            },
+            {
+                operation_id: "op-oslo",
+                source: "open-meteo",
+                entity_id: "3143244",
+                name: "Kristiania",
+            },
+        ],
+        true,
+        180,
+    );
+});
+
+it("offers the fill for a run with nothing to choose once a search has a chosen match", async () => {
+    const [oslo] = review.informational;
+    vi.mocked(api.getReview).mockResolvedValue({
+        ...review,
+        items: [],
+        affected_rows: 0,
+        informational: [{ ...oslo, other_name: true }],
+    });
+    vi.mocked(api.searchOtherName)
+        .mockRejectedValueOnce(
+            new WorkspaceApiError("search_failed", "sanitized"),
+        )
+        .mockResolvedValue({
+            ...oslo,
+            status: "provider_failure",
+            query: { ...oslo.query, searched_as: "Kristiania" },
+        });
+    render(<App />);
+    await start();
+    await navigate("review");
+    await screen.findByTestId("unresolved-Oslo");
+    expect(screen.queryByTestId("review-progress")).toBeNull();
+    expect(
+        screen.queryByRole("button", { name: i18n.t("review.accept") }),
+    ).toBeNull();
+    expect(button("review.resume")).toBeDisabled();
+    const field = screen.getByLabelText(
+        i18n.t("review.otherName.label", { name: "Oslo" }),
+    );
+    // A refused or broken search is reported like any other request.
+    await userEvent.type(field, "Kristiania{Enter}");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+        i18n.t("error.search_failed"),
+    );
+    // A source that did not answer is not "no match".
+    await userEvent.type(field, "{Enter}");
+    expect(
+        await screen.findByText(
+            i18n.t("review.otherName.failed", { name: "Kristiania" }),
+        ),
+    ).toBeVisible();
+    expect(button("review.resume")).toBeDisabled();
 });
 
 it("shows results with source values, readable numbers, reasons, filters and details", async () => {

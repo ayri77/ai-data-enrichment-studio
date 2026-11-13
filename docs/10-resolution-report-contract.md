@@ -35,7 +35,7 @@ automatic clarification, or unrestricted entity correction.
 | Type | Key fields / intent |
 | --- | --- |
 | `ResolutionAttribute` | Named typed `Text/Int/Float/Bool` fact, optional evidence. No arbitrary JSON, no implicit fuzzy normalization. |
-| `ResolutionQuery` | Original name + entity type + named, registered context facts (e.g., country code, admin area). |
+| `ResolutionQuery` | Original name + entity type + named, registered context facts (e.g., country code, admin area). Optional `searched_as`: the name the source was searched for when the user gave another one during review; `name` stays the row's own value. |
 | `ResolutionCandidate` | Source-qualified `EntityRef`, label, normalized type, attributes, source Evidence, verification state (`verified/rejected/unchecked`). |
 | `CandidateSet` | Provider, query, candidate list, search and verification completeness, bounded incomplete reason and provider error code. |
 | `CandidateAssessment` | Decision-layer per-candidate `eligible/excluded/unchecked`, rank and reason codes; it does **not** rewrite provider facts. |
@@ -72,6 +72,8 @@ passes, including M3 approval-based resume.
 A candidate's `verified` flag means *the provider supplied evidence supporting its identity and checked attributes*, **not** that all competing candidates were exhausted. Those are distinct `CandidateSet` completeness flags.
 
 A user may explicitly select an already verified candidate even from an incomplete candidate set; that selection is labeled `user_override` and the partial-search metadata remains visible. An *unchecked* candidate cannot be promoted to a definitive result just because the user selected its search-list position; it must be verified first.
+
+A user may also have a row's value searched under another name. That changes only what the source is asked for: verification, the country constraint and the decision policy are the same. The report records the fact in `query.searched_as`. A candidate the user chooses from such a search is verified again by the job and selected with `basis: user_override`, even when the search confirmed a single match, because the row's own value did not find it; approved-candidate services therefore accept a `resolved` source report only when it has `searched_as`. Any value selected in a report with `searched_as` counts as the user's decision in the public row summary.
 
 ## 3. Example — Berlin auto-selection with alternatives
 
