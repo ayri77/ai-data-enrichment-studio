@@ -85,7 +85,10 @@ def test_country_redirect_abstains_before_proving_mountain_country() -> None:
     assert outcome.report.decision.status == "incomplete_verification"
     assert outcome.report.decision.selected is None
     assert outcome.report.candidate_set.candidates[0].verification == "unchecked"
-    assert transport.get_json.call_count == 3
+    # Search, candidate claims, then the country twice: the advance request for
+    # all candidates' countries remembers nothing when it fails, and the
+    # candidate that needs the country asks again and reports the failure.
+    assert transport.get_json.call_count == 4
 
 
 def test_subclass_redirect_cannot_verify_mountain_type() -> None:
@@ -94,7 +97,8 @@ def test_subclass_redirect_cannot_verify_mountain_type() -> None:
         "id": "Q9901",  # Requested Q9900 is now a redirected or changed class.
         "claims": {"P279": [entity_statement("Q8502")]},
     }
-    transport = _scripted_wikidata({"Q513": mountain, "Q9900": class_abstract})
+    # The country is confirmed first, so the walk up the changed class is reached.
+    transport = _scripted_wikidata({"Q513": mountain, "Q9900": class_abstract, "Q837": _country()})
     outcome = WikidataMountainResolutionService(transport).resolve(
         inputs={"name": "Mount Everest", "country": "Nepal"},
         policy=ResolutionPolicy(policy_id="strict", version="1"),
@@ -103,7 +107,8 @@ def test_subclass_redirect_cannot_verify_mountain_type() -> None:
     assert outcome.operation.error_code == "INCOMPLETE_VERIFICATION"
     assert outcome.report.decision.status == "incomplete_verification"
     assert outcome.report.decision.selected is None
-    assert transport.get_json.call_count == 3
+    # Search, candidate claims, country codes, class.
+    assert transport.get_json.call_count == 4
 
 
 def test_elevation_response_redirect_never_attributes_height_to_old_qid() -> None:
