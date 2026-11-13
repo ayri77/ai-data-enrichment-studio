@@ -46,7 +46,7 @@ from ai_data_enrichment.planning.llm_planner import (
     PlanCompletionClient,
     PlanGenerationError,
 )
-from ai_data_enrichment.planning.openai_client import OpenAIPlanClient
+from ai_data_enrichment.planning.model_catalog import model_client as catalog_client
 from ai_data_enrichment.provider_settings import ProviderConfiguration
 from ai_data_enrichment.resolution.input_errors import MAX_NAME_LENGTH
 from ai_data_enrichment.resolution.models import (
@@ -299,7 +299,7 @@ class PlanRunService:
             raise WorkspaceError("missing_api_key", "Add an API key in Provider Settings.")
 
     @contextmanager
-    def model_client(self, *, max_output_tokens: int) -> Iterator[PlanCompletionClient]:
+    def model_client(self, *, answer_tokens: int) -> Iterator[PlanCompletionClient]:
         """The configured model for one request; call model_gate first."""
         if self.offline_plan_client is not None:
             yield self.offline_plan_client
@@ -311,8 +311,8 @@ class PlanRunService:
             max_retries=0,
         )
         try:
-            yield OpenAIPlanClient(
-                api=api, model=self.provider.model or "", max_output_tokens=max_output_tokens
+            yield catalog_client(
+                api=api, model_id=self.provider.model or "", answer_tokens=answer_tokens
             )
         finally:
             with suppress(Exception):
@@ -403,7 +403,7 @@ class PlanRunService:
         if plan is None:
             self.model_gate(body.allow_network)
             try:
-                with self.model_client(max_output_tokens=4096) as client:
+                with self.model_client(answer_tokens=4096) as client:
                     generated = LLMPlanner(client=client, registry=builtin_registry()).generate(
                         instruction=body.instruction,
                         dataset_profile=profile,
@@ -700,7 +700,7 @@ class PlanRunService:
 
     def suggest_once(self, query: ResolutionQuery, capability: str) -> tuple[str, ...]:
         """Ask the model once for other names; nothing is searched here."""
-        with self.model_client(max_output_tokens=1024) as client:
+        with self.model_client(answer_tokens=1024) as client:
             return suggest_names(client, query=query, capability=capability)
 
     def search_once(

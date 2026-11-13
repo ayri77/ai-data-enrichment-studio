@@ -1596,7 +1596,10 @@ it("says next to the button what is still missing, and opens settings for a miss
     // A key from the environment with an unsupported model: ready except for the model.
     vi.mocked(api.providerSettings).mockResolvedValue({
         provider: "openai",
-        supported_models: [{ id: "gpt-4.1-mini", label: "gpt-4.1-mini" }],
+        supported_models: [
+            { id: "gpt-4.1-mini", label: "gpt-4.1-mini", measured: true },
+            { id: "gpt-6-luna", label: "gpt-6-luna", measured: false },
+        ],
         model: null,
         key_present: true,
         server_network_allowed: true,
@@ -1638,7 +1641,24 @@ it("says next to the button what is still missing, and opens settings for a miss
         }),
     );
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByLabelText(i18n.t("provider.model"))).toBeInTheDocument();
+    const select = screen.getByLabelText(i18n.t("provider.model"));
+    // The list is the server's catalog; an unmeasured model says so, in the
+    // list and once it is selected.
+    expect(
+        within(select)
+            .getAllByRole("option")
+            .map((option) => option.textContent),
+    ).toEqual([
+        i18n.t("provider.chooseModel"),
+        "gpt-4.1-mini",
+        i18n.t("provider.notMeasured", { model: "gpt-6-luna" }),
+    ]);
+    await userEvent.selectOptions(select, "gpt-4.1-mini");
+    expect(screen.queryByTestId("model-not-measured")).toBeNull();
+    await userEvent.selectOptions(select, "gpt-6-luna");
+    expect(screen.getByTestId("model-not-measured")).toHaveTextContent(
+        i18n.t("provider.notMeasuredHint"),
+    );
 });
 
 it("shows no list of missing items once a plan can be built", async () => {

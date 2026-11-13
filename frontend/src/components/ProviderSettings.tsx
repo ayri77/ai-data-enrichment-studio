@@ -120,11 +120,22 @@ export function ProviderSettings({ w }: { w: Workflow }) {
                             </option>
                             {p?.supported_models.map((m) => (
                                 <option key={m.id} value={m.id}>
-                                    {m.label}
+                                    {m.measured === false
+                                        ? t("provider.notMeasured", {
+                                              model: m.label,
+                                          })
+                                        : m.label}
                                 </option>
                             ))}
                         </select>
                     </label>
+                    {p?.supported_models.some(
+                        (m) => m.id === model && m.measured === false,
+                    ) && (
+                        <p className="muted" data-testid="model-not-measured">
+                            {t("provider.notMeasuredHint")}
+                        </p>
+                    )}
                     <label>
                         {t("provider.keyInput")}
                         <input

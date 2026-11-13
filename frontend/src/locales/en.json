@@ -277,6 +277,8 @@
     "provider.serverGate": "Server network access",
     "provider.model": "OpenAI planning model",
     "provider.chooseModel": "Choose a model",
+    "provider.notMeasured": "{{model}} (not measured)",
+    "provider.notMeasuredHint": "The planning reliability of this model was not measured on the sample workbooks. A plan is still validated before it can run.",
     "provider.keyInput": "Enter / replace API key",
     "provider.replaceHint": "Leave empty to keep the current key. Enter a new key to replace it. The input clears after handoff or closing settings.",
     "provider.apply": "Apply settings",

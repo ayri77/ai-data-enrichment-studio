@@ -275,7 +275,8 @@ export interface ReviewDecision {
 }
 export interface ProviderReadiness {
     provider: "openai";
-    supported_models: { id: string; label: string }[];
+    /** `measured` is false for a model whose planning reliability was not measured. */
+    supported_models: { id: string; label: string; measured?: boolean }[];
     model: string | null;
     key_present: boolean;
     server_network_allowed: boolean;

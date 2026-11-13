@@ -239,7 +239,7 @@ to directly resolve mountain elevations"): it does not compose `resolve_entity` 
 `lookup_property`. The result predates the contract changes, so it is not a regression.
 A first-attempt abstention is final by design, so the repair loop does not help.
 
-`gpt-4o-mini` is therefore removed from `SUPPORTED_MODELS`, and `gpt-4.1-mini` is the
+`gpt-4o-mini` is therefore removed from the model catalog (`planning/model_catalog.py`), and `gpt-4.1-mini` is the
 default when `OPENAI_MODEL` is unset. `gpt-4.1` remains selectable but has not been
 measured. Free-form and non-English instructions have not been measured on any model.
 The samples are small; treat the table as a floor for decisions, not as a rate.
@@ -278,7 +278,7 @@ What follows from the facts, before any measurement:
   extra message item for structured-output requests. Unverified here; if it happens
   with this adapter's JSON mode, it would show up as malformed JSON and a repair.
 
-So the model is not added to `SUPPORTED_MODELS` on the strength of the question. The
+So the model was not added to the list on the strength of the question. (Since 2026-11-13 it can be chosen, marked as not measured; see "Where models are described" below.) The
 adapter can now state an effort (`OpenAIPlanClient(reasoning_effort=...)`, sent only when
 set), and the measurement script takes `--reasoning-effort` and `--max-output-tokens`
 and reports how long each request took and how many exceeded the server's 30 s.
@@ -292,6 +292,23 @@ uv run --env-file .env python -m scripts.experiment_planner --case mountains --m
 
 and the same two with `--reasoning-effort none`. Acceptance, the same bar the default
 model met: 10 of 10 valid plans on both tasks, no request over 30 s, no `incomplete`
-responses. If one effort passes, the model is added to `SUPPORTED_MODELS` together with
-that effort, the default stays `gpt-4.1-mini`, and this section becomes a row in the
-table above. If neither passes, the section records the result and the list stays as it is.
+responses. If one effort passes, its catalog entry gets that effort and `measured=True`,
+the default stays `gpt-4.1-mini`, and this section becomes a row in the table above. If
+neither passes, the section records the result and the entry is removed.
+
+### Where models are described
+
+`src/ai_data_enrichment/planning/model_catalog.py` is the one place. Each `ModelSpec` has
+the model's id, whether its planning reliability was measured, and for a reasoning model
+the effort sent with every request and a reserve of output tokens for hidden reasoning,
+added to what the visible answer needs. The web workspace offers and accepts exactly the
+catalog (`provider_settings.py`), the server and the command line build their client
+from it (`model_client`), and the default must be a measured entry. Adding a model is one
+entry; nothing else in the application names a model. Tests, this document and
+`render.yaml` still do.
+
+`gpt-6-luna` is in the catalog with effort `low` and a reserve of 4096 tokens, both
+unmeasured guesses taken from the commands above, and `gpt-4.1` is there unmeasured as
+well. The interface shows "(not measured)" beside such a model. The measurement script
+keeps its own `--reasoning-effort` and `--max-output-tokens` flags, because it exists to
+try values the catalog does not have yet.
