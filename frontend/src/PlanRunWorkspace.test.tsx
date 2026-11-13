@@ -1523,6 +1523,178 @@ it("offers the fill for a run with nothing to choose once a search has a chosen 
     expect(button("review.resume")).toBeDisabled();
 });
 
+it("Basic fills several columns: each is asked for plainly and new ones stand side by side", async () => {
+    localStorage.removeItem("enrichment.mode");
+    render(<App />);
+    await prepareBasic();
+    const another = () => screen.getAllByLabelText(i18n.t("ws.fillAnother"));
+    const names = () => screen.getAllByLabelText(i18n.t("ws.newColumnName"));
+    // One column needs no button to take it away.
+    expect(
+        screen.queryByLabelText(i18n.t("ws.removeFill", { n: 1 })),
+    ).toBeNull();
+    await userEvent.click(button("ws.addFill"));
+    // A column is filled once: the one already chosen cannot be chosen again.
+    expect(
+        within(another()[0]).getByRole("option", { name: "distance (E)" }),
+    ).toBeDisabled();
+    await userEvent.selectOptions(another()[0], i18n.t("ws.newColumnOption"));
+    await userEvent.type(names()[0], "road");
+    await userEvent.click(button("ws.addFill"));
+    await userEvent.selectOptions(another()[1], i18n.t("ws.newColumnOption"));
+    await userEvent.type(names()[1], "detour");
+    await userEvent.click(button("ws.buildPlan"));
+    await waitFor(() =>
+        expect(api.createPlan).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                // New columns follow the sheet's last one, in the order asked.
+                output_columns: { distance: "E", road: "F", detour: "G" },
+            }),
+        ),
+    );
+});
+
+it("Basic closes the gap when a new column is taken away again", async () => {
+    localStorage.removeItem("enrichment.mode");
+    render(<App />);
+    await prepareBasic();
+    for (const name of ["road", "detour"]) {
+        await userEvent.click(button("ws.addFill"));
+        const selects = screen.getAllByLabelText(i18n.t("ws.fillAnother"));
+        await userEvent.selectOptions(
+            selects[selects.length - 1],
+            i18n.t("ws.newColumnOption"),
+        );
+        const fields = screen.getAllByLabelText(i18n.t("ws.newColumnName"));
+        await userEvent.type(fields[fields.length - 1], name);
+    }
+    await userEvent.click(
+        screen.getByLabelText(i18n.t("ws.removeFill", { n: 2 })),
+    );
+    await userEvent.click(button("ws.buildPlan"));
+    await waitFor(() =>
+        expect(api.createPlan).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                output_columns: { distance: "E", detour: "F" },
+            }),
+        ),
+    );
+});
+
+it("an example that fills three columns arrives with all three chosen", async () => {
+    localStorage.removeItem("enrichment.mode");
+    const columns = [
+        "country",
+        "city",
+        "country2",
+        "city2",
+        "distance",
+        "road",
+        "detour",
+    ];
+    vi.mocked(api.samples).mockResolvedValue({
+        samples: [
+            {
+                sample_id: "capitals_roads",
+                filename: "capitals_roads.xlsx",
+                instruction: "Three values for each pair",
+                outputs: [
+                    { name: "distance", column: "E" },
+                    { name: "road", column: "F" },
+                    { name: "detour", column: "G" },
+                ],
+                has_plan: true,
+            },
+        ],
+    });
+    vi.mocked(api.sampleWorkbook).mockResolvedValue(new Blob(["x"]));
+    vi.mocked(api.upload).mockResolvedValue({
+        dataset_id: "source",
+        filename: "capitals_roads.xlsx",
+        worksheets: [{ name: "Sheet1", columns, row_count: 11 }],
+    });
+    vi.mocked(api.preview).mockResolvedValue({
+        ...preview,
+        range_ref: "A1:G11",
+        profile: {
+            ...preview.profile,
+            columns: columns.map((name, index) => ({
+                name,
+                inferred_type: "Text",
+                null_count: index > 3 ? 10 : 0,
+                warnings: [],
+            })),
+        },
+    });
+    render(<App />);
+    await userEvent.click(
+        await screen.findByRole("button", {
+            name: i18n.t("sample.capitals_roads"),
+        }),
+    );
+    await waitFor(() =>
+        expect(screen.getByLabelText(i18n.t("ws.fillColumn"))).toHaveValue("E"),
+    );
+    expect(
+        screen
+            .getAllByLabelText(i18n.t("ws.fillAnother"))
+            .map((select) => (select as HTMLSelectElement).value),
+    ).toEqual(["F", "G"]);
+    expect(screen.getByLabelText("Enrichment instruction")).toHaveValue(
+        "Three values for each pair",
+    );
+    await userEvent.click(button("ws.buildPlan"));
+    await waitFor(() =>
+        expect(api.createPlan).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                range_ref: "A1:G11",
+                output_columns: { distance: "E", road: "F", detour: "G" },
+            }),
+        ),
+    );
+});
+
+it("asks the AI for one task that fills all chosen columns, and again when they change", async () => {
+    vi.mocked(api.suggestTasks).mockResolvedValue({
+        tasks: ["Fill distance and city2."],
+    });
+    render(<App />);
+    await userEvent.upload(
+        screen.getByLabelText("Upload Excel workbook"),
+        new File(["x"], "capitals.xlsx"),
+    );
+    await userEvent.click(button("previewAction"));
+    await screen.findByLabelText(i18n.t("workflow.instruction"));
+    await userEvent.click(screen.getByLabelText(i18n.t("workflow.network")));
+    // One chosen column is the open question: no columns are stated.
+    expect(screen.queryByText(i18n.t("task.forColumns", { n: 2 }))).toBeNull();
+    await userEvent.click(button("workflow.addMapping"));
+    await userEvent.selectOptions(
+        screen.getByLabelText(`${i18n.t("ws.targetColumn")} 2`),
+        "D",
+    );
+    expect(screen.getByText(i18n.t("task.forColumns", { n: 2 }))).toBeVisible();
+    await userEvent.click(button("task.suggest"));
+    expect(api.suggestTasks).toHaveBeenLastCalledWith({
+        dataset_id: "source",
+        sheet_name: "Sheet1",
+        range_ref: "A1:E11",
+        language: "en",
+        allow_network: true,
+        fill_columns: ["distance", "city2"],
+    });
+    const ideas = within(await screen.findByTestId("task-ideas"));
+    expect(ideas.getByText(i18n.t("task.proposedOne"))).toBeVisible();
+    expect(ideas.getAllByRole("button")).toHaveLength(1);
+    // The proposal belonged to those two columns; with others it is asked anew.
+    await userEvent.selectOptions(
+        screen.getByLabelText(`${i18n.t("ws.targetColumn")} 2`),
+        "B",
+    );
+    expect(screen.queryByTestId("task-ideas")).toBeNull();
+    expect(button("task.suggest")).toBeEnabled();
+});
+
 it("asks the AI for a task in the interface language and puts the chosen one into the field", async () => {
     const tasks = [
         "Знайди відстань між столицями й запиши у «distance».",
@@ -1927,7 +2099,7 @@ it("goes from an empty screen to a ready task with one click on an example", asy
         sample_id: "capitals",
         filename: "capitals.xlsx",
         instruction: "Calculate the distance between the two cities.",
-        output: { name: "distance", column: "E" },
+        outputs: [{ name: "distance", column: "E" }],
         has_plan: true,
     };
     vi.mocked(api.samples).mockResolvedValue({ samples: [example] });
@@ -2102,7 +2274,7 @@ it("Basic says a prepared plan is in use and lets the user drop it", async () =>
                 sample_id: "capitals",
                 filename: "capitals.xlsx",
                 instruction: "Distance between the cities",
-                output: { name: "distance", column: "E" },
+                outputs: [{ name: "distance", column: "E" }],
                 has_plan: true,
             },
         ],

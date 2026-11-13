@@ -406,6 +406,13 @@
 .mapping-row label {
     flex: 1;
 }
+.fill-column {
+    display: grid;
+    gap: 8px;
+}
+.add-fill {
+    justify-self: start;
+}
 .workspace-body .network-opt-in {
     display: flex;
     flex-direction: row;

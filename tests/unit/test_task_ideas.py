@@ -100,3 +100,30 @@ def test_a_model_failure_is_an_error() -> None:
             registry=builtin_registry(),
             language="en",
         )
+
+
+def test_several_chosen_columns_are_stated_and_one_task_is_kept() -> None:
+    registry = builtin_registry()
+    chosen = ["Висота", "Нова колонка"]
+    system, user = idea_messages(PROFILE, registry, "uk", chosen)
+    # The chosen headers travel as data; a header the table lacks is a new column.
+    assert json.loads(user["content"])["fill_columns"] == chosen
+    assert "exactly one task" in system["content"]
+    client = Client({"tasks": ["Fill both columns.", "Fill only the height."]})
+    tasks = suggest_tasks(
+        client, profile=PROFILE, registry=registry, language="uk", fill_columns=chosen
+    )
+    # Alternatives would each leave a chosen column out; only the first is kept.
+    assert tasks == ("Fill both columns.",)
+    assert json.loads(client.calls[0][0][1]["content"])["fill_columns"] == chosen
+
+
+@pytest.mark.parametrize("chosen", [[], ["Висота"]])
+def test_one_chosen_column_or_none_asks_the_open_question(chosen) -> None:
+    _, user = idea_messages(PROFILE, builtin_registry(), "uk", chosen)
+    assert "fill_columns" not in json.loads(user["content"])
+    client = Client({"tasks": ["One.", "Two.", "Three.", "Four."]})
+    tasks = suggest_tasks(
+        client, profile=PROFILE, registry=builtin_registry(), language="uk", fill_columns=chosen
+    )
+    assert len(tasks) == MAX_TASK_IDEAS

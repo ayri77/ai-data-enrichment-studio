@@ -141,6 +141,18 @@ export function useWorkflow(
     // Tasks the AI proposed for this table; they are only text for the field.
     // Kept per interface language: asked in another language is another answer.
     const [taskIdeas, setTaskIdeas] = useState<Record<string, string[]>>({});
+    // With several columns chosen the AI is asked for one task that fills them
+    // all, so what it proposed belongs to exactly those columns. One column or
+    // none is the open question, whichever column it is.
+    const fillColumns = mapping
+        .map((entry) => entry.name.trim())
+        .filter((name) => name);
+    const fillKey = fillColumns.length > 1 ? JSON.stringify(fillColumns) : "";
+    const fillColumnsKey = useRef(fillKey);
+    fillColumnsKey.current = fillKey;
+    useEffect(() => {
+        setTaskIdeas({});
+    }, [fillKey]);
     const [history, setHistory] = useState<
         { job: Job; report: AuditReport | null; plan: PlanDraft | null }[]
     >([]);
@@ -179,13 +191,15 @@ export function useWorkflow(
     // example arrives with its instruction and output column.
     useEffect(() => {
         setInstruction(sample?.instruction ?? "");
-        setMapping([
-            {
-                mode: "existing",
-                name: sample?.output.name ?? "",
-                column: sample?.output.column ?? "",
-            },
-        ]);
+        setMapping(
+            sample?.outputs.length
+                ? sample.outputs.map((output) => ({
+                      mode: "existing" as const,
+                      name: output.name,
+                      column: output.column,
+                  }))
+                : [{ mode: "existing", name: "", column: "" }],
+        );
         setSavedPlan("");
         setExistingOutputs("keep");
     }, [options.tableKey ?? sourceKey]);
@@ -522,15 +536,22 @@ export function useWorkflow(
     async function suggestTasks(language: string) {
         if (!canSuggestTasks || !preview) return;
         const asked = generation.current;
+        const columns = fillKey;
         const { tasks } = await api.suggestTasks({
             dataset_id: preview.dataset_id,
             sheet_name: preview.sheet_name,
             range_ref: preview.range_ref,
             language,
             allow_network: consent,
+            ...(fillColumns.length > 1 ? { fill_columns: fillColumns } : {}),
         });
-        // An answer for a table that was left in the meantime is not shown.
-        if (mounted.current && asked === generation.current)
+        // An answer for a table that was left in the meantime, or for columns
+        // that are no longer the chosen ones, is not shown.
+        if (
+            mounted.current &&
+            asked === generation.current &&
+            columns === fillColumnsKey.current
+        )
             setTaskIdeas((old) => ({ ...old, [language]: tasks }));
     }
     function acceptRecommendations() {
@@ -622,6 +643,8 @@ export function useWorkflow(
         suggestions,
         suggestNames,
         taskIdeas,
+        /** How many columns a proposed task has to fill; 0 for the open question. */
+        taskColumns: fillColumns.length > 1 ? fillColumns.length : 0,
         canSuggestTasks,
         suggestTasks,
         acceptRecommendations,

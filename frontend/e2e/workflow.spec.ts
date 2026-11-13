@@ -941,6 +941,71 @@ test("example: one click fills the task; the prepared plan runs without an AI re
     ).toBeVisible();
 });
 
+test("example: a plan that branches fills three columns, in words and as a graph", async ({
+    page,
+}, testInfo) => {
+    await page.goto("/");
+    await expect(page.getByLabel("Mode")).toHaveValue("basic");
+    // Offered because this server has a routing source.
+    await expect(
+        page.getByText("calculate the driving distance by road"),
+    ).toBeVisible();
+    await page
+        .getByRole("button", {
+            name: "Capitals: straight line, by road, and how much longer",
+        })
+        .click();
+    // The example arrives with all three of its columns chosen.
+    await expect(page.getByLabel("Which column to fill?")).toHaveValue("E");
+    const more = page.getByLabel("One more column to fill");
+    await expect(more).toHaveCount(2);
+    await expect(more.nth(0)).toHaveValue("F");
+    await expect(more.nth(1)).toHaveValue("G");
+    await languagesFit(page, testInfo, "roads-dataset");
+    await page.screenshot({ path: testInfo.outputPath("roads-dataset.png") });
+    await page
+        .getByRole("button", { name: "Use it instead of asking the AI" })
+        .click();
+    await page
+        .getByRole("button", { name: "Submit and validate plan" })
+        .click();
+    // Five steps: two cities, two distances from the same two points, and
+    // the ratio of those two distances.
+    await expect(page.locator(".plan-steps li")).toHaveText([
+        /Find the coordinates of the city.*City: column “Capital_From”/,
+        /Find the coordinates of the city.*City: column “Capital_To”/,
+        /Calculate the straight-line distance in km.*From: result of step 1 · To: result of step 2.*Written to column “distance” \(E\), km/,
+        /Calculate the driving distance by road in km.*From: result of step 1 · To: result of step 2.*Written to column “road” \(F\), km/,
+        /Calculate how many times the first value is larger than the second.*Divide: result of step 4 · By: result of step 3.*Written to column “detour” \(G\)/,
+    ]);
+    // A road distance says what computed it and that no record backs it.
+    await expect(page.locator(".plan-steps li").nth(3)).toContainText(
+        "openrouteservice routing service",
+    );
+    await languagesFit(page, testInfo, "roads-plan");
+    await page.screenshot({ path: testInfo.outputPath("roads-plan.png") });
+    // The same plan as a graph: two branches from the two cities meet again.
+    await page.getByLabel("Mode").selectOption("advanced");
+    await expect(
+        page.getByRole("region", { name: "Planned workflow" }),
+    ).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("roads-graph.png") });
+    await page.getByLabel("Mode").selectOption("basic");
+    await page.getByRole("button", { name: "Approve and run" }).click();
+    await expect(page.getByTestId("job-status")).toHaveText(
+        /Rows filled: \d+ of 10\./,
+        { timeout: 30_000 },
+    );
+    await page.getByRole("button", { name: "Results", exact: true }).click();
+    // The injected answers know London and Rome: all three cells are filled.
+    const london = page.locator("tbody tr", { hasText: "London" }).first();
+    await expect(london).toContainText("1,435.48");
+    await expect(london).toContainText("1,870");
+    await expect(london).toContainText("1.3");
+    await page.screenshot({ path: testInfo.outputPath("roads-results.png") });
+    await languagesFit(page, testInfo, "roads-results");
+});
+
 test("Basic: an uploaded workbook needs an instruction and nothing else", async ({
     page,
 }) => {

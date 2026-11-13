@@ -13,7 +13,7 @@ from hashlib import sha256
 from pathlib import Path
 from shutil import rmtree
 from time import monotonic
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter
@@ -211,6 +211,11 @@ class TaskIdeasRequest(BaseModel):
     range_ref: str = Field(min_length=1, max_length=32)
     language: Literal["en", "uk", "de"] = "en"
     allow_network: bool = False
+    # Headers of the columns chosen to be filled. With several of them the
+    # model phrases one task that fills them all instead of proposing a few.
+    fill_columns: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
+        default_factory=list, max_length=20
+    )
 
 
 class SuggestionRequest(BaseModel):
@@ -262,7 +267,9 @@ class PlanRunService:
         self.suggesting = False
         # Task ideas a model proposed for a table and a language, and how many
         # times a workbook has asked.
-        self.task_ideas: dict[str, dict[tuple[str, str, str], tuple[str, ...]]] = {}
+        self.task_ideas: dict[
+            str, dict[tuple[str, str, str, tuple[str, ...]], tuple[str, ...]]
+        ] = {}
         self.task_idea_counts: dict[str, int] = {}
         self.router = APIRouter(prefix="/api")
         self._routes()
@@ -513,7 +520,9 @@ class PlanRunService:
                 for kept in (self.task_ideas, self.task_idea_counts):
                     for stale in set(kept) - set(self.datasets):
                         del kept[stale]
-                key = (body.sheet_name, body.range_ref, body.language)
+                # One chosen column asks the same question as none.
+                chosen = tuple(body.fill_columns) if len(body.fill_columns) > 1 else ()
+                key = (body.sheet_name, body.range_ref, body.language, chosen)
                 known = self.task_ideas.get(body.dataset_id, {}).get(key)
                 if known is not None:
                     return {"tasks": list(known)}
@@ -822,7 +831,11 @@ class PlanRunService:
             ) from exc
         with self.model_client(answer_tokens=1024) as client:
             return suggest_tasks(
-                client, profile=profile, registry=builtin_registry(), language=body.language
+                client,
+                profile=profile,
+                registry=builtin_registry(),
+                language=body.language,
+                fill_columns=body.fill_columns,
             )
 
     def suggest_once(self, query: ResolutionQuery, capability: str) -> tuple[str, ...]:

@@ -142,6 +142,17 @@ class FixtureTasksClient:
         table = json.loads(messages[1]["content"])
         columns = [column["name"] for column in table["columns"]]
         empty = [c["name"] for c in table["columns"] if c["empty_cells"] >= (table["rows"] or 0)]
+        if table.get("fill_columns"):
+            # Several columns were chosen: one task that names every one of them.
+            chosen = ", ".join(table["fill_columns"])
+            return json.dumps(
+                {
+                    "tasks": [
+                        f"[{table['language']}] Fill {chosen} for {columns[0]} and {columns[2]}.",
+                        "An alternative the caller must not keep.",
+                    ]
+                }
+            )
         if len(columns) >= 5 and empty:
             task = f"Calculate the distance in km between {columns[0]} and {columns[2]}"
             return json.dumps(

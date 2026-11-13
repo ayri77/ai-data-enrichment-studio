@@ -15,7 +15,7 @@ import { useTranslation } from "react-i18next";
 import { isTerminal, type Preview } from "../api";
 import { Advanced, useAdvanced, useHosted } from "../mode";
 import type { Workflow, Workspace } from "../useWorkflow";
-import { columnLetter, parseRange } from "../range";
+import { columnLetter, columnNumber, parseRange } from "../range";
 import { remainingSeconds, runOutcome } from "../runModel";
 import { occupiedRows } from "../tableModel";
 import { normalizeColumn, type OutputTarget } from "../workflowModel";
@@ -212,6 +212,11 @@ function TaskIdeas({ w }: { w: Workflow }) {
                     <Sparkles aria-hidden="true" />
                     {t("task.suggest")}
                 </Button>
+                {w.taskColumns > 0 && (
+                    <p className="muted">
+                        {t("task.forColumns", { n: w.taskColumns })}
+                    </p>
+                )}
                 <p className="muted">
                     {t(
                         !ready
@@ -231,7 +236,9 @@ function TaskIdeas({ w }: { w: Workflow }) {
         );
     return (
         <div className="task-ideas" data-testid="task-ideas">
-            <p className="muted">{t("task.proposed")}</p>
+            <p className="muted">
+                {t(w.taskColumns > 0 ? "task.proposedOne" : "task.proposed")}
+            </p>
             {ideas.map((idea) => (
                 <button
                     key={idea}
@@ -244,6 +251,137 @@ function TaskIdeas({ w }: { w: Workflow }) {
                 </button>
             ))}
         </div>
+    );
+}
+
+// Basic asks which columns to fill, one plain question per column. A new
+// column goes right after everything the sheet holds; an address of the
+// user's choice is Advanced.
+function FillColumns({
+    w,
+    preview,
+    first,
+}: {
+    w: Workflow;
+    preview: Preview | null;
+    first: number;
+}) {
+    const { t } = useTranslation();
+    const columns = preview?.profile.columns ?? [];
+    // New columns stand next to each other in the order they were asked for.
+    function placed(mapping: OutputTarget[]) {
+        let next = columnNumber(w.freeColumn || "A");
+        return mapping.map((entry) =>
+            entry.mode === "new"
+                ? { ...entry, column: columnLetter(next++) }
+                : entry,
+        );
+    }
+    const set = (mapping: OutputTarget[]) =>
+        w.edit(() => w.setMapping(placed(mapping)));
+    const update = (index: number, value: Partial<OutputTarget>) =>
+        set(w.mapping.map((x, i) => (i === index ? { ...x, ...value } : x)));
+    return (
+        <>
+            {w.mapping.map((entry, index) => (
+                <div className="fill-column" key={index}>
+                    <div className="mapping-row">
+                        <label>
+                            {t(index ? "ws.fillAnother" : "ws.fillColumn")}
+                            <select
+                                value={
+                                    entry.mode === "new"
+                                        ? NEW_COLUMN
+                                        : entry.column
+                                }
+                                onChange={(e) => {
+                                    const value = e.target.value;
+                                    const col = columns.find(
+                                        (_, i) =>
+                                            columnLetter(first + i) === value,
+                                    );
+                                    update(
+                                        index,
+                                        value === NEW_COLUMN
+                                            ? {
+                                                  mode: "new",
+                                                  column: "",
+                                                  name: "",
+                                              }
+                                            : {
+                                                  mode: "existing",
+                                                  column: value,
+                                                  name: col?.name ?? "",
+                                              },
+                                    );
+                                }}
+                            >
+                                <option value="">{t("ws.chooseFill")}</option>
+                                {columns.map((col, i) => {
+                                    const letter = columnLetter(first + i);
+                                    return (
+                                        <option
+                                            key={col.name}
+                                            value={letter}
+                                            // A column is filled once.
+                                            disabled={w.mapping.some(
+                                                (other, at) =>
+                                                    at !== index &&
+                                                    other.mode === "existing" &&
+                                                    other.column === letter,
+                                            )}
+                                        >
+                                            {col.name} ({letter})
+                                        </option>
+                                    );
+                                })}
+                                <option value={NEW_COLUMN}>
+                                    {t("ws.newColumnOption")}
+                                </option>
+                            </select>
+                        </label>
+                        {w.mapping.length > 1 && (
+                            <Button
+                                variant="outline"
+                                onClick={() =>
+                                    set(w.mapping.filter((_, i) => i !== index))
+                                }
+                                aria-label={t("ws.removeFill", {
+                                    n: index + 1,
+                                })}
+                            >
+                                ×
+                            </Button>
+                        )}
+                    </div>
+                    {entry.mode === "new" && (
+                        <label>
+                            {t("ws.newColumnName")}
+                            <input
+                                value={entry.name}
+                                maxLength={200}
+                                onChange={(e) =>
+                                    update(index, { name: e.target.value })
+                                }
+                            />
+                        </label>
+                    )}
+                </div>
+            ))}
+            <Button
+                variant="outline"
+                className="add-fill"
+                disabled={!preview || w.mapping.length >= MAX_OUTPUTS}
+                onClick={() =>
+                    set([
+                        ...w.mapping,
+                        { mode: "existing", name: "", column: "" },
+                    ])
+                }
+            >
+                {t("ws.addFill")}
+            </Button>
+        </>
     );
 }
 
@@ -270,9 +408,6 @@ export function DatasetConfiguration({
             ),
         );
     }
-    // Basic asks one question: which column to fill. Several outputs, and a
-    // new column at an address of the user's choice, are Advanced.
-    const single = !advanced && w.mapping.length === 1;
     // Basic has no consent checkbox: pressing the button is the consent, so the
     // button says what leaves the browser. Nothing leaves it on fixture answers.
     const sends =
@@ -318,77 +453,15 @@ export function DatasetConfiguration({
                         {t("workflow.instructionHint")}
                     </p>
                     <TaskIdeas w={w} />
-                    {single ? (
-                        <>
-                            <label>
-                                {t("ws.fillColumn")}
-                                <select
-                                    value={
-                                        w.mapping[0].mode === "new"
-                                            ? NEW_COLUMN
-                                            : w.mapping[0].column
-                                    }
-                                    onChange={(e) => {
-                                        const value = e.target.value;
-                                        const col =
-                                            preview?.profile.columns.find(
-                                                (_, i) =>
-                                                    columnLetter(first + i) ===
-                                                    value,
-                                            );
-                                        update(
-                                            0,
-                                            value === NEW_COLUMN
-                                                ? {
-                                                      mode: "new",
-                                                      column: w.freeColumn,
-                                                      name: "",
-                                                  }
-                                                : {
-                                                      mode: "existing",
-                                                      column: value,
-                                                      name: col?.name ?? "",
-                                                  },
-                                        );
-                                    }}
-                                >
-                                    <option value="">
-                                        {t("ws.chooseFill")}
-                                    </option>
-                                    {preview?.profile.columns.map((col, i) => (
-                                        <option
-                                            key={col.name}
-                                            value={columnLetter(first + i)}
-                                        >
-                                            {col.name} (
-                                            {columnLetter(first + i)})
-                                        </option>
-                                    ))}
-                                    <option value={NEW_COLUMN}>
-                                        {t("ws.newColumnOption")}
-                                    </option>
-                                </select>
-                            </label>
-                            {w.mapping[0].mode === "new" && (
-                                <label>
-                                    {t("ws.newColumnName")}
-                                    <input
-                                        value={w.mapping[0].name}
-                                        maxLength={200}
-                                        onChange={(e) =>
-                                            update(0, { name: e.target.value })
-                                        }
-                                    />
-                                </label>
-                            )}
-                        </>
-                    ) : (
+                    {advanced ? (
                         <>
                             <h3>{t("ws.outputs")}</h3>
                             <p className="muted">{t("ws.mappingHint")}</p>
                         </>
+                    ) : (
+                        <FillColumns w={w} preview={preview} first={first} />
                     )}
-                    {!single &&
+                    {advanced &&
                         w.mapping.map((entry, index) => (
                             <div className="output-target" key={index}>
                                 <div className="mapping-row">
@@ -508,18 +581,19 @@ export function DatasetConfiguration({
                             </div>
                         ))}
                     {!w.mappingValid &&
-                        (single
-                            ? w.mapping[0].mode === "new" &&
-                              !!w.mapping[0].name.trim()
-                            : w.mapping.some((x) => x.column || x.name)) && (
+                        (advanced
+                            ? w.mapping.some((x) => x.column || x.name)
+                            : w.mapping.some(
+                                  (x) => x.mode === "new" && !!x.name.trim(),
+                              )) && (
                             <p className="validation-note" role="alert">
                                 {t("ws.mappingInvalid")}
                             </p>
                         )}
-                    {!single && (
+                    {advanced && (
                         <Button
                             variant="outline"
-                            disabled={w.mapping.length >= 20}
+                            disabled={w.mapping.length >= MAX_OUTPUTS}
                             onClick={() =>
                                 w.edit(() =>
                                     w.setMapping([
@@ -673,6 +747,8 @@ export function DatasetConfiguration({
 }
 
 const NEW_COLUMN = "__new__";
+// As many result columns as one plan request accepts.
+const MAX_OUTPUTS = 20;
 
 function AdvancedControls({ w }: { w: Workflow }) {
     const { t } = useTranslation();

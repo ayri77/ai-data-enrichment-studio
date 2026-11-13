@@ -92,7 +92,10 @@ provide the dataset ID and actual worksheet/range; the range includes headers.
 `POST /api/task-ideas` with `{"dataset_id": …, "sheet_name": …, "range_ref": …,
 "language": "en" | "uk" | "de", "allow_network": true}` asks the configured
 language model what could be asked for with the selected table
-(`task_ideas.py`) and answers `{"tasks": […]}` with at most three tasks. The
+(`task_ideas.py`) and answers `{"tasks": […]}` with at most three tasks. An
+optional `"fill_columns": […]` names the headers of the columns chosen to be
+filled; with two or more of them the model is asked for exactly one task that
+fills them all and at most one is returned. The
 model request carries what a planning request already carries — column names,
 inferred types, the number of empty cells per column and the five sample rows of
 the profile — together with the capability descriptions of the registry and the

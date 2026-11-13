@@ -178,8 +178,9 @@ def get_road_distance_spec() -> CapabilitySpec:
         description=(
             "Calculate the driving distance by road between two geographic points: "
             "the length of the car route a routing service finds on the road network, "
-            "not the straight-line (geodesic) distance. Fails for a pair of points "
-            "that no road route connects, such as places separated by an ocean."
+            "not the straight-line (geodesic) distance. The route may include a car "
+            "ferry or a car train. Fails for a pair of points that no such route "
+            "connects, such as places separated by an ocean."
         ),
         inputs={
             "point_a": InputSpec(

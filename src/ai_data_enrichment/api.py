@@ -29,7 +29,7 @@ from ai_data_enrichment.ingestion.profiling_limits import ProfilingLimits
 from ai_data_enrichment.ingestion.table_rows import read_table_rows
 from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.plan_run import PlanBodyLimit, PlanRunService, PlanRunSettings
-from ai_data_enrichment.plan_run_worker import ExecutorFactory
+from ai_data_enrichment.plan_run_worker import ExecutorFactory, builtin_registry
 from ai_data_enrichment.planning.llm_planner import PlanCompletionClient
 from ai_data_enrichment.provider_settings import ProviderConfiguration, configuration_router
 from ai_data_enrichment.run_limits import MAX_TABLE_CELLS, MAX_TABLE_ROWS
@@ -367,7 +367,8 @@ def create_app(
     @app.get("/api/samples")
     async def samples():
         """Example workbooks a visitor can try without a file of their own."""
-        return {"samples": sample_catalog.available()}
+        offered = (spec.id for spec in builtin_registry().list_all())
+        return {"samples": sample_catalog.available(offered)}
 
     @app.get("/api/samples/{sample_id}/workbook")
     async def sample_workbook(sample_id: str):

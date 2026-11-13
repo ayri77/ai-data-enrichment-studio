@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ai_data_enrichment import sample_catalog
 from ai_data_enrichment.domain.dataset_profile import DatasetProfile
 from ai_data_enrichment.ingestion.excel_profiler import profile_worksheet
 from ai_data_enrichment.ingestion.table_selection import TableSelection
@@ -20,6 +21,11 @@ MOUNTAINS_INSTRUCTION = (
     "disambiguate. Write verified values into height. Leave unresolved or ambiguous "
     "results empty; do not invent values."
 )
+# The three-column example is measured with the instruction a visitor gets.
+_ROADS = sample_catalog.find("capitals_roads")
+assert _ROADS is not None
+CAPITALS_ROADS_INSTRUCTION = _ROADS.instruction
+RANGES = {"capitals": "A1:E11", "mountains": "A1:C11", "capitals_roads": "A1:G11"}
 
 
 def workbook_profile(name: str) -> DatasetProfile:
@@ -27,7 +33,7 @@ def workbook_profile(name: str) -> DatasetProfile:
         Path(f"samples/{name}.xlsx"),
         "Sheet1",
         name,
-        selection=TableSelection("Sheet1", "A1:E11" if name == "capitals" else "A1:C11"),
+        selection=TableSelection("Sheet1", RANGES[name]),
     )
 
 
