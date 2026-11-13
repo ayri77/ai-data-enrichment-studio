@@ -24,10 +24,8 @@ from ai_data_enrichment.planning.llm_planner import (
     LLMPlanner,
     PlanGenerationError,
 )
-from ai_data_enrichment.planning.openai_client import (
-    OpenAICompletionError,
-    OpenAIPlanClient,
-)
+from ai_data_enrichment.planning.model_catalog import DEFAULT_MODEL, model_client
+from ai_data_enrichment.planning.openai_client import OpenAICompletionError
 from ai_data_enrichment.resolution.resume import load_resume_selections
 from ai_data_enrichment.validation.plan_validator import PlanValidator
 
@@ -337,10 +335,10 @@ def generate_plan(
 
     # Keep model transport separate from plan construction and deterministic validation.
     try:
-        client = OpenAIPlanClient(
+        client = model_client(
             api=OpenAI(timeout=30.0, max_retries=0),
-            model=os.getenv("OPENAI_MODEL", "gpt-6-luna"),
-            max_output_tokens=4096,
+            model_id=os.getenv("OPENAI_MODEL") or DEFAULT_MODEL,
+            answer_tokens=4096,
         )
 
         planner = LLMPlanner(

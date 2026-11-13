@@ -9,17 +9,13 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
+from ai_data_enrichment.planning.model_catalog import DEFAULT_MODEL, MODELS, SUPPORTED_MODELS
 from ai_data_enrichment.workspace_errors import WorkspaceError
 
 # Deliberately bounded to models supported by the existing Responses JSON adapter.
 if TYPE_CHECKING:
     from ai_data_enrichment.plan_run import PlanRunSettings
 
-# gpt-4o-mini was removed after repeated live runs on 2026-11-11: it produced 1 valid
-# Mountains plan in 20 (false "unsupported" on the first attempt) against 10 of 10 for
-# gpt-4.1-mini. See docs/26-live-planning-reliability.md before extending this list.
-SUPPORTED_MODELS = ("gpt-4.1-mini", "gpt-4.1")
-DEFAULT_MODEL = "gpt-4.1-mini"
 LOCAL_ORIGINS = (
     "http://127.0.0.1:5173",
     "http://localhost:5173",
@@ -74,7 +70,11 @@ class ProviderConfiguration:
     def readiness(self, *, network: bool, offline: bool, configurable: bool) -> dict:
         return {
             "provider": "openai",
-            "supported_models": [{"id": m, "label": m} for m in SUPPORTED_MODELS],
+            # The whole catalog; `measured` lets the interface say which models
+            # had their planning reliability measured.
+            "supported_models": [
+                {"id": model.id, "label": model.id, "measured": model.measured} for model in MODELS
+            ],
             "model": self.model,
             "key_present": self.key_present,
             "server_network_allowed": network,

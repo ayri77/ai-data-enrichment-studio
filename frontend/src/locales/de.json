@@ -277,6 +277,8 @@
     "provider.serverGate": "Netzwerkzugriff des Servers",
     "provider.model": "OpenAI-Planungsmodell",
     "provider.chooseModel": "Modell auswählen",
+    "provider.notMeasured": "{{model}} (nicht gemessen)",
+    "provider.notMeasuredHint": "Die Planungszuverlässigkeit dieses Modells wurde an den Beispielmappen nicht gemessen. Ein Plan wird trotzdem geprüft, bevor er ausgeführt werden kann.",
     "provider.keyInput": "API-Schlüssel eingeben / ersetzen",
     "provider.replaceHint": "Leer lassen, um den aktuellen Schlüssel zu behalten. Ein neuer Schlüssel ersetzt ihn. Das Feld wird nach der Übergabe oder beim Schließen der Einstellungen geleert.",
     "provider.apply": "Einstellungen anwenden",
