@@ -947,7 +947,29 @@ function ErrorCodes({ w }: { w: Workflow }) {
     );
 }
 
+/**
+ * The review stage with the one map window its options share. The window is
+ * kept here, outside the stage, so the stage's own markup stays as it is.
+ */
 export function ReviewWorkspace({ w }: { w: Workflow }) {
+    const [map, setMap] = useState<MapRequest | null>(null);
+    return (
+        <MapContext.Provider value={setMap}>
+            {map && (
+                <CandidateMap
+                    // A new request starts from its own option and zoom.
+                    key={`${map.item.operation_id}:${map.index}:${map.searchedAs ?? ""}`}
+                    request={map}
+                    w={w}
+                    onClose={() => setMap(null)}
+                />
+            )}
+            <ReviewStage w={w} />
+        </MapContext.Provider>
+    );
+}
+
+function ReviewStage({ w }: { w: Workflow }) {
     const { t } = useTranslation();
     const review = w.review?.job_id === w.job?.job_id ? w.review : null;
     const needsReview = w.job?.status === "needs_review";
@@ -960,140 +982,123 @@ export function ReviewWorkspace({ w }: { w: Workflow }) {
     const namable = (review?.informational ?? []).some(
         (item) => item.other_name,
     );
-    const [map, setMap] = useState<MapRequest | null>(null);
     const [foldSignal, setFoldSignal] = useState(0);
     return (
-        <MapContext.Provider value={setMap}>
-            {map && (
-                <CandidateMap
-                    // A new request starts from its own option and zoom.
-                    key={`${map.item.operation_id}:${map.index}:${map.searchedAs ?? ""}`}
-                    request={map}
-                    w={w}
-                    onClose={() => setMap(null)}
-                />
-            )}
-            <div className="stage-layout">
-                <section className="workspace-panel panel-scroll summary-content">
-                    <div className="panel-title">
-                        <CircleAlert aria-hidden="true" />
-                        <h2>{t("review.title")}</h2>
-                    </div>
-                    <ModeNotice w={w} />
-                    <QualitySummary w={w} />
-                    {!w.report ? (
-                        <EmptyState text={t("ws.reviewPending")} />
-                    ) : !needsReview ? (
-                        <p className="notice">
-                            {t(
-                                w.report.status === "completed"
-                                    ? "ws.noIssues"
-                                    : "ws.noRowDetails",
-                            )}
-                        </p>
-                    ) : !review ? (
-                        <p className="muted" role="status">
-                            {t("review.loading")}
-                        </p>
-                    ) : (
+        <div className="stage-layout">
+            <section className="workspace-panel panel-scroll summary-content">
+                <div className="panel-title">
+                    <CircleAlert aria-hidden="true" />
+                    <h2>{t("review.title")}</h2>
+                </div>
+                <ModeNotice w={w} />
+                <QualitySummary w={w} />
+                {!w.report ? (
+                    <EmptyState text={t("ws.reviewPending")} />
+                ) : !needsReview ? (
+                    <p className="notice">
+                        {t(
+                            w.report.status === "completed"
+                                ? "ws.noIssues"
+                                : "ws.noRowDetails",
+                        )}
+                    </p>
+                ) : !review ? (
+                    <p className="muted" role="status">
+                        {t("review.loading")}
+                    </p>
+                ) : (
+                    <>
+                        {total > 0 ? (
+                            <p data-testid="review-intro">
+                                {t("review.intro", {
+                                    items: total,
+                                    rows: review.affected_rows,
+                                })}
+                            </p>
+                        ) : (
+                            <p className="notice">
+                                {t("review.nothingToChoose")}
+                            </p>
+                        )}
+                        {review.items.map((item) => (
+                            <ReviewCard
+                                key={item.operation_id}
+                                item={item}
+                                w={w}
+                                foldSignal={foldSignal}
+                            />
+                        ))}
+                        {review.informational.length > 0 && (
+                            <Informational items={review.informational} w={w} />
+                        )}
+                    </>
+                )}
+                {w.report && <ErrorCodes w={w} />}
+            </section>
+            <aside className="workspace-panel stage-sidebar">
+                <div className="panel-scroll summary-content">
+                    <h2>{t("review.sidebar")}</h2>
+                    {total > 0 || namable ? (
                         <>
-                            {total > 0 ? (
-                                <p data-testid="review-intro">
-                                    {t("review.intro", {
-                                        items: total,
-                                        rows: review.affected_rows,
-                                    })}
-                                </p>
-                            ) : (
-                                <p className="notice">
-                                    {t("review.nothingToChoose")}
-                                </p>
+                            {total > 0 && (
+                                <>
+                                    <p data-testid="review-progress">
+                                        {t("review.progress", {
+                                            decided,
+                                            total,
+                                        })}
+                                    </p>
+                                    <Button
+                                        variant="outline"
+                                        disabled={!suggestions || w.locked}
+                                        onClick={() => {
+                                            w.acceptRecommendations();
+                                            // Accepted cards fold; the others stay open.
+                                            setFoldSignal((n) => n + 1);
+                                        }}
+                                    >
+                                        {t("review.accept")}
+                                    </Button>
+                                </>
                             )}
-                            {review.items.map((item) => (
-                                <ReviewCard
-                                    key={item.operation_id}
-                                    item={item}
-                                    w={w}
-                                    foldSignal={foldSignal}
-                                />
-                            ))}
-                            {review.informational.length > 0 && (
-                                <Informational
-                                    items={review.informational}
-                                    w={w}
-                                />
+                            <Button
+                                disabled={!w.canResume}
+                                onClick={() =>
+                                    void w.action(w.resume, "resume")
+                                }
+                            >
+                                {w.operation?.kind === "resume" ? (
+                                    <LoaderCircle
+                                        className="spin"
+                                        aria-hidden="true"
+                                    />
+                                ) : (
+                                    <Play aria-hidden="true" />
+                                )}
+                                {t("review.resume")}
+                            </Button>
+                            <p className="muted">{t("review.resumeHint")}</p>
+                            {!w.network && (
+                                <p className="muted">
+                                    {t("ws.executionNetwork")}
+                                </p>
                             )}
                         </>
+                    ) : (
+                        <p className="muted">{t("review.sidebarIdle")}</p>
                     )}
-                    {w.report && <ErrorCodes w={w} />}
-                </section>
-                <aside className="workspace-panel stage-sidebar">
-                    <div className="panel-scroll summary-content">
-                        <h2>{t("review.sidebar")}</h2>
-                        {total > 0 || namable ? (
-                            <>
-                                {total > 0 && (
-                                    <>
-                                        <p data-testid="review-progress">
-                                            {t("review.progress", {
-                                                decided,
-                                                total,
-                                            })}
-                                        </p>
-                                        <Button
-                                            variant="outline"
-                                            disabled={!suggestions || w.locked}
-                                            onClick={() => {
-                                                w.acceptRecommendations();
-                                                // Accepted cards fold; the others stay open.
-                                                setFoldSignal((n) => n + 1);
-                                            }}
-                                        >
-                                            {t("review.accept")}
-                                        </Button>
-                                    </>
-                                )}
-                                <Button
-                                    disabled={!w.canResume}
-                                    onClick={() =>
-                                        void w.action(w.resume, "resume")
-                                    }
-                                >
-                                    {w.operation?.kind === "resume" ? (
-                                        <LoaderCircle
-                                            className="spin"
-                                            aria-hidden="true"
-                                        />
-                                    ) : (
-                                        <Play aria-hidden="true" />
-                                    )}
-                                    {t("review.resume")}
-                                </Button>
-                                <p className="muted">
-                                    {t("review.resumeHint")}
-                                </p>
-                                {!w.network && (
-                                    <p className="muted">
-                                        {t("ws.executionNetwork")}
-                                    </p>
-                                )}
-                            </>
-                        ) : (
-                            <p className="muted">{t("review.sidebarIdle")}</p>
-                        )}
-                        {review?.previous_job_id && (
-                            <p className="notice">{t("review.continued")}</p>
-                        )}
-                    </div>
-                    <div className="workspace-actions">
-                        <Back w={w} to="execution" />
-                        <Button onClick={() => w.navigate("export")}>
-                            {t("ws.toExport")}
-                            <ArrowRight />
-                        </Button>
-                    </div>
-                </aside>
-            </div>
-        </MapContext.Provider>
+                    {review?.previous_job_id && (
+                        <p className="notice">{t("review.continued")}</p>
+                    )}
+                </div>
+                <div className="workspace-actions">
+                    <Back w={w} to="execution" />
+                    <Button onClick={() => w.navigate("export")}>
+                        {t("ws.toExport")}
+                        <ArrowRight />
+                    </Button>
+                </div>
+            </aside>
+        </div>
     );
 }
