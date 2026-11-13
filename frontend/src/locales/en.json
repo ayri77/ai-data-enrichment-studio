@@ -311,6 +311,7 @@
     "review.change": "Change",
     "review.fold": "Hide the options",
     "review.population": "population {{value}}",
+    "review.elevation": "elevation {{value}} m",
     "review.type.city": "City",
     "review.type.settlement": "Settlement",
     "review.type.district": "District",

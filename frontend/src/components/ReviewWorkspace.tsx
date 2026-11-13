@@ -63,13 +63,31 @@ function Facts({ candidate }: { candidate: ReviewCandidate }) {
                   value: new Intl.NumberFormat(locale).format(a.population),
               })
             : null,
+        typeof a.elevation_m === "number"
+            ? t("review.elevation", {
+                  value: new Intl.NumberFormat(locale, {
+                      maximumFractionDigits: 0,
+                  }).format(a.elevation_m),
+              })
+            : null,
         typeof a.latitude === "number" && typeof a.longitude === "number"
             ? `${a.latitude.toFixed(2)}, ${a.longitude.toFixed(2)}`
             : null,
         typeof a.match_kind === "string" ? code("match", a.match_kind) : null,
     ].filter(Boolean);
-    return facts.length ? (
-        <span className="candidate-facts">{facts.join(" · ")}</span>
+    // The source's own description comes first: among namesakes it is usually
+    // the one line that says which is which. It is shown as the source wrote it.
+    const description =
+        typeof a.description === "string" ? a.description : null;
+    return description || facts.length ? (
+        <>
+            {description && (
+                <span className="candidate-description">{description}</span>
+            )}
+            {facts.length > 0 && (
+                <span className="candidate-facts">{facts.join(" · ")}</span>
+            )}
+        </>
     ) : null;
 }
 

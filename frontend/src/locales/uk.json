@@ -311,6 +311,7 @@
     "review.change": "Змінити",
     "review.fold": "Згорнути варіанти",
     "review.population": "населення {{value}}",
+    "review.elevation": "висота {{value}} м",
     "review.type.city": "Місто",
     "review.type.settlement": "Населений пункт",
     "review.type.district": "Район",

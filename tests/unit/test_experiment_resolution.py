@@ -2,11 +2,12 @@
 
 from collections.abc import Mapping
 
-from scripts.experiment_resolution import inspect, summarize
+from scripts.experiment_resolution import CountingTransport, inspect, summarize
 from tests.support.wikidata import entity_statement
 
 from ai_data_enrichment.evaluation.plan_run_fixtures import APITransportFixture
 from ai_data_enrichment.providers.wikidata_constants import WIKIDATA_API_URL
+from ai_data_enrichment.providers.wikidata_resolution import WikidataMountainResolutionService
 from ai_data_enrichment.resolution.models import ResolutionPolicy
 
 
@@ -43,11 +44,16 @@ def test_report_separates_typed_namesakes_from_unknown_candidates() -> None:
         "id": "Q9002",
         "label": "Summit",
         "match": "label",
+        "description": None,
+        "elevation_m": None,
+        "coordinates": None,
         "verification": "unchecked",
         "reason_codes": ["country_or_type_unverified"],
         "classes": ["Q27686 hotel"],
         "has_country": False,
     }
+    # Called without a counting transport, nothing is claimed about requests.
+    assert result["requests"] is None and result["seconds"] >= 0
     text = summarize(result)
     assert "unconfirmed: 1 | with a recorded type: 1 | without a country: 1" in text
     assert "type: Q27686 hotel | country: no" in text
@@ -57,3 +63,16 @@ def test_report_separates_typed_namesakes_from_unknown_candidates() -> None:
     )
     accepted = inspect(NamesakeTransport(), "Summit", "Nepal", relaxed)
     assert accepted["status"] == "resolved" and accepted["selected"] == "Q9001"
+
+
+def test_requests_are_counted_per_name_and_countries_are_remembered_between_names() -> None:
+    policy = ResolutionPolicy(
+        policy_id="mountain_verified_only", version="1.0", strategy="verified_only"
+    )
+    counting = CountingTransport(NamesakeTransport())
+    service = WikidataMountainResolutionService(counting)
+    first = inspect(counting, "Summit", "Nepal", policy, service=service)
+    second = inspect(counting, "Summit", "Nepal", policy, service=service)
+    # Search, the candidates' claims, and the country's code once for the whole run.
+    assert (first["requests"], second["requests"]) == (3, 2)
+    assert "| requests 3 |" in summarize(first)

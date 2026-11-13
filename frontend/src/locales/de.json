@@ -311,6 +311,7 @@
     "review.change": "Ändern",
     "review.fold": "Optionen ausblenden",
     "review.population": "{{value}} Einwohner",
+    "review.elevation": "Höhe {{value}} m",
     "review.type.city": "Stadt",
     "review.type.settlement": "Ortschaft",
     "review.type.district": "Stadtteil",

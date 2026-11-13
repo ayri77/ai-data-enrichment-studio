@@ -13,6 +13,7 @@ from ai_data_enrichment.providers.wikidata_constants import (
     WIKIDATA_MAX_SEARCH_PAGES,
     WIKIDATA_SEARCH_PAGE_SIZE,
 )
+from ai_data_enrichment.providers.wikidata_facts import description_fact
 from ai_data_enrichment.providers.wikidata_parsing import (
     _candidate_matches_name,
     _normalize_entity_name,
@@ -68,7 +69,10 @@ def normalize_wikidata_search_candidates(
                 label=label.strip(),
                 entity_type="unknown",
                 verification="unchecked",
-                attributes=(ResolutionAttribute(name="match_kind", value=matched_by),),
+                attributes=(
+                    ResolutionAttribute(name="match_kind", value=matched_by),
+                    *description_fact(raw),
+                ),
                 reason_codes=("search_match_only",),
             )
         )
