@@ -382,7 +382,7 @@
     "review.resume": "Fill in remaining rows",
     "review.resumeHint": "Starts a new run of the same approved plan with your choices. Each choice is checked against the source again. The earlier result stays in Diagnostics.",
     "review.unapplied": "Your choices are not in the results yet. Fill in the remaining rows to apply them.",
-    "review.toResultsUnfilled": "Results without filling",
+    "review.toResultsUnfilled": "Skip to results",
     "review.continued": "This run continues an earlier one after review.",
     "error.invalid_decision": "A choice or a name is no longer valid. Open Review again, then choose from the listed candidates or give a different name.",
     "error.no_decisions": "Choose a candidate for at least one name.",

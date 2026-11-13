@@ -507,6 +507,29 @@ test("capitals: a name the source does not know is found under another name", as
     await expect(
         page.getByTestId("review-Kyiv").getByTestId("review-chosen"),
     ).toBeVisible();
+    // The footer keeps its rows in every language: the way back and the way
+    // on stay side by side under the fill button.
+    for (const [locale, back] of [
+        ["uk", "Виконання"],
+        ["de", "Ausführung"],
+        ["en", "Execution"],
+    ]) {
+        await page
+            .locator(".studio-preferences select")
+            .nth(1)
+            .selectOption(locale);
+        const actions = page.locator(".review-actions");
+        const backBox = await actions
+            .getByRole("button", { name: back, exact: true })
+            .boundingBox();
+        const onBox = await actions.getByRole("button").last().boundingBox();
+        const fillBox = await actions.locator(".review-fill").boundingBox();
+        expect(backBox!.y, locale).toBeCloseTo(onBox!.y, 0);
+        expect(backBox!.y, locale).toBeGreaterThan(fillBox!.y);
+        await page.screenshot({
+            path: testInfo.outputPath(`review-footer-${locale}.png`),
+        });
+    }
     await warsaw.scrollIntoViewIfNeeded();
     await page.screenshot({
         path: testInfo.outputPath("review-other-name.png"),
