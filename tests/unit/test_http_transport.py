@@ -132,3 +132,92 @@ def test_transport_rejects_invalid_json(body: bytes) -> None:
             UrllibJsonTransport().get_json(url=GEOCODING_URL, params={}, timeout_seconds=5.0)
 
     assert captured.value.kind == "invalid_json"
+
+
+ROUTE_URL = "https://routing.test/v2/directions/driving-car"
+
+
+def test_post_json_sends_a_json_body_with_the_configured_headers() -> None:
+    """A source that computes an answer is asked with a body, not a query string."""
+    transport = UrllibJsonTransport(headers={"User-Agent": "Studio/0.1", "Authorization": "k"})
+
+    with patch(
+        "ai_data_enrichment.providers.http_transport.urlopen",
+        return_value=BytesIO(b'{"routes": []}'),
+    ) as mock_urlopen:
+        result = transport.post_json(
+            url=ROUTE_URL,
+            body={"coordinates": [[2.35, 48.85], [-0.13, 51.51]], "geometry": False},
+            timeout_seconds=20.0,
+        )
+
+    assert result == {"routes": []}
+    request = mock_urlopen.call_args.args[0]
+    assert isinstance(request, Request)
+    assert request.get_method() == "POST"
+    assert request.full_url == ROUTE_URL
+    assert request.data == b'{"coordinates": [[2.35, 48.85], [-0.13, 51.51]], "geometry": false}'
+    assert request.get_header("Content-type") == "application/json; charset=utf-8"
+    assert request.get_header("Authorization") == "k"
+    assert request.get_header("User-agent") == "Studio/0.1"
+    assert mock_urlopen.call_args.kwargs["timeout"] == 20.0
+
+
+@pytest.mark.parametrize(
+    ("body", "payload"),
+    [
+        (b'{"error": {"code": 2009, "message": "no route"}}', {"error": {"code": 2009}}),
+        (b"<html>Not found</html>", None),
+        (b"", None),
+    ],
+)
+def test_post_json_keeps_what_the_source_said_when_it_refused(body: bytes, payload) -> None:
+    """The reason is in the body of the error answer, never in the message."""
+    upstream_error = HTTPError(ROUTE_URL, 404, "Not Found", Message(), BytesIO(body))
+
+    with patch(
+        "ai_data_enrichment.providers.http_transport.urlopen",
+        side_effect=upstream_error,
+    ):
+        with pytest.raises(JsonTransportError) as captured:
+            UrllibJsonTransport().post_json(url=ROUTE_URL, body={}, timeout_seconds=5.0)
+
+    error = captured.value
+    assert (error.kind, error.status_code) == ("http_status", 404)
+    if payload is None:
+        assert error.payload is None
+    else:
+        assert isinstance(error.payload, dict)
+        assert error.payload["error"]["code"] == payload["error"]["code"]
+    assert "2009" not in str(error) and ROUTE_URL not in str(error)
+
+
+def test_an_error_answer_is_read_only_up_to_a_bound() -> None:
+    """An oversized error body is cut, so it does not parse and is left out."""
+    body = b'{"error": "' + b"x" * 10_000 + b'"}'
+    upstream_error = HTTPError(ROUTE_URL, 500, "Error", Message(), BytesIO(body))
+
+    with patch(
+        "ai_data_enrichment.providers.http_transport.urlopen",
+        side_effect=upstream_error,
+    ):
+        with pytest.raises(JsonTransportError) as captured:
+            UrllibJsonTransport().post_json(url=ROUTE_URL, body={}, timeout_seconds=5.0)
+
+    assert captured.value.payload is None
+
+
+def test_get_json_does_not_read_error_bodies() -> None:
+    """Existing lookups keep their behaviour: status and retry hint only."""
+    body = BytesIO(b'{"error": {"code": 1}}')
+    upstream_error = HTTPError(GEOCODING_URL, 400, "Bad", Message(), body)
+
+    with patch(
+        "ai_data_enrichment.providers.http_transport.urlopen",
+        side_effect=upstream_error,
+    ):
+        with pytest.raises(JsonTransportError) as captured:
+            UrllibJsonTransport().get_json(url=GEOCODING_URL, params={}, timeout_seconds=5.0)
+
+    assert captured.value.payload is None
+    assert body.tell() == 0

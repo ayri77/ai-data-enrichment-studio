@@ -1,8 +1,13 @@
 # Adding a capability: where one is declared today, and a proposed contract
 
-**Status:** design note for discussion, written after release 0.1.0. Nothing here
-is implemented. It separates what the code shows (evidence), what follows from
-it (inference) and what is proposed (recommendation).
+**Status:** design note for discussion, written after release 0.1.0. The
+binding it proposes is not implemented. It separates what the code shows
+(evidence), what follows from it (inference) and what is proposed
+(recommendation).
+
+Two capabilities were added since, against today's structure:
+[road distance and ratio](30-road-distance-and-ratio.md). The counts below are
+those of release 0.1.0.
 
 The question behind it: can a new kind of enrichment be added without knowing
 the whole code base, and later be supplied from outside — a local Python

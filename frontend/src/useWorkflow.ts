@@ -94,7 +94,7 @@ export function useWorkflow(
             }
         }
     }
-    const { maxRows, maxTimeout } = options.limits ?? DEMO_LIMITS;
+    const { maxRows, maxTimeout, capabilities } = options.limits ?? DEMO_LIMITS;
     const [workspace, setWorkspace] = useState<Workspace>("dataset");
     const [instruction, setInstruction] = useState("");
     const [mapping, setMapping] = useState<OutputTarget[]>([
@@ -639,6 +639,7 @@ export function useWorkflow(
         withinBounds,
         mappingValid,
         maxRows,
+        capabilities,
         // Where a new column would go: right after everything the sheet holds.
         freeColumn: bounds
             ? columnLetter(Math.max(bounds.lastColumn, sheetColumns.length) + 1)

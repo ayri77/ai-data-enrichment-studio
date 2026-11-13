@@ -24,7 +24,10 @@ Paths in the first two lists are relative to `src/ai_data_enrichment/`.
    `execution/sqlite_cache.py` — success-only reuse and cache identity.
 5. `providers/registry.py`, `providers/request_policy.py`,
    `providers/retry_transport.py` — approved source adapters and
-   explicit request budgets and retries.
+   explicit request budgets and retries. `providers/openrouteservice.py` and
+   `providers/ratio.py` are the two capabilities added after 0.1.0; a road
+   distance is offered only with a routing key
+   ([road distance and ratio](30-road-distance-and-ratio.md)).
 6. `resolution/models.py`, `resolution/engine.py`, `resolution/geography.py`,
    `resolution/job.py`, `resolution/approvals.py` — how an entity is found,
    verified and audited; country names in any language; scoped approvals.

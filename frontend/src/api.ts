@@ -340,6 +340,8 @@ export interface RunLimits {
     max_run_rows: number;
     max_timeout_seconds: number;
     default_timeout_seconds: number;
+    /** Ids of the capabilities a plan may use on this server. */
+    capabilities?: string[];
 }
 export const api = {
     limits: () => response<RunLimits>(call("/api/limits")),

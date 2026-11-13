@@ -723,7 +723,11 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
                     <EmptyState icon="plan" text={t("ws.noPlan")} />
                 ) : !draft.plan ? (
                     <div className="plan-words panel-scroll">
-                        <PlanRefusal draft={draft} maxRows={w.maxRows} />
+                        <PlanRefusal
+                            draft={draft}
+                            maxRows={w.maxRows}
+                            capabilities={w.capabilities}
+                        />
                     </div>
                 ) : advanced ? (
                     <PlanGraph key={draft.fingerprint} draft={draft} />

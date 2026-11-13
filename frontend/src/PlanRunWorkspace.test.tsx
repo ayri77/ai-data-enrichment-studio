@@ -2180,6 +2180,18 @@ it("names what it is waiting for, counts the time and says what is locked", asyn
     }
 });
 
+it("names a road distance among what it can do when the server offers it", async () => {
+    localStorage.removeItem("enrichment.mode");
+    vi.mocked(api.limits).mockResolvedValue({
+        max_run_rows: 20,
+        max_timeout_seconds: 300,
+        default_timeout_seconds: 180,
+        capabilities: ["geocode", "geodesic_distance", "road_distance"],
+    });
+    render(<App />);
+    expect(await screen.findByText(i18n.t("can.roadDistance"))).toBeVisible();
+});
+
 it("takes the bounds of one run from the server", async () => {
     vi.mocked(api.limits).mockResolvedValue({
         max_run_rows: 500,
@@ -2263,6 +2275,8 @@ it("Basic previews the table on upload, proposes the empty column and takes the 
     render(<App />);
     // Before a workbook there is a plain statement of what can be asked for.
     expect(screen.getByText(i18n.t("can.cityDistance"))).toBeVisible();
+    // A road distance is named only where the server offers it.
+    expect(screen.queryByText(i18n.t("can.roadDistance"))).toBeNull();
     expect(screen.getByText(i18n.t("can.limit", { max: 20 }))).toBeVisible();
     await prepareBasic();
     expect(api.preview).toHaveBeenCalledWith("source", "Sheet1", "A1:E11");

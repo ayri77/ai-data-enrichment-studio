@@ -210,6 +210,7 @@ export function DatasetWorkspace({
                     hasWorkbook={!!d.dataset}
                     filled={workflow.mapping.map((entry) => entry.name)}
                     maxRows={workflow.maxRows}
+                    capabilities={workflow.capabilities}
                     runLast={workflow.runLast}
                 />
             </div>

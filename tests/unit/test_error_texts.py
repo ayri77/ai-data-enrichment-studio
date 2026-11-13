@@ -36,12 +36,15 @@ def server_error_codes() -> set[str]:
                         continue
                     for inner, code in zip(value.keys, value.values, strict=True):
                         # The one computed code relays a WorkspaceError's own.
+                        # This server's codes are words; a number is a source's
+                        # own code in an answer a fixture imitates.
                         if (
                             isinstance(inner, ast.Constant)
                             and inner.value == "code"
                             and isinstance(code, ast.Constant)
+                            and isinstance(code.value, str)
                         ):
-                            codes.add(str(code.value))
+                            codes.add(code.value)
     return codes
 
 

@@ -37,6 +37,11 @@ came from.
 | Coordinates of a city | The city is looked up in Open-Meteo's geocoding service, within the country given in the row |
 | Distance between two cities | Both cities are found, then the straight-line distance is calculated |
 | Elevation of a mountain | The mountain is found in Wikidata and its elevation is read from the record |
+| Driving distance between two cities (optional) | Both cities are found, then openrouteservice computes the car route on OpenStreetMap data. Needs a free routing key; see [road distance and ratio](docs/30-road-distance-and-ratio.md) |
+
+A plan can combine these and fill several columns at once, for example the
+straight-line distance, the distance by road and how many times longer the road
+is.
 
 The table needs the names and their countries. A country may be written in any
 language or as a two-letter code.
@@ -100,6 +105,9 @@ Open <http://127.0.0.1:5173>.
   add `--env-file .env` after `uv run --locked`.
 - **`--allow-network`** lets the server reach the sources and the model. Without
   it nothing leaves your machine and only plan validation works.
+- **With a routing key** (`OPENROUTESERVICE_API_KEY` in `.env`, free at
+  [account.heigit.org](https://account.heigit.org)) the driving distance by road
+  is offered as well. Without it nothing changes.
 
 Details: [provider settings](docs/25-provider-settings.md).
 
@@ -144,8 +152,10 @@ Vite. Start reading the code with the
 
 ## Limits
 
-- **Three tasks.** Cities and mountains only; adding a source or an operation
-  means writing code.
+- **Few tasks.** Cities and mountains only; adding a source or an operation
+  means writing code. The driving distance is computed by a routing service and
+  has no source record to check it against; it was not yet verified in a live
+  run.
 - **One run fills up to 20 rows by default.** `ENRICHMENT_MAX_RUN_ROWS` raises
   this locally, up to 5,000. A run is stopped after 300 seconds. Runs are not
   parallel: 50 mountains took about two minutes in a live measurement.
@@ -195,6 +205,7 @@ branch, a pull request and CI.
 | [Implementation reading guide](docs/14-implementation-reading-guide.md) | Reading order for the modules and the invariants they keep |
 | [Product roadmap](docs/20-product-roadmap-ui-agent.md) | What is planned after the MVP |
 | [Adding a capability](docs/29-capability-extension-design.md) | Design note: where a capability is declared today and a proposed contract for adding one |
+| [Road distance and ratio](docs/30-road-distance-and-ratio.md) | Two capabilities added after 0.1.0: the routing source, its key and limits, what is not yet verified |
 
 Documentation and code are in English.
 

@@ -101,6 +101,9 @@ After CI/review and merge, repeat manual acceptance from the main Cursor folder:
 5. Repeat the Mountains task with `Sheet1!A1:C11`, height mapped to C, and a
    request for verified elevations in metres. Check the resolve/lookup chain.
    Driving routes or insufficiently specified requests must still abstain.
+   (Since `road_distance` was added, a driving distance must be refused only
+   where no routing key is configured; see
+   [road distance and ratio](30-road-distance-and-ratio.md).)
 
 The opt-in `tests/integration/test_openai_planner_live.py` cases mirror these
 workbook profiles and both Capitals instruction variants. With an existing

@@ -12,7 +12,7 @@ from typing import Any, Literal
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.cell import column_index_from_string
 
-from ai_data_enrichment.capabilities.definitions import get_builtin_capabilities
+from ai_data_enrichment.capabilities.definitions import offered_capabilities
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan, required_input_columns
 from ai_data_enrichment.execution.job_executor import JobExecutor
@@ -22,6 +22,7 @@ from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.orchestration.excel_runner import ExcelEnrichmentRunner
 from ai_data_enrichment.orchestration.live_executor import build_live_executor
 from ai_data_enrichment.providers.http_transport import JsonTransport
+from ai_data_enrichment.providers.openrouteservice import ROUTING_PROVIDER, routing_key
 from ai_data_enrichment.providers.request_policy import ProviderRequestPolicy
 from ai_data_enrichment.resolution.resume import OtherName, ResumeSelection
 from ai_data_enrichment.resolution.sqlite_cache import SQLiteResolutionCache
@@ -46,8 +47,15 @@ __all__ = ["MAX_PLAN_STEPS", "MAX_PROVIDER_REQUESTS", "MAX_RUN_ROWS"]
 
 
 def builtin_registry() -> CapabilityRegistry:
+    """What this installation offers to a plan.
+
+    A road distance needs a routing key in the environment; without one it is
+    not registered, so the planner is not told about it and no plan can ask for
+    it. The run worker is a separate process with the same environment and
+    builds the same registry.
+    """
     registry = CapabilityRegistry()
-    for capability in get_builtin_capabilities():
+    for capability in offered_capabilities(road_distance=routing_key() is not None):
         registry.register(capability)
     return registry
 
@@ -61,8 +69,10 @@ def live_executor(
     resume_selections: ResumeSelections | None = None,
     reuse: Reuse | None = None,
 ) -> JobExecutor:
+    registry = builtin_registry()
     return build_live_executor(
-        builtin_registry(),
+        registry,
+        routing_key=routing_key(),
         max_rows=max_rows,
         resume_selections=resume_selections,
         reuse=reuse,
@@ -77,7 +87,11 @@ def live_executor(
                 max_operations_per_job=MAX_RUN_ROWS * MAX_PLAN_STEPS,
                 max_total_wait_seconds=MAX_PROVIDER_WAIT_SECONDS,
             )
-            for provider in ("open-meteo", "wikidata")
+            for provider in (
+                "open-meteo",
+                "wikidata",
+                *([ROUTING_PROVIDER] if registry.get("road_distance") else []),
+            )
         },
     )
 

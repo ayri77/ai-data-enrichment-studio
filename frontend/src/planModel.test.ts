@@ -180,3 +180,91 @@ it("returns nothing for a refusal and survives a cycle", () => {
     );
     expect(lines.map((l) => l.id).sort()).toEqual(["a", "b"]);
 });
+
+it("words a road distance with what computed it, and a ratio by its two values", () => {
+    const point = (id: string, city: string, country: string) => ({
+        id,
+        capability: "geocode",
+        inputs: { city: column(city), country: column(country) },
+        parameters: {},
+    });
+    const lines = describePlan(
+        draft(
+            {
+                version: "1.0",
+                steps: [
+                    {
+                        id: "detour",
+                        capability: "ratio",
+                        inputs: {
+                            numerator: output("road"),
+                            denominator: output("straight"),
+                        },
+                        parameters: {},
+                    },
+                    point("from", "From", "Country_From"),
+                    point("to", "To", "Country_To"),
+                    {
+                        id: "straight",
+                        capability: "geodesic_distance",
+                        inputs: {
+                            point_a: output("from"),
+                            point_b: output("to"),
+                        },
+                        parameters: { unit: "km" },
+                    },
+                    {
+                        id: "road",
+                        capability: "road_distance",
+                        inputs: {
+                            point_a: output("from"),
+                            point_b: output("to"),
+                        },
+                        parameters: { unit: "km" },
+                    },
+                ],
+                outputs: [
+                    {
+                        step_id: "straight",
+                        value_field: "value",
+                        target_column: "straight",
+                        expected_unit: "km",
+                    },
+                    {
+                        step_id: "road",
+                        value_field: "value",
+                        target_column: "road",
+                        expected_unit: "km",
+                    },
+                    {
+                        step_id: "detour",
+                        value_field: "value",
+                        target_column: "detour",
+                    },
+                ],
+                assumptions: [],
+            },
+            { straight: "E", road: "F", detour: "G" },
+        ),
+    );
+    // What a step needs comes first: two cities, two distances, their ratio.
+    expect(lines.map((l) => l.action)).toEqual([
+        "geocode",
+        "geocode",
+        "distanceIn",
+        "roadDistanceIn",
+        "ratio",
+    ]);
+    // A road distance says that a service computed it; the others do not.
+    expect(lines.map((l) => l.notes)).toEqual([[], [], [], ["routing"], []]);
+    expect(lines[3].values).toEqual({ unit: "km" });
+    expect(lines[4].inputs).toEqual([
+        { port: "numerator", ref: { kind: "step", number: 4 } },
+        { port: "denominator", ref: { kind: "step", number: 3 } },
+    ]);
+    expect(lines.slice(2).map((l) => l.writes)).toEqual([
+        [{ name: "straight", letter: "E", unit: "km" }],
+        [{ name: "road", letter: "F", unit: "km" }],
+        [{ name: "detour", letter: "G", unit: "" }],
+    ]);
+});

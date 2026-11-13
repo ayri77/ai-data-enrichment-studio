@@ -499,6 +499,8 @@ class PlanRunService:
                 "max_run_rows": MAX_RUN_ROWS,
                 "max_timeout_seconds": MAX_TIMEOUT_SECONDS,
                 "default_timeout_seconds": DEFAULT_TIMEOUT_SECONDS,
+                # What a plan may use here; a road distance only with its key.
+                "capabilities": sorted(spec.id for spec in builtin_registry().list_all()),
             }
 
         @router.post("/task-ideas")
