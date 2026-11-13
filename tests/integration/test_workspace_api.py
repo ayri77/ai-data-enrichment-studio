@@ -70,6 +70,11 @@ def test_real_sample_preview_and_source_preservation(client, name, range_ref, he
     assert profile["row_count"] == 10
     assert len(profile["sample_records"]) == 5
     assert list(profile["sample_records"][0]) == headers
+    # The whole table is there to look through; the profile keeps its sample.
+    rows = preview.json()["rows"]
+    assert rows["row_numbers"] == list(range(2, 12))
+    assert len(rows["values"]) == 10 and all(len(row) == len(headers) for row in rows["values"])
+    assert rows["values"][0] == [profile["sample_records"][0][name] for name in headers]
     assert sha256(path.read_bytes()).digest() == sha256(original).digest()
     assert stored_path.read_bytes() == original
 

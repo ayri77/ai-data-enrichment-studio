@@ -21,7 +21,7 @@ from ai_data_enrichment.ingestion.profiling_limits import ProfilingLimits
 from ai_data_enrichment.ingestion.table_selection import TableSelection
 
 
-def _to_json_value(
+def to_json_value(
     value: object,
     number_format: str | None = None,
     *,
@@ -232,7 +232,7 @@ def profile_worksheet(
                         time_only_counts[index] += 1
                     if len(column_samples[index]) < effective_limits.max_sample_records:
                         column_samples[index].append(
-                            _to_json_value(
+                            to_json_value(
                                 value,
                                 cell.number_format,
                                 max_value_length=effective_limits.max_value_length,
@@ -242,7 +242,7 @@ def profile_worksheet(
             # Row samples preserve which values occurred together across columns.
             if len(sample_records) < effective_limits.max_sample_records:
                 record = {
-                    name: _to_json_value(
+                    name: to_json_value(
                         cell.value,
                         cell.number_format,
                         max_value_length=effective_limits.max_value_length,

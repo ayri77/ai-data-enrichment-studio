@@ -26,6 +26,7 @@ from ai_data_enrichment import sample_catalog
 from ai_data_enrichment.ingestion.excel_inspector import inspect_workbook
 from ai_data_enrichment.ingestion.excel_profiler import profile_worksheet
 from ai_data_enrichment.ingestion.profiling_limits import ProfilingLimits
+from ai_data_enrichment.ingestion.table_rows import read_table_rows
 from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.plan_run import PlanBodyLimit, PlanRunService, PlanRunSettings
 from ai_data_enrichment.plan_run_worker import ExecutorFactory
@@ -133,12 +134,19 @@ def _preview(path: Path, dataset_id: str, body: PreviewRequest) -> dict:
         profile = profile_worksheet(
             path, body.sheet_name, dataset_id, PREVIEW_LIMITS, selection=selection
         )
+        table = read_table_rows(
+            path, selection=selection, max_value_length=PREVIEW_LIMITS.max_value_length
+        )
         return {
             "dataset_id": dataset_id,
             "sheet_name": body.sheet_name,
             "range_ref": body.range_ref,
             "sample_limit": PREVIEW_LIMITS.max_sample_records,
             "profile": profile.model_dump(mode="json"),
+            # Every row of the selection, for the person to look through. The
+            # profile above is what a planning request may carry; these rows
+            # never leave the workspace.
+            "rows": {"row_numbers": table.row_numbers, "values": table.values},
         }
     except WorkspaceError:
         raise

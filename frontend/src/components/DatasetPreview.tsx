@@ -1,7 +1,23 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Columns3, Info, LoaderCircle, Table2 } from "lucide-react";
+import {
+    ArrowDown,
+    ArrowUp,
+    ArrowUpDown,
+    Columns3,
+    Info,
+    LoaderCircle,
+    Table2,
+} from "lucide-react";
 import type { Preview } from "../api";
+import {
+    filterRows,
+    nextSort,
+    PAGE_ROWS,
+    sortRows,
+    tableRows,
+    type Sort,
+} from "../tableModel";
 import { useAdvanced } from "../mode";
 import { CanDo } from "./CanDo";
 import { columnLetter, parseRange } from "../range";
@@ -22,8 +38,27 @@ export function DatasetPreview({
     filled?: string[];
     maxRows?: number;
 }) {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const locale = i18n.resolvedLanguage ?? "en";
     const [selectedColumn, setSelectedColumn] = useState("");
+    // Looking through the table: a text filter, one sorted column, and only as
+    // many rows drawn as were asked for. None of it changes the selection.
+    const [query, setQuery] = useState("");
+    const [sort, setSort] = useState<Sort>(null);
+    const [limit, setLimit] = useState(PAGE_ROWS);
+    useEffect(() => {
+        setQuery("");
+        setSort(null);
+        setLimit(PAGE_ROWS);
+    }, [preview]);
+    // The server sends every row; without them only the sample can be shown.
+    const whole = !!preview?.rows;
+    const all = useMemo(() => (preview ? tableRows(preview) : []), [preview]);
+    const ordered = useMemo(
+        () => sortRows(filterRows(all, query, locale), sort, locale),
+        [all, query, sort, locale],
+    );
+    const visible = ordered.slice(0, limit);
     // Column types and the per-column inspector are Advanced tools.
     const advanced = useAdvanced();
     const columns = preview?.profile.columns ?? [];
@@ -97,17 +132,41 @@ export function DatasetPreview({
                             )}
                         </strong>
                         <span>
-                            {preview
-                                ? t("sampleCount", {
-                                      shown: preview.profile.sample_records
-                                          .length,
-                                      total: preview.profile.row_count,
-                                  })
-                                : t("readOnly")}
+                            {!preview
+                                ? t("readOnly")
+                                : !whole
+                                  ? t("sampleCount", {
+                                        shown: preview.profile.sample_records
+                                            .length,
+                                        total: preview.profile.row_count,
+                                    })
+                                  : query.trim()
+                                    ? t("rowsMatching", {
+                                          shown: ordered.length,
+                                          total: all.length,
+                                      })
+                                    : t("rowsTotal", { total: all.length })}
                         </span>
                     </header>
                     {preview ? (
                         <>
+                            {whole && all.length > 0 && (
+                                <div className="table-tools">
+                                    <input
+                                        type="search"
+                                        value={query}
+                                        placeholder={t("filterRows")}
+                                        aria-label={t("filterRows")}
+                                        onChange={(event) => {
+                                            setQuery(event.target.value);
+                                            setLimit(PAGE_ROWS);
+                                        }}
+                                    />
+                                    <span className="muted">
+                                        {t("tableToolsHint")}
+                                    </span>
+                                </div>
+                            )}
                             <div
                                 className="table-scroll"
                                 role="region"
@@ -140,7 +199,11 @@ export function DatasetPreview({
                                                 className="sample-heading"
                                                 scope="col"
                                             >
-                                                {t("sampleIndex")}
+                                                {t(
+                                                    whole
+                                                        ? "rowNumber"
+                                                        : "sampleIndex",
+                                                )}
                                             </th>
                                             {columns.map((column, index) => {
                                                 const head = (
@@ -169,6 +232,14 @@ export function DatasetPreview({
                                                     <th
                                                         key={column.name}
                                                         scope="col"
+                                                        aria-sort={
+                                                            sort?.column !==
+                                                            index
+                                                                ? undefined
+                                                                : sort.descending
+                                                                  ? "descending"
+                                                                  : "ascending"
+                                                        }
                                                         className={
                                                             highlighted ===
                                                             column.name
@@ -197,69 +268,136 @@ export function DatasetPreview({
                                                                 {head}
                                                             </span>
                                                         )}
+                                                        {whole && (
+                                                            <button
+                                                                type="button"
+                                                                className="sort-button"
+                                                                aria-label={t(
+                                                                    "sortBy",
+                                                                    {
+                                                                        column: column.name,
+                                                                    },
+                                                                )}
+                                                                aria-pressed={
+                                                                    sort?.column ===
+                                                                    index
+                                                                }
+                                                                onClick={() => {
+                                                                    setSort(
+                                                                        nextSort(
+                                                                            sort,
+                                                                            index,
+                                                                        ),
+                                                                    );
+                                                                    setLimit(
+                                                                        PAGE_ROWS,
+                                                                    );
+                                                                }}
+                                                            >
+                                                                {sort?.column !==
+                                                                index ? (
+                                                                    <ArrowUpDown aria-hidden="true" />
+                                                                ) : sort.descending ? (
+                                                                    <ArrowDown aria-hidden="true" />
+                                                                ) : (
+                                                                    <ArrowUp aria-hidden="true" />
+                                                                )}
+                                                            </button>
+                                                        )}
                                                     </th>
                                                 );
                                             })}
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {preview.profile.sample_records.map(
-                                            (record, index) => (
-                                                <tr key={index}>
-                                                    <th
-                                                        scope="row"
-                                                        className="sample-index mono"
+                                        {visible.map((row) => (
+                                            <tr key={row.row}>
+                                                <th
+                                                    scope="row"
+                                                    className="sample-index mono"
+                                                >
+                                                    {row.row}
+                                                </th>
+                                                {columns.map((col, index) => (
+                                                    <td
+                                                        key={col.name}
+                                                        className={
+                                                            highlighted ===
+                                                            col.name
+                                                                ? "is-selected"
+                                                                : ""
+                                                        }
                                                     >
-                                                        {index + 1}
-                                                    </th>
-                                                    {columns.map((col) => (
-                                                        <td
-                                                            key={col.name}
-                                                            className={
-                                                                highlighted ===
-                                                                col.name
-                                                                    ? "is-selected"
-                                                                    : ""
-                                                            }
-                                                        >
-                                                            {record[col.name] ==
-                                                            null ? (
-                                                                <span
-                                                                    className="empty-value"
-                                                                    aria-label={t(
-                                                                        "emptyValue",
-                                                                    )}
-                                                                    title={t(
-                                                                        "emptyValue",
-                                                                    )}
-                                                                >
-                                                                    ∅
-                                                                </span>
-                                                            ) : (
-                                                                String(
-                                                                    record[
-                                                                        col.name
-                                                                    ],
-                                                                )
-                                                            )}
-                                                        </td>
-                                                    ))}
-                                                </tr>
-                                            ),
-                                        )}
+                                                        {row.cells[index] ==
+                                                        null ? (
+                                                            <span
+                                                                className="empty-value"
+                                                                aria-label={t(
+                                                                    "emptyValue",
+                                                                )}
+                                                                title={t(
+                                                                    "emptyValue",
+                                                                )}
+                                                            >
+                                                                ∅
+                                                            </span>
+                                                        ) : (
+                                                            String(
+                                                                row.cells[
+                                                                    index
+                                                                ],
+                                                            )
+                                                        )}
+                                                    </td>
+                                                ))}
+                                            </tr>
+                                        ))}
                                     </tbody>
                                 </table>
                             </div>
                             {preview.profile.row_count === 0 && (
                                 <p className="header-only">{t("noData")}</p>
                             )}
+                            {all.length > 0 && ordered.length === 0 && (
+                                <p className="header-only" role="status">
+                                    {t("noMatches")}
+                                </p>
+                            )}
                             <div className="table-footer">
-                                <span>{t("sampleNote")}</span>
                                 <span>
-                                    {t("sampleLimit", {
-                                        count: preview.sample_limit,
-                                    })}
+                                    {t(whole ? "tableNote" : "sampleNote")}
                                 </span>
+                                {ordered.length > visible.length ? (
+                                    <span>
+                                        {t("rowsShown", {
+                                            shown: visible.length,
+                                            total: ordered.length,
+                                        })}{" "}
+                                        <button
+                                            type="button"
+                                            className="inline-link"
+                                            onClick={() =>
+                                                setLimit(limit + PAGE_ROWS)
+                                            }
+                                        >
+                                            {t("showMoreRows", {
+                                                count: Math.min(
+                                                    PAGE_ROWS,
+                                                    ordered.length -
+                                                        visible.length,
+                                                ),
+                                            })}
+                                        </button>
+                                    </span>
+                                ) : (
+                                    <span>
+                                        {whole
+                                            ? t("valueLimit")
+                                            : t("sampleLimit", {
+                                                  count: preview.sample_limit,
+                                              })}
+                                    </span>
+                                )}
                             </div>
                             <p className="scroll-hint">{t("scrollHint")}</p>
                         </>
