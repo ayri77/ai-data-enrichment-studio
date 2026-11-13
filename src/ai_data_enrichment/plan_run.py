@@ -5,7 +5,8 @@ import json
 import logging
 import multiprocessing
 import os
-from contextlib import suppress
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -72,6 +73,7 @@ from ai_data_enrichment.review import (
     user_chosen_steps,
 )
 from ai_data_enrichment.run_limits import DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS
+from ai_data_enrichment.spellings import SuggestionError, suggest_names
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy, PlanValidator
 from ai_data_enrichment.workspace_errors import WorkspaceError
 
@@ -182,6 +184,16 @@ class SearchRequest(BaseModel):
 # trying spellings stays far below it; a script does not get an open relay to
 # the data sources.
 MAX_REVIEW_SEARCHES = 100
+# How many times one job may ask the model for other names. Each is a paid
+# request; answers are kept, so a person asks once per name.
+MAX_REVIEW_SUGGESTIONS = 40
+
+
+class SuggestionRequest(BaseModel):
+    """Ask the model for other names of a reviewed query."""
+
+    model_config = ConfigDict(extra="forbid")
+    allow_network: bool = False
 
 
 class PlanRunService:
@@ -213,6 +225,11 @@ class PlanRunService:
         self.searches: dict[str, dict[str, ResolutionReport]] = {}
         self.search_counts: dict[str, int] = {}
         self.searching = False
+        # Names a model proposed for an operation, so that asking again costs
+        # nothing, and how many times a job has asked.
+        self.suggestions: dict[str, dict[str, tuple[str, ...]]] = {}
+        self.suggestion_counts: dict[str, int] = {}
+        self.suggesting = False
         self.router = APIRouter(prefix="/api")
         self._routes()
 
@@ -233,6 +250,8 @@ class PlanRunService:
         self.selections.pop(job_id, None)
         self.searches.pop(job_id, None)
         self.search_counts.pop(job_id, None)
+        self.suggestions.pop(job_id, None)
+        self.suggestion_counts.pop(job_id, None)
         self.tasks.pop(job_id, None)
         self.cancel_events.pop(job_id, None)
         rmtree(self.directories.pop(job_id), ignore_errors=True)
@@ -268,6 +287,36 @@ class PlanRunService:
             raise WorkspaceError(
                 "network_disabled", "Enable network in server configuration and this request.", 403
             )
+
+    def model_gate(self, allow_network: bool) -> None:
+        """Refuse a model request that lacks consent, a model or a key."""
+        if self.offline_plan_client is not None:
+            return
+        self.network_gate(allow_network)
+        if not self.provider.model:
+            raise WorkspaceError("llm_not_configured", "Choose a model in Provider Settings.")
+        if not self.provider.key_present:
+            raise WorkspaceError("missing_api_key", "Add an API key in Provider Settings.")
+
+    @contextmanager
+    def model_client(self, *, max_output_tokens: int) -> Iterator[PlanCompletionClient]:
+        """The configured model for one request; call model_gate first."""
+        if self.offline_plan_client is not None:
+            yield self.offline_plan_client
+            return
+        api = OpenAI(
+            api_key=self.provider.api_key(),
+            base_url="https://api.openai.com/v1",
+            timeout=30.0,
+            max_retries=0,
+        )
+        try:
+            yield OpenAIPlanClient(
+                api=api, model=self.provider.model or "", max_output_tokens=max_output_tokens
+            )
+        finally:
+            with suppress(Exception):
+                api.close()
 
     def get_plan(self, plan_id: str) -> dict:
         if plan_id not in self.plans:
@@ -352,36 +401,16 @@ class PlanRunService:
         decision, reason = "ready", None
         planning_attempts = []
         if plan is None:
-            api = None
-            client = self.offline_plan_client
-            if client is None:
-                self.network_gate(body.allow_network)
-                if not self.provider.model:
-                    raise WorkspaceError(
-                        "llm_not_configured", "Choose a model in Provider Settings."
-                    )
-                if not self.provider.key_present:
-                    raise WorkspaceError("missing_api_key", "Add an API key in Provider Settings.")
+            self.model_gate(body.allow_network)
             try:
-                if client is None:
-                    api = OpenAI(
-                        api_key=self.provider.api_key(),
-                        base_url="https://api.openai.com/v1",
-                        timeout=30.0,
-                        max_retries=0,
+                with self.model_client(max_output_tokens=4096) as client:
+                    generated = LLMPlanner(client=client, registry=builtin_registry()).generate(
+                        instruction=body.instruction,
+                        dataset_profile=profile,
+                        # The same policy as the final validation, so its diagnostics
+                        # (step limit, requested output targets) can still be repaired.
+                        validation_policy=_validation_policy(body.output_columns),
                     )
-                    client = OpenAIPlanClient(
-                        api=api,
-                        model=self.provider.model or "",
-                        max_output_tokens=4096,
-                    )
-                generated = LLMPlanner(client=client, registry=builtin_registry()).generate(
-                    instruction=body.instruction,
-                    dataset_profile=profile,
-                    # The same policy as the final validation, so its diagnostics
-                    # (step limit, requested output targets) can still be repaired.
-                    validation_policy=_validation_policy(body.output_columns),
-                )
                 plan = generated.response.plan
                 decision, reason = generated.response.status, generated.response.reason
                 planning_attempts = [asdict(attempt) for attempt in generated.attempts]
@@ -400,10 +429,6 @@ class PlanRunService:
                 raise WorkspaceError(
                     "planning_failed", "The model could not return a usable planning response.", 502
                 ) from exc
-            finally:
-                if api is not None:
-                    with suppress(Exception):
-                        api.close()
         draft = {
             **body.model_dump(mode="json", exclude={"allow_network", "plan"}),
             "plan": plan.model_dump(mode="json") if plan else None,
@@ -547,6 +572,57 @@ class PlanRunService:
                 self.searches.setdefault(job_id, {})[operation_id] = found
             return searched_item(operation, found, plan)
 
+        @router.post("/jobs/{job_id}/review/{operation_id}/suggestions")
+        async def suggestions(job_id: str, operation_id: str, body: SuggestionRequest):
+            async with self.lock:
+                job = self.get_job(job_id)
+                if job["status"] != "needs_review":
+                    raise WorkspaceError(
+                        "review_not_available", "This job has nothing left to review.", 409
+                    )
+                report, draft = self.resolution_report(job)
+                plan = EnrichmentPlan.model_validate(draft["plan"])
+                operation = (
+                    next(
+                        (item for item in report.operations if item.operation_id == operation_id),
+                        None,
+                    )
+                    if report
+                    else None
+                )
+                try:
+                    if operation is None:
+                        raise ValueError("Unknown operation.")
+                    capability = other_name_capability(operation, plan)
+                except ValueError:
+                    raise WorkspaceError(
+                        "invalid_search", "Other names cannot be searched for this item."
+                    ) from None
+                known = self.suggestions.get(job_id, {}).get(operation_id)
+                if known is not None:
+                    return {"operation_id": operation_id, "names": list(known)}
+                self.model_gate(body.allow_network)
+                if self.suggesting:
+                    raise WorkspaceError("suggestions_busy", "Wait for the current answer.", 409)
+                if self.suggestion_counts.get(job_id, 0) >= MAX_REVIEW_SUGGESTIONS:
+                    raise WorkspaceError(
+                        "suggestion_limit", "This run has asked the model too many times.", 429
+                    )
+                self.suggestion_counts[job_id] = self.suggestion_counts.get(job_id, 0) + 1
+                self.suggesting = True
+            query = operation.report.candidate_set.query
+            try:
+                names = await run_in_threadpool(self.suggest_once, query, capability)
+            except SuggestionError:
+                raise WorkspaceError(
+                    "suggestions_failed", "The model did not return usable names.", 502
+                ) from None
+            finally:
+                self.suggesting = False
+            if job_id in self.jobs:
+                self.suggestions.setdefault(job_id, {})[operation_id] = names
+            return {"operation_id": operation_id, "names": list(names)}
+
         @router.post("/jobs/{job_id}/resume", status_code=202)
         async def resume(job_id: str, body: ResumeRequest):
             async with self.lock:
@@ -621,6 +697,11 @@ class PlanRunService:
             directory = self.datasets[job["dataset_id"]].parent / job_id
             name = "result.xlsx" if artifact == "result" else "report.json"
             return FileResponse(directory / name, filename=f"{job_id}-{name}")
+
+    def suggest_once(self, query: ResolutionQuery, capability: str) -> tuple[str, ...]:
+        """Ask the model once for other names; nothing is searched here."""
+        with self.model_client(max_output_tokens=1024) as client:
+            return suggest_names(client, query=query, capability=capability)
 
     def search_once(
         self,

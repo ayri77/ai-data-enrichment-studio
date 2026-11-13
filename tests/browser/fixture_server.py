@@ -9,11 +9,18 @@ from pathlib import Path
 from typing import Any
 
 from ai_data_enrichment.api import create_app
-from ai_data_enrichment.evaluation.plan_run_fixtures import FixturePlanClient, offline_executor
+from ai_data_enrichment.evaluation.plan_run_fixtures import (
+    FixtureNamesClient,
+    FixturePlanClient,
+    asks_for_names,
+    offline_executor,
+)
 
 
 class SamplePlanClient:
     def complete(self, *, messages: list[dict[str, str]], response_schema: dict[str, Any]) -> str:
+        if asks_for_names(response_schema):
+            return FixtureNamesClient().complete(messages=messages, response_schema=response_schema)
         context = json.loads(messages[1]["content"])
         columns = {column["name"] for column in context["dataset_profile"]["columns"]}
         name = "capitals" if "distance" in columns else "mountains"

@@ -85,6 +85,7 @@ provide the dataset ID and actual worksheet/range; the range includes headers.
 | Report | `GET /api/jobs/{job_id}/artifacts/report` | JSON audit for every terminal job, including stops/failures |
 | Review | `GET /api/jobs/{job_id}/review` | Ambiguous queries of a finished job, grouped once per query, with source candidates |
 | Search under another name | `POST /api/jobs/{job_id}/review/{operation_id}/search` | 200; what the source confirms for another name of one reviewed query; writes nothing |
+| Other names from the model | `POST /api/jobs/{job_id}/review/{operation_id}/suggestions` | 200; up to five names to search for; searches and writes nothing |
 | Resume | `POST /api/jobs/{job_id}/resume` | 202; a **new** job that applies the user's decisions to the same approved plan |
 
 Example draft request after uploading Capitals:
@@ -257,6 +258,23 @@ another name, a blank name, a name over 512 characters or the row's own value
 again; `review_not_available` (409); `network_disabled` (403);
 `search_busy` (409) while another search is running; `search_limit` (429) after
 100 searches for one job; `search_failed` (502).
+
+`POST /api/jobs/{job_id}/review/{operation_id}/suggestions` with
+`{"allow_network": true}` asks the configured language model under which other
+names the source may list the query (`spellings.py`) and answers
+`{"operation_id": …, "names": […]}` with at most five names. The model request
+carries the name as written, the kind of place, the recognized country, the
+reference source and a name already tried; nothing else from the workbook. The
+reply is untrusted: only a JSON object with a list is accepted, entries that are
+not one printable line of at most 100 characters, repeats and the row's own
+value are dropped, and any other shape is an error rather than an empty list.
+A proposal is only text to search for: it goes through the search route above
+like a typed name, and nothing is written unless the user then chooses a
+confirmed match. The answer is kept per operation, so asking again costs no
+request. It needs what planning needs (`network_disabled`, `llm_not_configured`,
+`missing_api_key`); further errors are `invalid_search` (422),
+`review_not_available` (409), `suggestions_busy` (409), `suggestion_limit` (429)
+after 40 model requests for one job and `suggestions_failed` (502).
 
 A resume decision may then carry the chosen candidate together with the name
 that found it: `{"operation_id": …, "source": …, "entity_id": …, "name": …}`.

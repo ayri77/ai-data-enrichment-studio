@@ -363,6 +363,12 @@ export const api = {
             `/api/jobs/${id}/review/${encodeURIComponent(operationId)}/search`,
             { name, allow_network },
         ),
+    /** Ask the model under which other names the source may know a query. */
+    suggestNames: (id: string, operationId: string, allow_network: boolean) =>
+        post<{ operation_id: string; names: string[] }>(
+            `/api/jobs/${id}/review/${encodeURIComponent(operationId)}/suggestions`,
+            { allow_network },
+        ),
     resumeJob: (
         id: string,
         decisions: ReviewDecision[],

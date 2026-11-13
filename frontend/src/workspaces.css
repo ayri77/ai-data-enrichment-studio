@@ -1521,3 +1521,16 @@
 .review-informational li > .other-name[open] {
     padding-bottom: 6px;
 }
+.other-name-ai {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: 10px;
+    max-width: 520px;
+}
+.other-name-proposed {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
