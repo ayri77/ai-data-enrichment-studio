@@ -1749,6 +1749,50 @@ it("Basic takes no more rows than one run accepts and says so", async () => {
     expect(api.preview).toHaveBeenCalledWith("source", "Sheet1", "A1:E21");
 });
 
+it("Basic reads a table that does not start in A1 from where the server found it", async () => {
+    localStorage.removeItem("enrichment.mode");
+    vi.mocked(api.upload).mockResolvedValue({
+        dataset_id: "source",
+        filename: "report.xlsx",
+        worksheets: [
+            {
+                name: "Regional_Data",
+                columns: preview.profile.columns.map((x) => x.name),
+                row_count: 40,
+                // A title and a note above, two empty columns to the left.
+                table: {
+                    first_row: 4,
+                    first_column: 3,
+                    last_row: 44,
+                    last_column: 7,
+                },
+            },
+        ],
+    });
+    vi.mocked(api.preview).mockResolvedValue({
+        ...preview,
+        sheet_name: "Regional_Data",
+        range_ref: "C4:G24",
+        profile: { ...preview.profile, row_count: 20 },
+    });
+    render(<App />);
+    await userEvent.upload(
+        screen.getByLabelText("Upload Excel workbook"),
+        new File(["x"], "report.xlsx"),
+    );
+    // The header row of the table, then no more rows than one run accepts.
+    await waitFor(() =>
+        expect(api.preview).toHaveBeenCalledWith(
+            "source",
+            "Regional_Data",
+            "C4:G24",
+        ),
+    );
+    expect(await screen.findByTestId("rows-taken")).toHaveTextContent(
+        i18n.t("rowsTaken", { taken: 20, total: 40, max: 20 }),
+    );
+});
+
 it("Basic shows the table boundaries when the table cannot be read, or on request", async () => {
     localStorage.removeItem("enrichment.mode");
     vi.mocked(api.preview).mockRejectedValueOnce(

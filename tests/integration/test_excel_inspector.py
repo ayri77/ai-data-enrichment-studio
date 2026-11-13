@@ -42,6 +42,37 @@ def test_inspector_handles_two_sheets_and_preserves_file(tmp_path: Path) -> None
     assert summary.worksheets[0].columns == ("Mountain", "Country", "height")
     assert summary.worksheets[0].row_count == 2
     assert summary.worksheets[1].row_count == 1
+    assert [sheet.table_range for sheet in summary.worksheets] == ["A1:C3", "A1:B2"]
+
+
+@pytest.mark.integration
+def test_inspector_describes_a_table_that_does_not_start_in_a1(tmp_path: Path) -> None:
+    path = tmp_path / "offset.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet["B1"] = "REGIONAL DISTANCES"
+    sheet["B2"] = "Occupied cells below are intentional."
+    for column, name in zip(
+        "CDEFG", ("Start", "Start_Country", "End", "End_Country", "km"), strict=True
+    ):
+        sheet[f"{column}4"] = name
+    for row, (start, end) in enumerate((("Hamburg", "Bremen"), ("Paris", "Lyon")), start=5):
+        sheet[f"C{row}"], sheet[f"D{row}"] = start, "Germany"
+        sheet[f"E{row}"], sheet[f"F{row}"] = end, "Germany"
+    sheet["G6"] = "=1+1"
+    empty = workbook.create_sheet("Notes")
+    empty["A1"] = "Nothing tabular here"
+    workbook.save(path)
+
+    data, notes = inspect_workbook(path).worksheets
+
+    assert data.table_range == "C4:G6"
+    assert data.columns == ("Start", "Start_Country", "End", "End_Country", "km")
+    assert data.row_count == 2
+    # A sheet without a table is described as before, with nothing suggested.
+    assert notes.table is None and notes.table_range is None
+    assert notes.columns == ("Nothing tabular here",) and notes.row_count == 0
 
 
 @pytest.mark.integration

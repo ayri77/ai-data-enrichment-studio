@@ -1064,3 +1064,54 @@ def test_a_stopped_run_says_how_far_it_got():
         # The results are discarded; how far the run got is still true.
         assert "result" not in final["artifacts"]
         assert 1 <= final["progress"]["rows_done"] < final["progress"]["rows_total"]
+
+
+def test_a_table_below_a_title_is_found_on_upload_and_runs_from_there(client):
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet.title = "Sheet1"
+    sheet["B1"] = "REGIONAL DISTANCES"
+    sheet["B2"] = "G6 and G7 are occupied on purpose."
+    rows = (
+        CAPITALS_HEADER,
+        (*KNOWN_PAIR, None),
+        ("London", "United Kingdom", "Paris", "France", 99999),
+        ("Rome", "Italy", "Paris", "France", "=1+1"),
+    )
+    for offset, values in enumerate(rows):
+        for column, value in zip("CDEFG", values, strict=True):
+            sheet[f"{column}{4 + offset}"] = value
+    buffer = BytesIO()
+    workbook.save(buffer)
+
+    uploaded = client.post(
+        "/api/datasets", params={"filename": "offset.xlsx"}, content=buffer.getvalue()
+    ).json()
+    found = uploaded["worksheets"][0]
+    assert found["table_range"] == "C4:G7"
+    assert found["table"] == {"first_row": 4, "first_column": 3, "last_row": 7, "last_column": 7}
+    assert found["columns"] == list(CAPITALS_HEADER) and found["row_count"] == 3
+
+    # The found range is an ordinary selection: preview, plan and run accept it as it is.
+    selection = {"sheet_name": "Sheet1", "range_ref": found["table_range"]}
+    preview = client.post(f"/api/datasets/{uploaded['dataset_id']}/preview", json=selection)
+    assert preview.status_code == 200, preview.text
+    body = {
+        **request_body(uploaded["dataset_id"]),
+        **selection,
+        "output_columns": {"distance": "G"},
+    }
+    plan = client.post("/api/plans", json=body).json()
+    assert plan["validation"]["valid"], plan["validation"]
+    job = wait(client, start(client, approve(client, plan)))
+    assert job["status"] in {"completed", "needs_review"}, job
+    result = load_workbook(BytesIO(client.get(job["artifacts"]["result"]).content))
+    try:
+        filled = result["Sheet1"]
+        assert isinstance(filled["G5"].value, int | float)
+        # Occupied output cells are kept as they were, wrong value and formula alike.
+        assert filled["G6"].value == 99999 and filled["G7"].value == "=1+1"
+        assert filled["B1"].value == "REGIONAL DISTANCES" and filled["A5"].value is None
+    finally:
+        result.close()
