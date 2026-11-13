@@ -68,6 +68,54 @@ def test_country_normalization_reaches_both_geocoding_paths_without_changing_amb
         assert result.value is None
 
 
+@pytest.mark.parametrize(
+    ("written", "code"),
+    [
+        # Common English names that are not the ISO names.
+        ("Russia", "RU"),
+        ("UK", "GB"),
+        ("USA", "US"),
+        ("South Korea", "KR"),
+        ("Czech Republic", "CZ"),
+        ("Ivory Coast", "CI"),
+        ("Holland", "NL"),
+        # Other languages and scripts.
+        ("Росія", "RU"),
+        ("Россия", "RU"),
+        ("Russland", "RU"),
+        ("Німеччина", "DE"),
+        ("Deutschland", "DE"),
+        ("Estados Unidos", "US"),
+        ("日本", "JP"),
+        # Case, spacing, width and the shape of the apostrophe do not matter.
+        ("  rUsSlAnD ", "RU"),
+        ("ＪＡＰＡＮ", "JP"),
+        ("Côte d'Ivoire", "CI"),
+        ("Côte d\u2019Ivoire", "CI"),
+    ],
+)
+def test_a_country_is_recognized_as_people_write_it(written: str, code: str) -> None:
+    assert normalize_country_code(written) == code
+
+
+@pytest.mark.parametrize(
+    "written",
+    [
+        "Atlantis",
+        "Narnia",
+        "Itly",  # a misspelling is not corrected
+        "Italy, France",  # a list is not one country
+        "Kongo",  # two countries in different languages: neither is chosen
+        "Kosovo",  # no ISO 3166-1 code
+        "США",  # short forms beyond the main CLDR name are not known
+        "Great Britain",
+    ],
+)
+def test_nothing_is_guessed_for_a_name_that_is_not_exactly_one_country(written: str) -> None:
+    with pytest.raises(LookupError):
+        normalize_country_code(written)
+
+
 @pytest.mark.parametrize("country", ["Unknown country", "Turke", "Turkey/China", "Nepal/China"])
 def test_unknown_or_multi_country_geocoding_input_remains_invalid(country: str) -> None:
     with pytest.raises(LookupError):

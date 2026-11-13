@@ -14,10 +14,12 @@ rows over 40 capitals ask the source about 40 places, 500 rows over 190 about
 `--repeat` cycles the list beyond it, and repeated names are answered from the
 run's own memory rather than by the source.
 
-Entries whose country name the application does not recognize ("Russia",
-"Ivory Coast", ...) are left out by default, so that every row can be looked up
-and runs stay comparable. Such a row is not an error of the run: it stays empty
-with the reason given. `--keep-unrecognized` puts them back to see that.
+Entries whose country the application does not recognize (now only "Kosovo",
+which has no ISO code) are left out by default, so that every row can be looked
+up. Runs made before country names were recognized in other spellings left out
+more entries ("Russia", "Ivory Coast", ...) and are not directly comparable.
+Such a row is not an error of the run: it stays empty with the reason given.
+`--keep-unrecognized` puts them back to see that.
 """
 
 from __future__ import annotations

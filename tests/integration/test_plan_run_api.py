@@ -936,8 +936,8 @@ KNOWN_PAIR = ("London", "United Kingdom", "Rome", "Italy")
 @pytest.mark.parametrize(
     ("row", "code"),
     [
-        (("London", "UK", "Rome", "Italy"), "UNRECOGNIZED_COUNTRY"),
-        (("London", "Україна", "Rome", "Italy"), "UNRECOGNIZED_COUNTRY"),
+        (("London", "Atlantis", "Rome", "Italy"), "UNRECOGNIZED_COUNTRY"),
+        (("London", "Unted Kingdom", "Rome", "Italy"), "UNRECOGNIZED_COUNTRY"),
         (("London", "Italy, France", "Rome", "Italy"), "UNRECOGNIZED_COUNTRY"),
         (("L" * 600, "Italy", "Rome", "Italy"), "NAME_TOO_LONG"),
         (("   ", "Italy", "Rome", "Italy"), "MISSING_VALUE"),
@@ -956,9 +956,22 @@ def test_one_unusable_cell_costs_its_row_not_the_run(client, row, code):
     assert [entry["status"] for entry in report["rows"]] == ["success", "partial"]
 
 
+def test_a_country_is_recognized_in_common_and_non_english_spellings(client):
+    # The same known pair, with the countries written as people write them.
+    job, _, codes = run_table(
+        client,
+        "capitals",
+        CAPITALS_HEADER,
+        ("London", "UK", "Rome", "Italien"),
+        ("London", "Велика Британія", "Rome", "Італія"),
+        ("London", "GBR", "Rome", " it "),
+    )
+    assert job["metrics"]["successful_rows"] == 3, codes
+
+
 def test_an_unrecognized_country_is_audited_without_asking_the_source(client):
     job, report, _ = run_table(
-        client, "capitals", CAPITALS_HEADER, KNOWN_PAIR, ("London", "UK", "Rome", "Italy")
+        client, "capitals", CAPITALS_HEADER, KNOWN_PAIR, ("London", "Atlantis", "Rome", "Italy")
     )
     operations = report["execution"]["resolution_report"]["operations"]
     rejected = [
@@ -970,7 +983,7 @@ def test_an_unrecognized_country_is_audited_without_asking_the_source(client):
     entry = rejected[0]["report"]
     assert entry["candidate_set"]["query"]["name"] == "London"
     context = entry["candidate_set"]["query"]["context"]
-    assert [(item["name"], item["value"]) for item in context] == [("country", "UK")]
+    assert [(item["name"], item["value"]) for item in context] == [("country", "Atlantis")]
     # Two requests for the good row; none for the rejected cell, and the
     # repeated "Rome" is answered from the run's memory.
     assert report["execution"]["provider_requests"]["open-meteo"]["transport_attempts"] == 2
@@ -991,7 +1004,7 @@ def test_an_unusable_mountain_cell_costs_its_row_not_the_run(client):
         "mountains",
         ("Mountain", "Country", "height"),
         ("Mount Everest", "Nepal/China"),
-        ("Mount Elbrus", "Russia"),
+        ("Mount Elbrus", "Narnia"),
         ("K2", "Pakistan/"),
         ("M" * 600, "Nepal"),
     )
