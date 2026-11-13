@@ -12,7 +12,13 @@ from ai_data_enrichment.resolution.models import (
     ResolutionPolicy,
     ResolutionRecordLink,
 )
-from ai_data_enrichment.review import ReviewDecision, approvals_from_decisions, review_payload
+from ai_data_enrichment.review import (
+    ReviewDecision,
+    approvals_from_decisions,
+    other_name_audit,
+    review_payload,
+    searched_steps,
+)
 
 STRICT = ResolutionPolicy(policy_id="capital_strict", version="1.0", strategy="strict")
 PLAN = EnrichmentPlan.model_validate(
@@ -123,3 +129,66 @@ def test_one_decision_expands_to_every_record_and_step_sharing_the_operation() -
         [ReviewDecision(operation_id="operation-1")], report, workbook_sha256="a" * 64
     )
     assert skipped is None
+
+
+def test_the_origin_of_another_name_comes_from_what_the_model_proposed_not_the_request() -> None:
+    report = job_report(location(1, "PPL"), location(2, "PPL"))
+    [operation] = report.operations
+    operation_id, name = operation.operation_id, operation.report.candidate_set.query.name
+    proposals = {operation_id: ("Munich", "Monaco di Baviera")}
+
+    def origin(decision: dict[str, Any], proposed=proposals) -> list[str]:
+        entries = other_name_audit([ReviewDecision(**decision)], report, proposed, "job")
+        return [entry["origin"] for entry in entries]
+
+    typed = {"operation_id": operation_id, "name": "Muenchen"}
+    assert origin(typed) == ["user"]
+    # Spacing and letter case do not make a proposed name the user's own.
+    [entry] = other_name_audit(
+        [ReviewDecision(operation_id=operation_id, name="  monaco  di baviera ")],
+        report,
+        proposals,
+        "job",
+    )
+    assert entry == {
+        "job_id": "job",
+        "operation_id": operation_id,
+        "name": name,
+        "searched_as": "monaco di baviera",
+        "origin": "model",
+    }
+    # A proposal for another item, or none at all, is not a proposal for this one.
+    assert origin({"operation_id": operation_id, "name": "Munich"}, {"other": ("Munich",)}) == [
+        "user"
+    ]
+    assert origin({"operation_id": operation_id, "name": "Munich"}, {}) == ["user"]
+    # A chosen candidate without a name, and an unknown operation, give no entry.
+    assert origin({"operation_id": operation_id, "source": "open-meteo", "entity_id": "1"}) == []
+    assert origin({"operation_id": "unknown", "name": "Munich"}) == []
+
+
+def test_rows_say_under_which_name_a_value_was_found_only_when_one_was_selected() -> None:
+    def operation(name: str, searched_as: str | None, selected: bool) -> dict[str, Any]:
+        return {
+            "report": {
+                "candidate_set": {"query": {"name": name, "searched_as": searched_as}},
+                "decision": {"selected": {"entity_id": "1"} if selected else None},
+            },
+            "record_links": [{"record_id": f"row-{name}", "step_id": "geocode"}],
+        }
+
+    resolution = {
+        "operations": [
+            operation("München", "Munich", True),
+            operation("Kiev", "Kyiv", False),
+            operation("Paris", None, True),
+            operation("Wien", "Vienna", True),
+        ]
+    }
+    entries = [{"name": "München", "searched_as": "Munich", "origin": "model"}]
+    assert searched_steps(resolution, entries) == {
+        "row-München": {"geocode": {"searched_as": "Munich", "origin": "model"}},
+        # Searched under another name by an earlier run whose record is gone.
+        "row-Wien": {"geocode": {"searched_as": "Vienna"}},
+    }
+    assert searched_steps(None, entries) == {}

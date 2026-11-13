@@ -201,6 +201,11 @@ export interface AuditReport extends Job {
         inputs?: Record<string, ReviewValue>;
         /** Steps whose entity the user chose during review. */
         user_chosen_steps?: string[];
+        /** Steps whose value was found under another name, and who gave it. */
+        other_names?: Record<
+            string,
+            { searched_as: string; origin?: "user" | "model" }
+        >;
         /** Steps accepted automatically while other matches stayed unconfirmed. */
         auto_accepted_steps?: string[];
         /** Output columns whose cell already held a value and still holds it. */

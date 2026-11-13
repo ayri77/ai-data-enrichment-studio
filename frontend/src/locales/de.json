@@ -594,5 +594,8 @@
     "activity.ideas": "Die KI wird nach einer Aufgabe gefragt",
     "activity.ideasDetail": "Gesendet werden Spaltennamen, Typen und fünf Beispielzeilen. Noch wird nichts geplant oder eingetragen.",
     "error.task_ideas_failed": "Die KI hat keine brauchbaren Aufgaben geliefert. Versuchen Sie es erneut oder beschreiben Sie die Aufgabe selbst.",
-    "error.task_idea_limit": "Für diese Arbeitsmappe wurde die KI zu oft nach Aufgaben gefragt. Beschreiben Sie die Aufgabe selbst."
+    "error.task_idea_limit": "Für diese Arbeitsmappe wurde die KI zu oft nach Aufgaben gefragt. Beschreiben Sie die Aufgabe selbst.",
+    "results.searchedAs.user": "„{{name}}“ wurde unter dem von Ihnen angegebenen Namen gefunden: „{{searched}}“",
+    "results.searchedAs.model": "„{{name}}“ wurde unter einem von der KI vorgeschlagenen Namen gefunden: „{{searched}}“",
+    "results.searchedAs.unknown": "„{{name}}“ wurde unter einem anderen Namen gefunden: „{{searched}}“"
 }

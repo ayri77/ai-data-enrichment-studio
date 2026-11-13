@@ -72,6 +72,11 @@ function Note({ row, w }: { row: ResultRow; w: Workflow }) {
         w.job?.status === "needs_review" &&
         w.review?.job_id === w.job.job_id &&
         w.review.items.length > 0;
+    // A value found under another name says so itself; the rest are choices
+    // between the matches of the row's own name.
+    const plain = row.chosen.filter(
+        (name) => !row.searched.some((found) => found.subject === name),
+    );
     return (
         <>
             {row.kept.length > 0 ? (
@@ -96,11 +101,23 @@ function Note({ row, w }: { row: ResultRow; w: Workflow }) {
                     {t("results.replaced", { old: String(old) })}
                 </span>
             ))}
-            {row.chosen.length > 0 && (
+            {plain.length > 0 && (
                 <span className="result-chosen">
-                    {t("results.chosen", { names: row.chosen.join(", ") })}
+                    {t("results.chosen", { names: plain.join(", ") })}
                 </span>
             )}
+            {row.searched.map((found) => (
+                <span
+                    key={`${found.subject}:${found.searchedAs}`}
+                    className="result-chosen"
+                    data-testid="result-searched"
+                >
+                    {t(`results.searchedAs.${found.origin ?? "unknown"}`, {
+                        name: found.subject ?? t("results.thisRow"),
+                        searched: found.searchedAs,
+                    })}
+                </span>
+            ))}
             {row.automatic.length > 0 && (
                 <span className="result-automatic">
                     {t("results.automatic", {

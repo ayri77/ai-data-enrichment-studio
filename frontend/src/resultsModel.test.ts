@@ -129,6 +129,27 @@ it("joins source values, outputs and the root cause of an empty cell", () => {
     ]);
 });
 
+it("names the other name a value was found under and who gave it", () => {
+    const searched = (other_names: object) =>
+        resultRows(
+            {
+                ...report,
+                rows: report.rows!.map((r) =>
+                    r.row === 2 ? { ...r, other_names } : r,
+                ),
+            } as AuditReport,
+            plan,
+        )[0].searched;
+    expect(
+        searched({ from_city: { searched_as: "Kiev", origin: "model" } }),
+    ).toEqual([{ subject: "Kyiv", searchedAs: "Kiev", origin: "model" }]);
+    // A report whose review record is gone still names the searched name.
+    expect(searched({ from_city: { searched_as: "Kiev" } })).toEqual([
+        { subject: "Kyiv", searchedAs: "Kiev", origin: null },
+    ]);
+    expect(rows[0].searched).toEqual([]);
+});
+
 it("reads older reports without source values or row numbers", () => {
     const old = {
         rows: [{ record_id: "excel-row-2", status: "partial" }],

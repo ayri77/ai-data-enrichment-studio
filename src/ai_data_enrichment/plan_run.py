@@ -67,9 +67,11 @@ from ai_data_enrichment.review import (
     approvals_from_decisions,
     auto_accepted_steps,
     names_from_decisions,
+    other_name_audit,
     review_payload,
     searched_from_decisions,
     searched_item,
+    searched_steps,
     user_chosen_steps,
 )
 from ai_data_enrichment.run_limits import (
@@ -250,6 +252,12 @@ class PlanRunService:
         # Names a model proposed for an operation, so that asking again costs
         # nothing, and how many times a job has asked.
         self.suggestions: dict[str, dict[str, tuple[str, ...]]] = {}
+        # Every request to the model for other names during a job's review,
+        # answered or not; a resume writes them into the new job's audit.
+        self.model_requests: dict[str, list[dict]] = {}
+        # What a resumed job's audit says about its review: the other names
+        # used, who gave each, and the model requests made on the way.
+        self.assistance: dict[str, dict[str, list[dict]]] = {}
         self.suggestion_counts: dict[str, int] = {}
         self.suggesting = False
         # Task ideas a model proposed for a table and a language, and how many
@@ -278,6 +286,8 @@ class PlanRunService:
         self.search_counts.pop(job_id, None)
         self.suggestions.pop(job_id, None)
         self.suggestion_counts.pop(job_id, None)
+        self.model_requests.pop(job_id, None)
+        self.assistance.pop(job_id, None)
         self.tasks.pop(job_id, None)
         self.cancel_events.pop(job_id, None)
         rmtree(self.directories.pop(job_id), ignore_errors=True)
@@ -678,6 +688,18 @@ class PlanRunService:
                 self.suggestion_counts[job_id] = self.suggestion_counts.get(job_id, 0) + 1
                 self.suggesting = True
             query = operation.report.candidate_set.query
+            # The request is audited whether or not it is answered.
+            asked = {
+                "job_id": job_id,
+                "operation_id": operation_id,
+                "name": query.name,
+                "model": "offline_fixture" if self.offline_plan_client else self.provider.model,
+                "asked_at": timestamp(),
+                "outcome": "failed",
+                "proposed": [],
+            }
+            if job_id in self.jobs:
+                self.model_requests.setdefault(job_id, []).append(asked)
             try:
                 names = await run_in_threadpool(self.suggest_once, query, capability)
             except SuggestionError:
@@ -686,6 +708,7 @@ class PlanRunService:
                 ) from None
             finally:
                 self.suggesting = False
+            asked.update(outcome="answered", proposed=list(names))
             if job_id in self.jobs:
                 self.suggestions.setdefault(job_id, {})[operation_id] = names
             return {"operation_id": operation_id, "names": list(names)}
@@ -744,11 +767,29 @@ class PlanRunService:
                 # the reviewed job itself ran with are part of the next one: a
                 # second round of review must not undo the first.
                 selections = {**self.selections.get(job_id, {}), **selections}
+                # The same holds for the audit of the names behind them: who
+                # gave each name, and what the model was asked on the way.
+                given = other_name_audit(
+                    body.decisions, report, self.suggestions.get(job_id, {}), job_id
+                )
+                earlier = self.assistance.get(job_id, {"other_names": [], "model_requests": []})
+                renamed = {entry["name"] for entry in given}
+                assistance = {
+                    "other_names": [
+                        *(e for e in earlier["other_names"] if e["name"] not in renamed),
+                        *given,
+                    ],
+                    "model_requests": [
+                        *earlier["model_requests"],
+                        *self.model_requests.get(job_id, []),
+                    ],
+                }
                 return self.start_job(
                     draft,
                     body,
                     resume_selections=selections,
                     previous_job_id=job_id,
+                    assistance=assistance if any(assistance.values()) else None,
                     decisions=[
                         # A name is recorded only where one was given.
                         d.model_dump(mode="json", exclude=set() if d.name else {"name"})
@@ -822,6 +863,7 @@ class PlanRunService:
         resume_selections: dict | None = None,
         previous_job_id: str | None = None,
         decisions: list[dict] | None = None,
+        assistance: dict[str, list[dict]] | None = None,
     ) -> dict:
         """Queue one run of an approved plan; a resume also carries user approvals."""
         if draft["status"] != "approved":
@@ -855,6 +897,8 @@ class PlanRunService:
             "previous_job_id": previous_job_id,
             "review_decisions": decisions,
         }
+        if assistance is not None:
+            self.assistance[job_id] = assistance
         task = RunTask(
             job_id=job_id,
             dataset_id=draft["dataset_id"],
@@ -934,6 +978,9 @@ class PlanRunService:
                 source_rows = execution.pop("source_rows", {})
                 resolution = execution["execution"].get("resolution_report")
                 chosen = user_chosen_steps(resolution)
+                searched = searched_steps(
+                    resolution, self.assistance.get(task.job_id, {}).get("other_names", [])
+                )
                 automatic = auto_accepted_steps(resolution)
                 execution["rows"] = [
                     {
@@ -944,6 +991,9 @@ class PlanRunService:
                         "inputs": source_rows.get(record.record_id, {}).get("inputs", {}),
                         # Steps whose entity was chosen by the user during review.
                         "user_chosen_steps": sorted(chosen.get(record.record_id, ())),
+                        # Steps whose value was found under another name: the name
+                        # the source was asked for and who gave it (user or model).
+                        "other_names": searched.get(record.record_id, {}),
                         # Steps accepted automatically while other matches stayed unconfirmed.
                         "auto_accepted_steps": sorted(automatic.get(record.record_id, ())),
                         # Output columns whose cell already held a value: kept as
@@ -996,6 +1046,9 @@ class PlanRunService:
                 **job,
                 "approved_plan": draft,
                 "source_sha256": task.source_sha256,
+                # A resumed job: the other names it searched under, who gave
+                # each, and every model request made during the review.
+                "review_assistance": self.assistance.get(task.job_id),
                 "limits": {
                     "max_rows": MAX_RUN_ROWS,
                     "max_steps": MAX_PLAN_STEPS,

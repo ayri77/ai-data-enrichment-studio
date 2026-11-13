@@ -642,8 +642,14 @@ test("capitals: a name the source does not know is found under another name", as
     const chosen = page.locator(
         '[data-testid="row-outcome"][data-chosen="true"]',
     );
-    await expect(chosen.nth(1)).toContainText("After your choice");
-    await expect(chosen.nth(1)).toContainText("Warsaw");
+    await expect(chosen.nth(1)).toContainText("After your choice: Kyiv");
+    // The row says under which name its value was found, and who gave it.
+    await expect(chosen.nth(1).getByTestId("result-searched")).toHaveText(
+        "“Warsaw” was found under a name the AI proposed: “Warszawa”",
+    );
+    await page.screenshot({
+        path: testInfo.outputPath("results-searched-as.png"),
+    });
     const reportDownload = page.waitForEvent("download");
     await page.getByRole("button", { name: "Download JSON audit" }).click();
     const reportPath = testInfo.outputPath("other-name-report.json");
@@ -659,6 +665,17 @@ test("capitals: a name the source does not know is found under another name", as
         ]);
     // The audit keeps the row's value, the name searched and whose choice it was.
     expect(queries).toEqual([["Warszawa", "user_override", "756135"]]);
+    // It also says who gave the name, and what the model was asked for it.
+    expect(audit.review_assistance.other_names).toMatchObject([
+        { name: "Warsaw", searched_as: "Warszawa", origin: "model" },
+    ]);
+    expect(audit.review_assistance.model_requests).toMatchObject([
+        {
+            name: "Warsaw",
+            outcome: "answered",
+            proposed: ["Warszawa", "Varsovie"],
+        },
+    ]);
 });
 
 test("capitals: a chosen candidate resumes as a new audited job and fills the row", async ({

@@ -6,7 +6,7 @@ which is validated and freshly re-verified when the resume job runs.
 """
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -26,6 +26,7 @@ from ai_data_enrichment.resolution.models import (
     ResolutionPolicy,
     ResolutionReport,
 )
+from ai_data_enrichment.resolution.other_name import same_name
 from ai_data_enrichment.resolution.resume import accepts_other_name
 
 # Advisory only: ranks candidates for a suggestion and never selects one.
@@ -238,6 +239,64 @@ def searched_from_decisions(decisions: list[ReviewDecision]) -> dict[str, tuple[
         and decision.source is not None
         and decision.entity_id is not None
     }
+
+
+def other_name_audit(
+    decisions: list[ReviewDecision],
+    report: ResolutionJobReport,
+    proposals: Mapping[str, tuple[str, ...]],
+    job_id: str,
+) -> list[dict[str, Any]]:
+    """Say for each other name of a resume who gave it: the model or the user.
+
+    The origin is decided from the server's own record of what the model
+    proposed for that operation, never from the request: ``model`` means the
+    model had proposed exactly this name for this item before it was used.
+    """
+    operations = {operation.operation_id: operation for operation in report.operations}
+    entries = []
+    for decision in decisions:
+        operation = operations.get(decision.operation_id)
+        if decision.name is None or operation is None:
+            continue
+        searched_as = " ".join(decision.name.split())
+        proposed = proposals.get(decision.operation_id, ())
+        entries.append(
+            {
+                "job_id": job_id,
+                "operation_id": decision.operation_id,
+                "name": operation.report.candidate_set.query.name,
+                "searched_as": searched_as,
+                "origin": (
+                    "model" if any(same_name(searched_as, name) for name in proposed) else "user"
+                ),
+            }
+        )
+    return entries
+
+
+def searched_steps(
+    resolution_report: dict[str, Any] | None, other_names: list[dict[str, Any]]
+) -> dict[str, dict[str, dict[str, str]]]:
+    """Map each record to the steps whose value was found under another name.
+
+    Each step carries the name the source was asked for and, where the review
+    recorded it, who gave that name.
+    """
+    origins = {(entry["name"], entry["searched_as"]): entry["origin"] for entry in other_names}
+    steps: dict[str, dict[str, dict[str, str]]] = {}
+    for operation in (resolution_report or {}).get("operations", ()):
+        query = operation["report"]["candidate_set"]["query"]
+        searched_as = query.get("searched_as")
+        if searched_as is None or operation["report"]["decision"].get("selected") is None:
+            continue
+        found = {"searched_as": searched_as}
+        origin = origins.get((query["name"], searched_as))
+        if origin is not None:
+            found["origin"] = origin
+        for link in operation.get("record_links", ()):
+            steps.setdefault(link["record_id"], {})[link["step_id"]] = found
+    return steps
 
 
 def searched_item(

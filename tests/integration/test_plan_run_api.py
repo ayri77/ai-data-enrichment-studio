@@ -1551,6 +1551,97 @@ def test_the_model_proposes_names_and_each_is_searched_like_a_typed_one(asking):
     assert ask(client, job, unknown["Kiev"]["operation_id"]).json()["names"] == []
 
 
+def test_the_audit_says_who_gave_each_other_name_and_what_the_model_was_asked(asking, monkeypatch):
+    client, first, model = asking
+    unknown = listed(client, first, "informational")
+    varsovie, kiev = unknown["Varsovie"]["operation_id"], unknown["Kiev"]["operation_id"]
+    # A job that was not resumed has nothing to say about a review.
+    assert client.get(first["artifacts"]["report"]).json()["review_assistance"] is None
+    assert ask(client, first, varsovie).json()["names"] == ["Warsaw", "Warschau"]
+    answer = model.complete
+    monkeypatch.setattr(model, "complete", lambda **_: "no list here")
+    assert ask(client, first, kiev).status_code == 502
+    monkeypatch.setattr(model, "complete", answer)
+
+    decisions = [
+        # A name the model proposed, and one it did not.
+        {"operation_id": varsovie, "name": " Warsaw "},
+        {"operation_id": kiev, "name": "Kyiv"},
+    ]
+    response = client.post(f"/api/jobs/{first['job_id']}/resume", json={"decisions": decisions})
+    second = wait(client, response.json())
+    report = client.get(second["artifacts"]["report"]).json()
+    assistance = report["review_assistance"]
+    assert assistance["other_names"] == [
+        {
+            "job_id": first["job_id"],
+            "operation_id": varsovie,
+            "name": "Varsovie",
+            "searched_as": "Warsaw",
+            "origin": "model",
+        },
+        {
+            "job_id": first["job_id"],
+            "operation_id": kiev,
+            "name": "Kiev",
+            "searched_as": "Kyiv",
+            "origin": "user",
+        },
+    ]
+    # Every request to the model is there, answered or not, with what it proposed.
+    requests = assistance["model_requests"]
+    assert [
+        {key: request[key] for key in ("job_id", "operation_id", "name", "outcome", "proposed")}
+        for request in requests
+    ] == [
+        {
+            "job_id": first["job_id"],
+            "operation_id": varsovie,
+            "name": "Varsovie",
+            "outcome": "answered",
+            "proposed": ["Warsaw", "Warschau"],
+        },
+        {
+            "job_id": first["job_id"],
+            "operation_id": kiev,
+            "name": "Kiev",
+            "outcome": "failed",
+            "proposed": [],
+        },
+    ]
+    assert {request["model"] for request in requests} == {"offline_fixture"}
+    assert all(request["asked_at"] for request in requests)
+    # The filled row says under which name its value was found and who gave it;
+    # Kyiv has two matches, so its row is still empty and says nothing yet.
+    rows = {row["inputs"]["Capital_From"]: row["other_names"] for row in report["rows"]}
+    assert list(rows["Varsovie"].values()) == [{"searched_as": "Warsaw", "origin": "model"}]
+    assert rows["Kiev"] == {}
+
+    # A second round keeps the record of the first: the result still rests on it.
+    kyiv = listed(client, second, "items")["Kiev"]
+    pick = next(c for c in kyiv["candidates"] if c["selectable"])
+    response = client.post(
+        f"/api/jobs/{second['job_id']}/resume",
+        json={
+            "decisions": [
+                {
+                    "operation_id": kyiv["operation_id"],
+                    "source": pick["source"],
+                    "entity_id": pick["entity_id"],
+                }
+            ]
+        },
+    )
+    assert response.status_code == 202, response.text
+    third = wait(client, response.json())
+    assert third["status"] == "completed"
+    final = client.get(third["artifacts"]["report"]).json()
+    assert final["review_assistance"] == assistance
+    rows = {row["inputs"]["Capital_From"]: row["other_names"] for row in final["rows"]}
+    assert list(rows["Varsovie"].values()) == [{"searched_as": "Warsaw", "origin": "model"}]
+    assert list(rows["Kiev"].values()) == [{"searched_as": "Kyiv", "origin": "user"}]
+
+
 def test_asking_the_model_is_refused_or_reported_without_guessing(asking, monkeypatch):
     client, job, model = asking
     varsovie = listed(client, job, "informational")["Varsovie"]["operation_id"]
