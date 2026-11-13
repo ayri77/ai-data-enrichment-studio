@@ -16,7 +16,7 @@ import { isTerminal, type Preview } from "../api";
 import { Advanced, useAdvanced, useHosted } from "../mode";
 import type { Workflow, Workspace } from "../useWorkflow";
 import { columnLetter, columnNumber, parseRange } from "../range";
-import { remainingSeconds, runOutcome } from "../runModel";
+import { remainingSeconds, runOutcome, stepOutcomes } from "../runModel";
 import { occupiedRows } from "../tableModel";
 import { normalizeColumn, type OutputTarget } from "../workflowModel";
 import { clock, useElapsed } from "./ActivityBar";
@@ -1136,6 +1136,8 @@ export function ExecutionWorkspace({
         !advanced && w.job
             ? runOutcome(w.job, w.report, w.plan?.plan ?? null, w.review)
             : null;
+    // How many rows passed each step, once the audit of this run has arrived.
+    const steps = stepOutcomes(w.job, w.report, w.plan?.plan ?? null);
     return (
         <div className="stage-layout">
             <section className="workspace-panel execution-stage">
@@ -1207,9 +1209,31 @@ export function ExecutionWorkspace({
                         )
                     )}
                 </div>
-                <Advanced>
-                    {w.plan?.plan && <PlanGraph draft={w.plan} />}
-                </Advanced>
+                {advanced
+                    ? w.plan?.plan && (
+                          <PlanGraph
+                              draft={w.plan}
+                              outcomes={steps.size ? steps : undefined}
+                          />
+                      )
+                    : w.plan?.plan &&
+                      steps.size > 0 && (
+                          <div
+                              className="step-outcomes panel-scroll"
+                              data-testid="step-outcomes"
+                          >
+                              <h3>{t("exec.step.title")}</h3>
+                              {[...steps.values()].some(
+                                  (step) => step.skipped > 0,
+                              ) && (
+                                  <p className="muted">{t("exec.step.hint")}</p>
+                              )}
+                              <PlanDescription
+                                  draft={w.plan}
+                                  outcomes={steps}
+                              />
+                          </div>
+                      )}
             </section>
             <aside className="workspace-panel stage-sidebar">
                 <div className="panel-scroll summary-content">

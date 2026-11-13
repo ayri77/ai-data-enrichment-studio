@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import type { AuditReport, EnrichmentPlan, Job, Review } from "./api";
-import { remainingSeconds, runOutcome } from "./runModel";
+import { remainingSeconds, runOutcome, stepOutcomes } from "./runModel";
 
 const job: Job = {
     job_id: "job",
@@ -154,4 +154,126 @@ it("says how a run without a result ended and how far it got", () => {
     expect(
         runOutcome({ ...stopped, status: "running" }, null, plan, null),
     ).toBeNull();
+});
+
+it("counts for each step the rows that passed it, failed in it or never reached it", () => {
+    const branching: EnrichmentPlan = {
+        version: "1.0",
+        steps: ["from", "to", "straight", "road", "detour"].map((id) => ({
+            id,
+            capability: "x",
+            inputs: {},
+            parameters: {},
+        })),
+        outputs: [],
+        assumptions: [],
+    };
+    const ok = (source: string) => ({
+        status: "success",
+        value: 1,
+        error_code: null,
+        message: null,
+        evidence: [{ source, reference: "x" }],
+    });
+    const no = (error_code: string | null) => ({
+        status: "failure",
+        value: null,
+        error_code,
+        message: "",
+        evidence: [],
+    });
+    const skipped = no("DEPENDENCY_FAILED");
+    // Row 0: everything. Row 1: no route. Row 2: a city needs a choice.
+    // Row 3: the routing service did not answer.
+    const results = [
+        [
+            ok("open-meteo"),
+            ok("open-meteo"),
+            ok("calculation"),
+            ok("openrouteservice"),
+            ok("calculation"),
+        ],
+        [
+            ok("open-meteo"),
+            ok("open-meteo"),
+            ok("calculation"),
+            no("NO_ROUTE"),
+            skipped,
+        ],
+        [ok("open-meteo"), no("AMBIGUOUS"), skipped, skipped, skipped],
+        [
+            ok("open-meteo"),
+            ok("open-meteo"),
+            ok("calculation"),
+            no(null),
+            skipped,
+        ],
+    ];
+    const audit = {
+        ...job,
+        rows: results.map((_, i) => ({
+            record_id: `r${i}`,
+            status: "x",
+            user_chosen_steps: i === 0 ? ["from"] : [],
+        })),
+        execution: {
+            provider_requests: {},
+            records: results.map((steps, i) => ({
+                record_id: `r${i}`,
+                row_result: {
+                    steps: steps.map((result, at) => ({
+                        step_id: branching.steps[at].id,
+                        result,
+                    })),
+                },
+            })),
+        },
+    } as unknown as AuditReport;
+    const outcomes = stepOutcomes(job, audit, branching);
+    expect([...outcomes.keys()]).toEqual(branching.steps.map((s) => s.id));
+    expect(outcomes.get("from")).toEqual({
+        total: 4,
+        filled: 4,
+        failed: 0,
+        skipped: 0,
+        chosen: 1,
+        codes: [],
+        sources: ["open-meteo"],
+    });
+    expect(outcomes.get("to")).toMatchObject({
+        filled: 3,
+        failed: 1,
+        skipped: 0,
+        codes: [{ code: "AMBIGUOUS", count: 1 }],
+    });
+    // The straight-line distance is not reached only where a city is missing.
+    expect(outcomes.get("straight")).toMatchObject({ filled: 3, skipped: 1 });
+    expect(outcomes.get("road")).toMatchObject({
+        filled: 1,
+        failed: 2,
+        skipped: 1,
+        // A failure without a code is still counted, under a name of its own.
+        codes: [
+            { code: "NO_ROUTE", count: 1 },
+            { code: "UNKNOWN", count: 1 },
+        ],
+        sources: ["openrouteservice"],
+    });
+    // Every row is accounted for in every step.
+    for (const outcome of outcomes.values())
+        expect(outcome.filled + outcome.failed + outcome.skipped).toBe(4);
+    expect(outcomes.get("detour")).toMatchObject({ filled: 1, skipped: 3 });
+});
+
+it("has no step outcomes without the audit of this very run", () => {
+    expect(stepOutcomes(job, null, plan).size).toBe(0);
+    expect(stepOutcomes(null, report(true), plan).size).toBe(0);
+    expect(stepOutcomes(job, report(true), null).size).toBe(0);
+    // The audit of an earlier job says nothing about the current one.
+    expect(
+        stepOutcomes({ ...job, job_id: "later" }, report(true), plan).size,
+    ).toBe(0);
+    expect(stepOutcomes(job, report(true, false), plan).get("d")).toMatchObject(
+        { total: 2, filled: 1, failed: 1 },
+    );
 });

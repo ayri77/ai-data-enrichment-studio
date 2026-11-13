@@ -996,6 +996,41 @@ test("example: a plan that branches fills three columns, in words and as a graph
         /Rows filled: \d+ of 10\./,
         { timeout: 30_000 },
     );
+    // What each step did, from the audit of this run: the injected answers
+    // know three of the first cities and two of the second, and one pair.
+    const did = page.getByTestId("step-outcomes").locator(".plan-steps li");
+    await expect(did).toHaveText([
+        /Capital_From.*Rows with a value: 3 of 10 · without a value: 7/,
+        /Capital_To.*Rows with a value: 2 of 10 · without a value: 8/,
+        /straight-line distance.*Rows with a value: 1 of 10 · not reached: 9/,
+        /driving distance by road.*Rows with a value: 1 of 10 · not reached: 9/,
+        /how many times.*Rows with a value: 1 of 10 · not reached: 9/,
+    ]);
+    await languagesFit(page, testInfo, "roads-execution");
+    await page.screenshot({ path: testInfo.outputPath("roads-steps.png") });
+    // The same counts on the graph, with the reasons for the selected step.
+    await page.getByLabel("Mode").selectOption("advanced");
+    const graph = page.getByRole("region", { name: "Planned workflow" });
+    await expect(graph.locator('[data-step="from_city"]')).toContainText(
+        "Rows: 3 of 10",
+    );
+    await expect(graph.locator('[data-step="detour"]')).toContainText(
+        "Rows: 1 of 10",
+    );
+    await graph.locator('[data-step="road"]').click();
+    await expect(page.getByTestId("node-run")).toContainText(
+        "Rows with a value: 1 of 10 · not reached: 9",
+    );
+    await expect(page.getByTestId("node-run")).toContainText(
+        "Values from: openrouteservice",
+    );
+    await graph.locator('[data-step="to_city"]').click();
+    await expect(page.getByTestId("node-run")).toContainText("NOT_FOUND × 7");
+    await expect(page.getByTestId("node-run")).toContainText("AMBIGUOUS × 1");
+    await page.screenshot({
+        path: testInfo.outputPath("roads-graph-run.png"),
+    });
+    await page.getByLabel("Mode").selectOption("basic");
     await page.getByRole("button", { name: "Results", exact: true }).click();
     // The injected answers know London and Rome: all three cells are filled.
     const london = page.locator("tbody tr", { hasText: "London" }).first();

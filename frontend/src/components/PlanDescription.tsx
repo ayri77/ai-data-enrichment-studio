@@ -2,10 +2,70 @@ import { CircleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { PlanDraft } from "../api";
 import { describePlan, type PlanRef } from "../planModel";
+import type { StepOutcome } from "../runModel";
 import { CanDo } from "./CanDo";
 
+/** How many rows passed one step, as a bar and in words. */
+export function StepRows({ outcome }: { outcome: StepOutcome }) {
+    const { t } = useTranslation();
+    const share = (rows: number) =>
+        `${outcome.total ? (rows / outcome.total) * 100 : 0}%`;
+    return (
+        <span
+            className="step-rows"
+            data-outcome={
+                outcome.filled >= outcome.total
+                    ? "all"
+                    : outcome.filled
+                      ? "some"
+                      : "none"
+            }
+        >
+            <span className="step-meter" aria-hidden="true">
+                <i
+                    className="filled"
+                    style={{ width: share(outcome.filled) }}
+                />
+                <i
+                    className="failed"
+                    style={{ width: share(outcome.failed) }}
+                />
+                <i
+                    className="skipped"
+                    style={{ width: share(outcome.skipped) }}
+                />
+            </span>
+            <span>
+                {[
+                    t("exec.step.filled", {
+                        filled: outcome.filled,
+                        total: outcome.total,
+                    }),
+                    ...(outcome.chosen
+                        ? [t("exec.step.chosen", { n: outcome.chosen })]
+                        : []),
+                    ...(outcome.failed
+                        ? [t("exec.step.failed", { n: outcome.failed })]
+                        : []),
+                    ...(outcome.skipped
+                        ? [t("exec.step.skipped", { n: outcome.skipped })]
+                        : []),
+                ].join(" · ")}
+            </span>
+        </span>
+    );
+}
+
 // The plan in words: what is done for each row and where the result goes.
-export function PlanDescription({ draft }: { draft: PlanDraft }) {
+// With the outcomes of a finished run, each step also says how many rows
+// passed it.
+export function PlanDescription({
+    draft,
+    outcomes,
+}: {
+    draft: PlanDraft;
+    outcomes?: Map<string, StepOutcome>;
+}) {
     const { t } = useTranslation();
     const lines = describePlan(draft);
     const reference = (ref: PlanRef) =>
@@ -52,6 +112,9 @@ export function PlanDescription({ draft }: { draft: PlanDraft }) {
                                 )}
                             </span>
                         ))}
+                        {outcomes?.get(line.id) && (
+                            <StepRows outcome={outcomes.get(line.id)!} />
+                        )}
                     </li>
                 ))}
             </ol>

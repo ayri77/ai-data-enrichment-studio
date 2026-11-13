@@ -1,9 +1,26 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { PlanDraft } from "../api";
+import type { StepOutcome } from "../runModel";
 import { dependencies, stepDepths } from "../workflowModel";
+import { StepRows } from "./PlanDescription";
 
-export function PlanGraph({ draft }: { draft: PlanDraft }) {
+// One column of nodes: a node and the room for the arrows that leave it.
+const COLUMN = 264;
+const ROW = 160;
+
+/**
+ * The plan as a graph. With the outcomes of a finished run each node also
+ * shows how many rows passed that step, and the inspector says why the others
+ * did not.
+ */
+export function PlanGraph({
+    draft,
+    outcomes,
+}: {
+    draft: PlanDraft;
+    outcomes?: Map<string, StepOutcome>;
+}) {
     const { t } = useTranslation();
     const [selected, setSelected] = useState("");
     const plan = draft.plan;
@@ -18,16 +35,16 @@ export function PlanGraph({ draft }: { draft: PlanDraft }) {
             const peers = plan.steps.filter((n) => depths.get(n.id) === level);
             return [
                 s.id,
-                { x: level * 280 + 24, y: peers.indexOf(s) * 150 + 30 },
+                { x: level * COLUMN + 24, y: peers.indexOf(s) * ROW + 30 },
             ];
         }),
     );
-    const width = Math.max(520, (Math.max(0, ...levels) + 1) * 280 + 20);
+    const width = Math.max(520, (Math.max(0, ...levels) + 1) * COLUMN + 16);
     const height = Math.max(
         270,
         ...levels.map(
             (l) =>
-                plan.steps.filter((n) => depths.get(n.id) === l).length * 150 +
+                plan.steps.filter((n) => depths.get(n.id) === l).length * ROW +
                 30,
         ),
     );
@@ -66,7 +83,7 @@ export function PlanGraph({ draft }: { draft: PlanDraft }) {
                                 return (
                                     <path
                                         key={`${s.id}:${i}`}
-                                        d={`M${from.x + 224},${from.y + 48} C${from.x + 250},${from.y + 48} ${to.x - 26},${to.y + 48} ${to.x},${to.y + 48}`}
+                                        d={`M${from.x + 224},${from.y + 48} C${from.x + 248},${from.y + 48} ${to.x - 24},${to.y + 48} ${to.x},${to.y + 48}`}
                                         markerEnd="url(#arrow)"
                                     />
                                 );
@@ -83,6 +100,7 @@ export function PlanGraph({ draft }: { draft: PlanDraft }) {
                                 top: positions.get(s.id)!.y,
                             }}
                             aria-pressed={step?.id === s.id}
+                            data-step={s.id}
                             onClick={() => setSelected(s.id)}
                         >
                             <small>{s.capability}</small>
@@ -94,6 +112,24 @@ export function PlanGraph({ draft }: { draft: PlanDraft }) {
                                           .join(" · ")
                                     : t("ws.sourceInputs")}
                             </span>
+                            {outcomes?.get(s.id) && (
+                                <span
+                                    className="node-rows"
+                                    data-outcome={
+                                        outcomes.get(s.id)!.filled >=
+                                        outcomes.get(s.id)!.total
+                                            ? "all"
+                                            : outcomes.get(s.id)!.filled
+                                              ? "some"
+                                              : "none"
+                                    }
+                                >
+                                    {t("exec.step.short", {
+                                        filled: outcomes.get(s.id)!.filled,
+                                        total: outcomes.get(s.id)!.total,
+                                    })}
+                                </span>
+                            )}
                         </button>
                     ))}
                 </div>
@@ -108,6 +144,10 @@ export function PlanGraph({ draft }: { draft: PlanDraft }) {
                     <>
                         <h2>{step.id}</h2>
                         <code>{step.capability}</code>
+                        {/* First, on a finished run: what this step did. */}
+                        {outcomes?.get(step.id) && (
+                            <StepRun outcome={outcomes.get(step.id)!} />
+                        )}
                         <h3>{t("workflow.inputs")}</h3>
                         <dl className="node-bindings">
                             {Object.entries(step.inputs).map(([port, raw]) => (
@@ -135,6 +175,32 @@ export function PlanGraph({ draft }: { draft: PlanDraft }) {
                     </>
                 )}
             </aside>
+        </div>
+    );
+}
+/** What the selected step did in the run: counts, reasons and sources. */
+function StepRun({ outcome }: { outcome: StepOutcome }) {
+    const { t } = useTranslation();
+    return (
+        <div className="node-run" data-testid="node-run">
+            <h3>{t("exec.step.inRun")}</h3>
+            <StepRows outcome={outcome} />
+            {outcome.codes.length > 0 && (
+                <ul>
+                    {outcome.codes.map((entry) => (
+                        <li key={entry.code}>
+                            <code>{entry.code}</code> × {entry.count}
+                        </li>
+                    ))}
+                </ul>
+            )}
+            {outcome.sources.length > 0 && (
+                <p>
+                    {t("exec.step.sources", {
+                        sources: outcome.sources.join(", "),
+                    })}
+                </p>
+            )}
         </div>
     );
 }

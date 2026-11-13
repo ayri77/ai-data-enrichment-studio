@@ -1694,3 +1694,59 @@ button.candidate-link {
     margin: 0;
     font-size: 13px;
 }
+
+/* How many rows passed a step of the plan, after a run. */
+.step-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--studio-muted);
+}
+.step-meter {
+    display: flex;
+    height: 6px;
+    max-width: 320px;
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--studio-control-border);
+}
+.step-meter i {
+    display: block;
+    height: 100%;
+}
+.step-meter .filled {
+    background: var(--studio-source);
+}
+.step-meter .failed {
+    background: var(--studio-danger);
+}
+.step-meter .skipped {
+    background: var(--studio-muted);
+    opacity: 0.45;
+}
+.graph-node .node-rows {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--studio-source);
+}
+.graph-node .node-rows[data-outcome="some"] {
+    color: var(--studio-warning);
+}
+.graph-node .node-rows[data-outcome="none"] {
+    color: var(--studio-danger);
+}
+.node-run {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.node-run ul {
+    margin: 0;
+    padding-left: 16px;
+}
+.step-outcomes {
+    padding: 0 20px 20px;
+    min-height: 0;
+}
