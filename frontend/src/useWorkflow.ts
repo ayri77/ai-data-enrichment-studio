@@ -428,6 +428,14 @@ export function useWorkflow(
     function choose(operationId: string, choice: Choice) {
         if (!locked) setChoices((old) => ({ ...old, [operationId]: choice }));
     }
+    function unchoose(operationId: string) {
+        if (!locked)
+            setChoices((old) =>
+                Object.fromEntries(
+                    Object.entries(old).filter(([id]) => id !== operationId),
+                ),
+            );
+    }
     function acceptRecommendations() {
         if (review && !locked)
             setChoices((old) => withRecommendations(review, old));
@@ -503,6 +511,7 @@ export function useWorkflow(
         review,
         choices,
         choose,
+        unchoose,
         acceptRecommendations,
         canResume,
         resume,

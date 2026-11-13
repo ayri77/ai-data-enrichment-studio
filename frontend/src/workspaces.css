@@ -1469,3 +1469,40 @@
     font-size: 13px;
     overflow-wrap: anywhere;
 }
+
+/* Review: search a name under another spelling. */
+.workspace-body .other-name {
+    border-top: 0;
+    padding-top: 0;
+    font-size: 13px;
+}
+.workspace-body .other-name > summary {
+    color: var(--studio-accent);
+    width: fit-content;
+}
+.other-name form {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+    max-width: 520px;
+}
+.other-name-row {
+    display: flex;
+    gap: 8px;
+}
+.other-name-row input {
+    flex: 1;
+    min-width: 0;
+}
+.other-name p {
+    margin: 0;
+}
+.review-informational li > .other-name,
+.review-informational li > .review-chosen {
+    flex-basis: 100%;
+}
+.review-informational li + li {
+    padding-top: 8px;
+    border-top: 1px solid var(--studio-border);
+}

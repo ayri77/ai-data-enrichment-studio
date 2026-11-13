@@ -6,8 +6,12 @@ import type {
     ReviewValue,
 } from "./api";
 
-/** A chosen candidate, or an explicit "leave this query empty". */
-export type Choice = { source: string; entity_id: string } | "empty";
+/**
+ * A chosen candidate, another name to search the source for, or an explicit
+ * "leave this query empty".
+ */
+export type Choice =
+    { source: string; entity_id: string } | { name: string } | "empty";
 export type Choices = Record<string, Choice>;
 
 export const candidateKey = (c: { source: string; entity_id: string }) =>
@@ -15,7 +19,26 @@ export const candidateKey = (c: { source: string; entity_id: string }) =>
 export const isCandidate = (
     choice: Choice | undefined,
 ): choice is { source: string; entity_id: string } =>
-    !!choice && choice !== "empty";
+    !!choice && choice !== "empty" && "entity_id" in choice;
+export const isName = (
+    choice: Choice | undefined,
+): choice is { name: string } =>
+    !!choice && choice !== "empty" && "name" in choice;
+
+const spelled = (text: string) => text.trim().replace(/\s+/g, " ");
+/** The longest name the field accepts; the server allows more. */
+export const MAX_OTHER_NAME = 200;
+/**
+ * The name as it will be sent, or null when it cannot help: blank, too long,
+ * or the row's own value again.
+ */
+export function otherName(item: ReviewItem, text: string) {
+    const name = spelled(text);
+    const same =
+        name.toLocaleLowerCase() ===
+        spelled(item.query.name).toLocaleLowerCase();
+    return name && name.length <= MAX_OTHER_NAME && !same ? name : null;
+}
 
 /** Drop choices that the current review no longer offers. */
 export function validChoices(review: Review | null, choices: Choices): Choices {
@@ -24,7 +47,8 @@ export function validChoices(review: Review | null, choices: Choices): Choices {
         const choice = choices[item.operation_id];
         if (
             choice === "empty" ||
-            (choice &&
+            (isName(choice) && item.other_name) ||
+            (isCandidate(choice) &&
                 item.candidates.some(
                     (c) =>
                         c.selectable &&
@@ -32,6 +56,11 @@ export function validChoices(review: Review | null, choices: Choices): Choices {
                 ))
         )
             next[item.operation_id] = choice;
+    }
+    // A name with no match offers nothing to choose, only another name.
+    for (const item of review?.informational ?? []) {
+        const choice = choices[item.operation_id];
+        if (isName(choice) && item.other_name) next[item.operation_id] = choice;
     }
     return next;
 }
@@ -43,6 +72,7 @@ export function withRecommendations(review: Review, choices: Choices): Choices {
     const next = { ...choices };
     for (const item of review.items) {
         const suggested = recommendation(item);
+        // A name already given for this row is a choice too.
         if (suggested && !next[item.operation_id])
             next[item.operation_id] = {
                 source: suggested.source,
@@ -61,17 +91,27 @@ export function pendingRecommendations(
 }
 /** Undecided queries are omitted: the backend leaves them as they were. */
 export function decisions(review: Review, choices: Choices): ReviewDecision[] {
-    return review.items.flatMap((item) => {
+    const chosen = review.items.flatMap((item) => {
         const choice = choices[item.operation_id];
         if (!choice) return [];
         return choice === "empty"
             ? [{ operation_id: item.operation_id }]
             : [{ operation_id: item.operation_id, ...choice }];
     });
+    const named = review.informational.flatMap((item) => {
+        const choice = choices[item.operation_id];
+        return isName(choice)
+            ? [{ operation_id: item.operation_id, name: choice.name }]
+            : [];
+    });
+    return [...chosen, ...named];
 }
-/** A resume needs at least one chosen candidate; "leave empty" alone changes nothing. */
+/**
+ * A resume needs at least one chosen candidate or one other name to search
+ * for; "leave empty" alone changes nothing.
+ */
 export const hasCandidateChoice = (review: Review | null, choices: Choices) =>
-    !!review && decisions(review, choices).some((d) => d.entity_id);
+    !!review && decisions(review, choices).some((d) => d.entity_id || d.name);
 
 export function rowList(item: ReviewItem) {
     const rows = [

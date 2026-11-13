@@ -191,6 +191,13 @@ jobs and reads only the stored report:
   `incomplete_verification` with at least one selectable candidate.
   **`informational`** lists other non-resolved queries (nothing found, provider
   error); they are shown for context and cannot be approved.
+- **`other_name`** says whether searching the query under another name could
+  change its outcome: true for `needs_review`, `unresolved` and
+  `incomplete_verification`, except when the row's country was not recognized.
+  It is independent of the list an entry is in: a name with no match and a name
+  with several can both be searched under another one.
+  **`query.searched_as`** is the name the source was searched for when the user
+  already gave one; `query.name` is always the row's own value.
 - **`selectable` / `blocker`.** A candidate is selectable only if the source
   verified it and did not exclude it. Otherwise `blocker` is `unverified`,
   `excluded` or `type`. The same function (`approval_blocker`) guards the
@@ -208,7 +215,8 @@ jobs and reads only the stored report:
 ```json
 {"decisions": [
   {"operation_id": "<opaque>", "source": "open-meteo", "entity_id": "703448"},
-  {"operation_id": "<other>"}
+  {"operation_id": "<other>"},
+  {"operation_id": "<third>", "name": "Warszawa"}
 ]}
 ```
 
@@ -229,9 +237,26 @@ candidate is accepted only if the source still verifies it; the decision is then
 audited as `basis: user_override`. Otherwise the operation fails with
 `APPROVAL_NOT_REVERIFIED` and the cell stays empty.
 
+**Another name.** A decision with `name` (and no candidate) asks for the rows of
+that operation to be looked up under this name instead of the cell's value: a
+name the source knows in another language or spelling. Nothing is searched by
+the request itself. The new job asks the same source for the given name, with
+the row's country and the same checks and decision policy
+(`resolution/other_name.py`); the source is asked once per operation, however
+many rows share it. One confirmed match is written and the row is marked as the
+user's decision (`user_chosen_steps`); several matches come back as an ordinary
+review item, whose chosen candidate is re-verified under the same given name; no
+match leaves the cell empty, and another name can be given. The workbook is not
+changed. The audit entry keeps the row's value in `query.name` and the name
+searched in `query.searched_as`. The server rejects a name for an operation that
+is already resolved, failed at the provider or has an unrecognized country, a
+blank name, a name over 512 characters, the row's own value again, and a step
+whose inputs do not come straight from workbook columns. A name given in one
+round stays in force in later rounds of the same chain, like a chosen candidate.
+
 Errors: `review_not_available` when the job is not in a reviewable state,
-`invalid_decision` for an unknown or duplicate operation or a candidate that
-cannot be approved, `no_decisions` when every decision leaves its query empty
+`invalid_decision` for an unknown or duplicate operation, a candidate that
+cannot be approved or a name that cannot be used, `no_decisions` when every decision leaves its query empty
 (a new job would change nothing). Messages do not contain record identifiers.
 
 Known limits: the resume recomputes the whole selected table (up to

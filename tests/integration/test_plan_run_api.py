@@ -1215,3 +1215,176 @@ def test_a_table_below_a_title_is_found_on_upload_and_runs_from_there(client):
         assert filled["B1"].value == "REGIONAL DISTANCES" and filled["A5"].value is None
     finally:
         result.close()
+
+
+class OtherSpellings(APITransportFixture):
+    """Warsaw is known under its English name only."""
+
+    def get_json(self, *, url: str, params: Mapping[str, str], timeout_seconds: float) -> object:
+        if params.get("name") == "Warsaw" and params.get("countryCode") == "PL":
+            return {
+                "results": [
+                    {
+                        "id": 756135,
+                        "name": "Warsaw",
+                        "country_code": "PL",
+                        "latitude": 52.22977,
+                        "longitude": 21.01178,
+                        "feature_code": "PPLC",
+                    }
+                ]
+            }
+        return super().get_json(url=url, params=params, timeout_seconds=timeout_seconds)
+
+
+def other_spellings_executor(
+    capabilities: frozenset[str],
+    policy: MountainPolicy,
+    max_rows: int,
+    *,
+    resume_selections=None,
+):
+    return live_executor(
+        capabilities,
+        policy,
+        max_rows,
+        transport=OtherSpellings(),
+        resume_selections=resume_selections,
+    )
+
+
+@pytest.fixture
+def other_names():
+    """A job whose two names the source does not know as written."""
+    with TestClient(create_app(offline_executor_factory=other_spellings_executor)) as client:
+        content, range_ref = table(
+            CAPITALS_HEADER,
+            ("Varsovie", "Poland", "Paris", "France"),
+            ("Kiev", "Ukraine", "London", "United Kingdom"),
+            ("Paris", "France", "Varsovie", "Poland"),
+        )
+        dataset_id = upload(client, "capitals", content)
+        response = client.post(
+            "/api/plans", json={**request_body(dataset_id, "capitals"), "range_ref": range_ref}
+        )
+        plan = approve(client, response.json())
+        job = wait(client, start(client, plan))
+        yield client, job
+
+
+def listed(client, job, group):
+    review = client.get(f"/api/jobs/{job['job_id']}/review").json()
+    return {item["query"]["name"]: item for item in review[group]}
+
+
+def test_a_name_the_source_does_not_know_can_be_searched_under_another(other_names):
+    client, first = other_names
+    assert first["status"] == "needs_review" and first["metrics"]["successful_rows"] == 0
+    # Nothing to choose from, yet both names can be given another spelling.
+    assert listed(client, first, "items") == {}
+    unknown = listed(client, first, "informational")
+    assert set(unknown) == {"Varsovie", "Kiev"}
+    assert all(
+        item["other_name"] and item["query"]["searched_as"] is None for item in unknown.values()
+    )
+
+    decisions = [
+        {"operation_id": unknown["Varsovie"]["operation_id"], "name": " Warsaw "},
+        {"operation_id": unknown["Kiev"]["operation_id"], "name": "Kyiv"},
+    ]
+    response = client.post(f"/api/jobs/{first['job_id']}/resume", json={"decisions": decisions})
+    assert response.status_code == 202, response.text
+    second = wait(client, response.json())
+
+    # Warsaw has one match and is filled in both rows; Kyiv has two and waits for a choice.
+    assert second["status"] == "needs_review" and second["metrics"]["successful_rows"] == 2
+    report = client.get(second["artifacts"]["report"]).json()
+    assert report["review_decisions"] == [
+        {**decision, "source": None, "entity_id": None} for decision in decisions
+    ]
+    audit = {
+        operation["report"]["candidate_set"]["query"]["name"]: operation
+        for operation in report["execution"]["resolution_report"]["operations"]
+    }
+    warsaw = audit["Varsovie"]
+    # The audit keeps the row's own value and the name the source was asked for.
+    assert warsaw["report"]["candidate_set"]["query"]["searched_as"] == "Warsaw"
+    assert warsaw["report"]["decision"]["basis"] == "unique_verified"
+    assert warsaw["report"]["decision"]["selected"]["entity_id"] == "756135"
+    assert len(warsaw["record_links"]) == 2
+    rows = {row["row"]: row for row in report["rows"]}
+    # A value found under the user's name is marked as the user's decision.
+    assert rows[2]["user_chosen_steps"] == ["from_city"]
+    assert rows[4]["user_chosen_steps"] == ["to_city"]
+    assert rows[3]["user_chosen_steps"] == []
+
+    kiev = listed(client, second, "items")["Kiev"]
+    assert kiev["query"]["searched_as"] == "Kyiv" and kiev["status"] == "needs_review"
+    assert {c["entity_id"] for c in kiev["candidates"]} == {"703448", "704213"}
+
+    # Round two: a candidate found under the other name is chosen like any other,
+    # and the name given for Warsaw is still in force.
+    chosen = {"operation_id": kiev["operation_id"], "source": "open-meteo", "entity_id": "703448"}
+    response = client.post(f"/api/jobs/{second['job_id']}/resume", json={"decisions": [chosen]})
+    assert response.status_code == 202, response.text
+    third = wait(client, response.json())
+    assert third["status"] == "completed" and third["metrics"]["successful_rows"] == 3
+    final = client.get(third["artifacts"]["report"]).json()
+    decided = {
+        operation["report"]["candidate_set"]["query"]["name"]: (
+            operation["report"]["candidate_set"]["query"]["searched_as"],
+            operation["report"]["decision"]["basis"],
+        )
+        for operation in final["execution"]["resolution_report"]["operations"]
+        if operation["report"]["candidate_set"]["query"]["searched_as"]
+    }
+    assert decided == {"Varsovie": ("Warsaw", "unique_verified"), "Kiev": ("Kyiv", "user_override")}
+
+
+def test_another_name_that_finds_nothing_leaves_the_row_empty(other_names):
+    client, first = other_names
+    unknown = listed(client, first, "informational")
+    decision = {"operation_id": unknown["Varsovie"]["operation_id"], "name": "Warschau"}
+    response = client.post(f"/api/jobs/{first['job_id']}/resume", json={"decisions": [decision]})
+    second = wait(client, response.json())
+    assert second["status"] == "needs_review" and second["metrics"]["successful_rows"] == 0
+    again = listed(client, second, "informational")["Varsovie"]
+    # Still the row's value, with the name that was tried; another one can be given.
+    assert again["query"]["searched_as"] == "Warschau" and again["other_name"]
+    assert again["status"] == "unresolved"
+
+
+@pytest.mark.parametrize(
+    "decision",
+    [
+        {"name": "varsovie"},  # The row's own value.
+        {"name": "   "},
+        {"operation_id": "unknown", "name": "Warsaw"},
+    ],
+)
+def test_another_name_is_checked_before_a_job_starts(other_names, decision):
+    client, first = other_names
+    operation_id = listed(client, first, "informational")["Varsovie"]["operation_id"]
+    endpoint = f"/api/jobs/{first['job_id']}/resume"
+    response = client.post(
+        endpoint, json={"decisions": [{"operation_id": operation_id, **decision}]}
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_decision"
+    assert "Sheet1" not in response.text
+
+
+def test_another_name_cannot_be_combined_with_a_candidate_or_reopen_a_settled_value(client):
+    _, job, review = reviewed_job(client)
+    endpoint = f"/api/jobs/{job['job_id']}/resume"
+    kyiv = review["items"][0]["operation_id"]
+    both = {"operation_id": kyiv, "source": "open-meteo", "entity_id": "703448", "name": "Kiev"}
+    assert client.post(endpoint, json={"decisions": [both]}).status_code == 422
+    report = client.get(job["artifacts"]["report"]).json()
+    settled = next(
+        operation["operation_id"]
+        for operation in report["execution"]["resolution_report"]["operations"]
+        if operation["report"]["decision"]["status"] == "resolved"
+    )
+    response = client.post(endpoint, json={"decisions": [{"operation_id": settled, "name": "X"}]})
+    assert response.json()["error"]["code"] == "invalid_decision"

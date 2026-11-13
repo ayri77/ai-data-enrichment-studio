@@ -242,10 +242,14 @@ export interface ReviewItem {
         name: string;
         entity_type: string | null;
         context: Record<string, ReviewValue>;
+        /** The name the source was searched for, when the user gave another one. */
+        searched_as?: string | null;
     };
     status: string;
     reason_codes: string[];
     search_complete: boolean;
+    /** Whether searching under another name could change this outcome. */
+    other_name?: boolean;
     affected: { record_id: string; row: number | null; step_id: string }[];
     candidates: ReviewCandidate[];
 }
@@ -258,11 +262,15 @@ export interface Review {
     informational: ReviewItem[];
     affected_rows: number;
 }
-/** Without `source` and `entity_id` the query is left empty on purpose. */
+/**
+ * A listed candidate (`source` and `entity_id`), another name to search the
+ * source for (`name`), or neither: the query is left empty on purpose.
+ */
 export interface ReviewDecision {
     operation_id: string;
     source?: string;
     entity_id?: string;
+    name?: string;
 }
 export interface ProviderReadiness {
     provider: "openai";

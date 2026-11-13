@@ -81,11 +81,19 @@ class ResolutionQuery(_ResolutionModel):
     name: str = Field(min_length=1, max_length=512)
     entity_type: Identifier
     context: tuple[ResolutionAttribute, ...] = ()
+    # Set only when the user asked to look the row's value up under another
+    # name: the name the source was searched for. `name` stays the row's value.
+    searched_as: str | None = Field(default=None, min_length=1, max_length=512)
 
     @field_validator("name")
     @classmethod
     def check_name(cls, value: str) -> str:
         return _nonempty(value)
+
+    @field_validator("searched_as")
+    @classmethod
+    def check_searched_as(cls, value: str | None) -> str | None:
+        return None if value is None else _nonempty(value)
 
     @model_validator(mode="after")
     def check_context(self) -> Self:

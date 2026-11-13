@@ -6,7 +6,7 @@ import {
     LoaderCircle,
     Play,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReviewCandidate, ReviewItem } from "../api";
 import { useAdvanced } from "../mode";
@@ -15,6 +15,9 @@ import {
     candidateKey,
     countryName,
     isCandidate,
+    isName,
+    MAX_OTHER_NAME,
+    otherName,
     pendingRecommendations,
     rowList,
     sourceLink,
@@ -181,6 +184,76 @@ function Candidate({
     );
 }
 
+/**
+ * A name in the workbook may be one the source does not know: another
+ * language, an older spelling, a typo. The person can say what to search for
+ * instead. The search itself runs with the next fill, under the same checks.
+ */
+function OtherName({
+    item,
+    w,
+    open = false,
+    onUsed,
+}: {
+    item: ReviewItem;
+    w: Workflow;
+    open?: boolean;
+    onUsed: () => void;
+}) {
+    const { t } = useTranslation();
+    const id = useId();
+    const choice = w.choices[item.operation_id];
+    const [text, setText] = useState(isName(choice) ? choice.name : "");
+    if (!item.other_name) return null;
+    const name = otherName(item, text);
+    return (
+        <details className="other-name" open={open || undefined}>
+            <summary>{t("review.otherName.toggle")}</summary>
+            <form
+                onSubmit={(event) => {
+                    event.preventDefault();
+                    if (!name || w.locked) return;
+                    w.choose(item.operation_id, { name });
+                    onUsed();
+                }}
+            >
+                <label htmlFor={id}>
+                    {t("review.otherName.label", { name: item.query.name })}
+                </label>
+                <div className="other-name-row">
+                    <input
+                        id={id}
+                        type="text"
+                        value={text}
+                        maxLength={MAX_OTHER_NAME}
+                        autoComplete="off"
+                        disabled={w.locked}
+                        onChange={(event) => setText(event.target.value)}
+                    />
+                    <Button
+                        type="submit"
+                        variant="outline"
+                        disabled={!name || w.locked}
+                    >
+                        {t("review.otherName.use")}
+                    </Button>
+                </div>
+                <p className="muted">{t("review.otherName.hint")}</p>
+            </form>
+        </details>
+    );
+}
+
+/** The name the source was already searched for instead of the row's value. */
+function SearchedAs({ item }: { item: ReviewItem }) {
+    const { t } = useTranslation();
+    return item.query.searched_as ? (
+        <span className="muted" data-testid="searched-as">
+            {t("review.searchedAs", { name: item.query.searched_as })}
+        </span>
+    ) : null;
+}
+
 /** Second layer: identifiers, codes and evidence for audit and debugging. */
 function Technical({ item }: { item: ReviewItem }) {
     const { t } = useTranslation();
@@ -314,6 +387,7 @@ function ReviewCard({
                         code("type", item.query.entity_type),
                     )}
                 </span>
+                <SearchedAs item={item} />
                 <span className="review-rows">
                     {t("review.rows", { rows: rowList(item) })}
                 </span>
@@ -323,9 +397,20 @@ function ReviewCard({
                     <Check aria-hidden="true" />
                     <span className="candidate-body">
                         <span className="candidate-title">
-                            {picked ? picked.label : t("review.leaveEmpty")}
+                            {picked
+                                ? picked.label
+                                : isName(choice)
+                                  ? t("review.otherName.pending", {
+                                        name: choice.name,
+                                    })
+                                  : t("review.leaveEmpty")}
                         </span>
                         {picked && <Facts candidate={picked} />}
+                        {isName(choice) && (
+                            <span className="muted">
+                                {t("review.otherName.pendingHint")}
+                            </span>
+                        )}
                     </span>
                     <button
                         type="button"
@@ -385,6 +470,7 @@ function ReviewCard({
                             </label>
                         </div>
                     </fieldset>
+                    <OtherName item={item} w={w} onUsed={fold} />
                     {choice && (
                         <button
                             type="button"
@@ -403,39 +489,89 @@ function ReviewCard({
     );
 }
 
-function Informational({ items }: { items: ReviewItem[] }) {
+/** A name with nothing to choose from; another name can be given for it. */
+function Unmatched({ item, w }: { item: ReviewItem; w: Workflow }) {
     const { t, i18n } = useTranslation();
     const code = useCode();
     const locale = i18n.resolvedLanguage ?? "en";
+    const choice = w.choices[item.operation_id];
+    const [editing, setEditing] = useState(false);
+    return (
+        <li
+            data-testid={`unresolved-${item.query.name}`}
+            data-decided={isName(choice)}
+        >
+            <strong>{item.query.name}</strong>
+            <span className="muted">
+                {contextLine(
+                    item,
+                    locale,
+                    code("type", item.query.entity_type),
+                )}
+            </span>
+            <span>
+                {/* A row's own unusable value is named as such; the
+                    source was not asked about it. */}
+                {t(`review.input.${item.reason_codes[0]}`, {
+                    defaultValue: code("status", item.status),
+                })}
+            </span>
+            <SearchedAs item={item} />
+            <span className="review-rows">
+                {t("review.rows", { rows: rowList(item) })}
+            </span>
+            {isName(choice) && !editing ? (
+                <div className="review-chosen" data-testid="review-chosen">
+                    <Check aria-hidden="true" />
+                    <span className="candidate-body">
+                        <span className="candidate-title">
+                            {t("review.otherName.pending", {
+                                name: choice.name,
+                            })}
+                        </span>
+                        <span className="muted">
+                            {t("review.otherName.pendingHint")}
+                        </span>
+                    </span>
+                    <button
+                        type="button"
+                        className="inline-link"
+                        disabled={w.locked}
+                        onClick={() => setEditing(true)}
+                    >
+                        {t("review.change")}
+                    </button>
+                    <button
+                        type="button"
+                        className="inline-link"
+                        disabled={w.locked}
+                        onClick={() => w.unchoose(item.operation_id)}
+                    >
+                        {t("review.otherName.cancel")}
+                    </button>
+                </div>
+            ) : (
+                <OtherName
+                    item={item}
+                    w={w}
+                    // Closed until asked for: a long list of names stays short.
+                    open={editing}
+                    onUsed={() => setEditing(false)}
+                />
+            )}
+        </li>
+    );
+}
+
+function Informational({ items, w }: { items: ReviewItem[]; w: Workflow }) {
+    const { t } = useTranslation();
     return (
         <section className="review-informational">
             <h3>{t("review.informational")}</h3>
             <p className="muted">{t("review.informationalHint")}</p>
             <ul>
                 {items.map((item) => (
-                    <li
-                        key={item.operation_id}
-                        data-testid={`unresolved-${item.query.name}`}
-                    >
-                        <strong>{item.query.name}</strong>
-                        <span className="muted">
-                            {contextLine(
-                                item,
-                                locale,
-                                code("type", item.query.entity_type),
-                            )}
-                        </span>
-                        <span>
-                            {/* A row's own unusable value is named as such; the
-                                source was not asked about it. */}
-                            {t(`review.input.${item.reason_codes[0]}`, {
-                                defaultValue: code("status", item.status),
-                            })}
-                        </span>
-                        <span className="review-rows">
-                            {t("review.rows", { rows: rowList(item) })}
-                        </span>
-                    </li>
+                    <Unmatched key={item.operation_id} item={item} w={w} />
                 ))}
             </ul>
         </section>
@@ -489,6 +625,10 @@ export function ReviewWorkspace({ w }: { w: Workflow }) {
         (item) => w.choices[item.operation_id],
     ).length;
     const suggestions = pendingRecommendations(review, w.choices);
+    // Names with no match can still be searched under another name.
+    const namable = (review?.informational ?? []).some(
+        (item) => item.other_name,
+    );
     const [foldSignal, setFoldSignal] = useState(0);
     return (
         <div className="stage-layout">
@@ -536,7 +676,7 @@ export function ReviewWorkspace({ w }: { w: Workflow }) {
                             />
                         ))}
                         {review.informational.length > 0 && (
-                            <Informational items={review.informational} />
+                            <Informational items={review.informational} w={w} />
                         )}
                     </>
                 )}
@@ -545,22 +685,29 @@ export function ReviewWorkspace({ w }: { w: Workflow }) {
             <aside className="workspace-panel stage-sidebar">
                 <div className="panel-scroll summary-content">
                     <h2>{t("review.sidebar")}</h2>
-                    {total > 0 ? (
+                    {total > 0 || namable ? (
                         <>
-                            <p data-testid="review-progress">
-                                {t("review.progress", { decided, total })}
-                            </p>
-                            <Button
-                                variant="outline"
-                                disabled={!suggestions || w.locked}
-                                onClick={() => {
-                                    w.acceptRecommendations();
-                                    // Accepted cards fold; the others stay open.
-                                    setFoldSignal((n) => n + 1);
-                                }}
-                            >
-                                {t("review.accept")}
-                            </Button>
+                            {total > 0 && (
+                                <>
+                                    <p data-testid="review-progress">
+                                        {t("review.progress", {
+                                            decided,
+                                            total,
+                                        })}
+                                    </p>
+                                    <Button
+                                        variant="outline"
+                                        disabled={!suggestions || w.locked}
+                                        onClick={() => {
+                                            w.acceptRecommendations();
+                                            // Accepted cards fold; the others stay open.
+                                            setFoldSignal((n) => n + 1);
+                                        }}
+                                    >
+                                        {t("review.accept")}
+                                    </Button>
+                                </>
+                            )}
                             <Button
                                 disabled={!w.canResume}
                                 onClick={() =>

@@ -25,7 +25,10 @@ class APITransportFixture:
         if url != GEOCODING_URL:
             raise AssertionError("No external transport is allowed in this fixture.")
         # Deliberately sparse. Kyiv is ambiguous; unknown cities stay unresolved.
+        # Warsaw is known under its Polish name only, so that giving another
+        # name during review can be exercised.
         locations = {
+            "Warszawa": (756135, "PL", 52.22977, 21.01178),
             "London": (2643743, "GB", 51.50853, -0.12574),
             "Rome": (3169070, "IT", 41.89193, 12.51133),
             "Paris": (2988507, "FR", 48.85341, 2.3488),

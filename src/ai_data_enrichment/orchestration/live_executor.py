@@ -26,7 +26,8 @@ from ai_data_enrichment.providers.wikidata_resolution import (
     WikidataMountainResolutionService,
 )
 from ai_data_enrichment.resolution.models import ResolutionPolicy
-from ai_data_enrichment.resolution.resume import ResumeSelection
+from ai_data_enrichment.resolution.other_name import OtherNameResolutionService
+from ai_data_enrichment.resolution.resume import OtherName, ResumeSelection
 
 
 def build_live_executor(
@@ -34,7 +35,7 @@ def build_live_executor(
     *,
     max_rows: int = 20,
     audit_mountains: bool = False,
-    resume_selections: Mapping[tuple[str, str], ResumeSelection] | None = None,
+    resume_selections: Mapping[tuple[str, str], ResumeSelection | OtherName] | None = None,
     audit_capitals: bool = False,
     mountain_resolution_policy: Literal["strict", "verified_only"] = "strict",
     request_policies: Mapping[str, ProviderRequestPolicy] | None = None,
@@ -42,12 +43,16 @@ def build_live_executor(
 ) -> JobExecutor:
     """Bind built-in capabilities to explicitly approved providers."""
 
-    approved_sources = {item.approval.source for item in (resume_selections or {}).values()}
+    selections = dict(resume_selections or {})
+    approved_sources = {
+        item.approval.source for item in selections.values() if isinstance(item, ResumeSelection)
+    }
+    renamed = {item.capability for item in selections.values() if isinstance(item, OtherName)}
     if approved_sources - {"wikidata", "open-meteo"}:
         raise ValueError("Resume selection uses an unsupported source.")
-    if "wikidata" in approved_sources and not audit_mountains:
+    if ("wikidata" in approved_sources or "resolve_entity" in renamed) and not audit_mountains:
         raise ValueError("Resume requires audited mountain resolution.")
-    if "open-meteo" in approved_sources and not audit_capitals:
+    if ("open-meteo" in approved_sources or "geocode" in renamed) and not audit_capitals:
         raise ValueError("Resume requires audited city resolution.")
     if mountain_resolution_policy not in {"strict", "verified_only"}:
         raise ValueError("Unsupported mountain resolution policy.")
@@ -73,6 +78,19 @@ def build_live_executor(
         else transport
     )
     providers = ProviderRegistry(registry)
+    mountain_service = WikidataMountainResolutionService(mountain_transport)
+    city_service = OpenMeteoResolutionService(city_transport)
+    # One service per reviewed operation: rows that share a name share a search.
+    other_names = {
+        (item.operation_id, item.searched_as): OtherNameResolutionService(
+            city_service if item.capability == "geocode" else mountain_service,
+            capability=item.capability,
+            row_name=item.row_name,
+            searched_as=item.searched_as,
+        )
+        for item in selections.values()
+        if isinstance(item, OtherName)
+    }
 
     providers.register(
         capability_id="geocode",
@@ -132,12 +150,8 @@ def build_live_executor(
             **({"geocode": "open-meteo-v1"} if audit_capitals else {}),
         },
         resolution_services={
-            **(
-                {"resolve_entity": WikidataMountainResolutionService(mountain_transport)}
-                if audit_mountains
-                else {}
-            ),
-            **({"geocode": OpenMeteoResolutionService(city_transport)} if audit_capitals else {}),
+            **({"resolve_entity": mountain_service} if audit_mountains else {}),
+            **({"geocode": city_service} if audit_capitals else {}),
         },
         resolution_policies={
             **(
@@ -166,7 +180,9 @@ def build_live_executor(
         # Each approval is re-verified against the source that produced it.
         approved_resolution_services={
             key: (
-                ApprovedWikidataMountainResolutionService(
+                other_names[(selection.operation_id, selection.searched_as)]
+                if isinstance(selection, OtherName)
+                else ApprovedWikidataMountainResolutionService(
                     mountain_transport,
                     approval=selection.approval,
                     source_report=selection.source_report,
@@ -178,6 +194,6 @@ def build_live_executor(
                     source_report=selection.source_report,
                 )
             )
-            for key, selection in (resume_selections or {}).items()
+            for key, selection in selections.items()
         },
     )

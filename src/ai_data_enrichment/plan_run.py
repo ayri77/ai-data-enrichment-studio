@@ -48,11 +48,12 @@ from ai_data_enrichment.planning.llm_planner import (
 from ai_data_enrichment.planning.openai_client import OpenAIPlanClient
 from ai_data_enrichment.provider_settings import ProviderConfiguration
 from ai_data_enrichment.resolution.models import ResolutionJobReport
-from ai_data_enrichment.resolution.resume import build_resume_selections
+from ai_data_enrichment.resolution.resume import build_other_names, build_resume_selections
 from ai_data_enrichment.review import (
     ReviewDecision,
     approvals_from_decisions,
     auto_accepted_steps,
+    names_from_decisions,
     review_payload,
     user_chosen_steps,
 )
@@ -471,22 +472,30 @@ class PlanRunService:
                     manifest = approvals_from_decisions(
                         body.decisions, report, workbook_sha256=draft["source_sha256"]
                     )
-                    selections = (
-                        build_resume_selections(
-                            manifest=manifest, report=report, plan=plan, source_path=source
-                        )
-                        if manifest is not None
-                        else {}
-                    )
+                    selections = {
+                        **(
+                            build_resume_selections(
+                                manifest=manifest, report=report, plan=plan, source_path=source
+                            )
+                            if manifest is not None
+                            else {}
+                        ),
+                        # A name the user gave is searched by the new job, under
+                        # its limits; nothing is looked up here.
+                        **build_other_names(
+                            names=names_from_decisions(body.decisions), report=report, plan=plan
+                        ),
+                    }
                 except ValueError:
                     # Validation messages can name record IDs; keep the public error generic.
                     raise WorkspaceError(
                         "invalid_decision",
-                        "Choose listed, selectable candidates for operations that need review.",
+                        "Choose listed, selectable candidates, or give another name to "
+                        "search for, for operations that need review.",
                     ) from None
                 if not selections:
                     raise WorkspaceError(
-                        "no_decisions", "Choose a candidate for at least one item."
+                        "no_decisions", "Choose a candidate or give another name for one item."
                     )
                 # A resume starts from the source workbook again, so the choices
                 # the reviewed job itself ran with are part of the next one: a
@@ -497,7 +506,11 @@ class PlanRunService:
                     body,
                     resume_selections=selections,
                     previous_job_id=job_id,
-                    decisions=[d.model_dump(mode="json") for d in body.decisions],
+                    decisions=[
+                        # A name is recorded only where one was given.
+                        d.model_dump(mode="json", exclude=set() if d.name else {"name"})
+                        for d in body.decisions
+                    ],
                 )
 
         @router.get("/jobs/{job_id}/artifacts/{artifact}")

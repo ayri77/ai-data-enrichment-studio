@@ -1177,6 +1177,119 @@ it("offers nothing to decide when a run only has names without a match", async (
     expect(button("ws.toExport")).toBeEnabled();
 });
 
+it("lets a name be searched under another one, with or without candidates to choose from", async () => {
+    const [berlin, kyiv] = review.items;
+    const [oslo] = review.informational;
+    vi.mocked(api.getReview).mockResolvedValue({
+        ...review,
+        items: [berlin, { ...kyiv, other_name: true }],
+        informational: [
+            {
+                ...oslo,
+                other_name: true,
+                query: { ...oslo.query, searched_as: "Christiania" },
+            },
+        ],
+    });
+    render(<App />);
+    await start();
+    await navigate("review");
+    const use = { name: i18n.t("review.otherName.use") };
+    const unmatched = within(await screen.findByTestId("unresolved-Oslo"));
+    // The name tried before is shown; the row's own value cannot be the new one.
+    expect(unmatched.getByTestId("searched-as")).toHaveTextContent(
+        i18n.t("review.searchedAs", { name: "Christiania" }),
+    );
+    const field = unmatched.getByLabelText(
+        i18n.t("review.otherName.label", { name: "Oslo" }),
+    );
+    await userEvent.type(field, " oslo ");
+    expect(unmatched.getByRole("button", use)).toBeDisabled();
+    expect(button("review.resume")).toBeDisabled();
+    await userEvent.clear(field);
+    await userEvent.type(field, " Kristiania{Enter}");
+    expect(unmatched.getByTestId("review-chosen")).toHaveTextContent(
+        i18n.t("review.otherName.pending", { name: "Kristiania" }),
+    );
+    expect(button("review.resume")).toBeEnabled();
+    // It can be taken back, and given again.
+    await userEvent.click(
+        unmatched.getByRole("button", {
+            name: i18n.t("review.otherName.cancel"),
+        }),
+    );
+    expect(button("review.resume")).toBeDisabled();
+    await userEvent.type(
+        unmatched.getByLabelText(
+            i18n.t("review.otherName.label", { name: "Oslo" }),
+        ),
+        "Kristiania",
+    );
+    await userEvent.click(unmatched.getByRole("button", use));
+
+    // A name that has candidates can be searched under another one as well.
+    const card = within(screen.getByTestId("review-Kyiv"));
+    await userEvent.type(
+        card.getByLabelText(i18n.t("review.otherName.label", { name: "Kyiv" })),
+        "Kiev",
+    );
+    await userEvent.click(card.getByRole("button", use));
+    expect(chosen("Kyiv")).toHaveTextContent(
+        i18n.t("review.otherName.pending", { name: "Kiev" }),
+    );
+    expect(screen.getByTestId("review-progress")).toHaveTextContent(
+        i18n.t("review.progress", { decided: 1, total: 2 }),
+    );
+    // Berlin was not offered another name.
+    expect(
+        within(screen.getByTestId("review-Berlin")).queryByText(
+            i18n.t("review.otherName.toggle"),
+        ),
+    ).toBeNull();
+
+    vi.mocked(api.resumeJob).mockResolvedValue({
+        ...queued,
+        job_id: "job-2",
+        previous_job_id: "job",
+    });
+    await userEvent.click(button("review.resume"));
+    expect(api.resumeJob).toHaveBeenCalledWith(
+        "job",
+        [
+            { operation_id: "op-kyiv", name: "Kiev" },
+            { operation_id: "op-oslo", name: "Kristiania" },
+        ],
+        true,
+        180,
+    );
+});
+
+it("offers the fill for a run with nothing to choose once another name is given", async () => {
+    const [oslo] = review.informational;
+    vi.mocked(api.getReview).mockResolvedValue({
+        ...review,
+        items: [],
+        affected_rows: 0,
+        informational: [{ ...oslo, other_name: true }],
+    });
+    render(<App />);
+    await start();
+    await navigate("review");
+    await screen.findByTestId("unresolved-Oslo");
+    expect(screen.queryByTestId("review-progress")).toBeNull();
+    expect(
+        screen.queryByRole("button", { name: i18n.t("review.accept") }),
+    ).toBeNull();
+    expect(button("review.resume")).toBeDisabled();
+    await userEvent.type(
+        screen.getByLabelText(
+            i18n.t("review.otherName.label", { name: "Oslo" }),
+        ),
+        "Kristiania{Enter}",
+    );
+    expect(button("review.resume")).toBeEnabled();
+});
+
 it("shows results with source values, readable numbers, reasons, filters and details", async () => {
     const step = (step_id: string, value: unknown, error_code?: string) => ({
         step_id,

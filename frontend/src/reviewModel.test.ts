@@ -4,6 +4,7 @@ import {
     countryName,
     decisions,
     hasCandidateChoice,
+    otherName,
     pendingRecommendations,
     rowList,
     sourceLink,
@@ -94,6 +95,47 @@ it("sends only explicit decisions and needs at least one chosen candidate", () =
     ]);
     expect(hasCandidateChoice(review, choices)).toBe(true);
     expect(hasCandidateChoice(null, choices)).toBe(false);
+});
+
+it("sends another name for a name with or without candidates, and it is enough to resume", () => {
+    const unmatched = { ...item("oslo", []), other_name: true };
+    const named: Review = {
+        ...review,
+        items: review.items.map((entry) => ({ ...entry, other_name: true })),
+        informational: [unmatched, item("bergen", [])],
+    };
+    const choices: Choices = {
+        kyiv: { name: "Kiev" },
+        oslo: { name: "Kristiania" },
+        // Not offered for this name: nothing is sent, and it does not survive.
+        bergen: { name: "Bjørgvin" },
+    };
+    expect(decisions(named, choices)).toEqual([
+        { operation_id: "kyiv", name: "Kiev" },
+        { operation_id: "oslo", name: "Kristiania" },
+        { operation_id: "bergen", name: "Bjørgvin" },
+    ]);
+    expect(validChoices(named, choices)).toEqual({
+        kyiv: { name: "Kiev" },
+        oslo: { name: "Kristiania" },
+    });
+    expect(hasCandidateChoice(named, { oslo: { name: "Kristiania" } })).toBe(
+        true,
+    );
+    // A given name is a choice: a recommendation does not replace it.
+    expect(
+        withRecommendations(named, { berlin: { name: "Berlin (Spree)" } })
+            .berlin,
+    ).toEqual({ name: "Berlin (Spree)" });
+});
+
+it("takes another name only when it can help", () => {
+    const row = item("München", []);
+    expect(otherName(row, "  Munich  ")).toBe("Munich");
+    expect(otherName(row, "Frankfurt   am  Main")).toBe("Frankfurt am Main");
+    expect(otherName(row, " münchen ")).toBeNull();
+    expect(otherName(row, "   ")).toBeNull();
+    expect(otherName(row, "M".repeat(201))).toBeNull();
 });
 
 it("drops choices the current review does not offer", () => {
