@@ -308,6 +308,8 @@
     "review.blocker.type": "це об’єкт іншого типу",
     "review.leaveEmpty": "Залишити порожнім",
     "review.leaveEmptyHint": "Клітинки в цих рядках залишаться порожніми.",
+    "review.change": "Змінити",
+    "review.fold": "Згорнути варіанти",
     "review.population": "населення {{value}}",
     "review.type.city": "Місто",
     "review.type.settlement": "Населений пункт",

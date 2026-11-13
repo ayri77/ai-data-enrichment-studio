@@ -1066,6 +1066,93 @@ def test_a_stopped_run_says_how_far_it_got():
         assert 1 <= final["progress"]["rows_done"] < final["progress"]["rows_total"]
 
 
+class TwoAmbiguousCities(APITransportFixture):
+    """Rome is ambiguous as well as Kyiv, so a review can take two rounds."""
+
+    def get_json(self, *, url: str, params: Mapping[str, str], timeout_seconds: float) -> object:
+        payload = super().get_json(url=url, params=params, timeout_seconds=timeout_seconds)
+        if isinstance(payload, dict) and params.get("name") == "Rome" and payload["results"]:
+            twin = {**payload["results"][0], "id": 3169071, "latitude": 40.0, "longitude": 14.0}
+            return {"results": [*payload["results"], twin]}
+        return payload
+
+
+def two_ambiguous_executor(
+    capabilities: frozenset[str],
+    policy: MountainPolicy,
+    max_rows: int,
+    *,
+    resume_selections=None,
+):
+    return live_executor(
+        capabilities,
+        policy,
+        max_rows,
+        transport=TwoAmbiguousCities(),
+        resume_selections=resume_selections,
+    )
+
+
+def test_a_second_round_of_review_keeps_the_choices_of_the_first():
+    with TestClient(create_app(offline_executor_factory=two_ambiguous_executor)) as client:
+        content, range_ref = table(
+            CAPITALS_HEADER,
+            ("Kyiv", "Ukraine", "Paris", "France"),
+            ("London", "United Kingdom", "Rome", "Italy"),
+            ("Kyiv", "Ukraine", "Rome", "Italy"),
+        )
+        dataset_id = upload(client, "capitals", content)
+        response = client.post(
+            "/api/plans", json={**request_body(dataset_id, "capitals"), "range_ref": range_ref}
+        )
+        plan = approve(client, response.json())
+        first = wait(client, start(client, plan))
+        assert first["metrics"]["successful_rows"] == 0
+
+        def items(job):
+            listed = client.get(f"/api/jobs/{job['job_id']}/review").json()["items"]
+            return {item["query"]["name"]: item for item in listed}
+
+        def resume(job, name, entity_id):
+            decision = {
+                "operation_id": items(job)[name]["operation_id"],
+                "source": "open-meteo",
+                "entity_id": entity_id,
+            }
+            response = client.post(
+                f"/api/jobs/{job['job_id']}/resume", json={"decisions": [decision]}
+            )
+            assert response.status_code == 202, response.text
+            return wait(client, response.json())
+
+        assert set(items(first)) == {"Kyiv", "Rome"}
+        # Round one settles Kyiv only; Rome is left for later.
+        second = resume(first, "Kyiv", "703448")
+        assert second["status"] == "needs_review" and set(items(second)) == {"Rome"}
+        assert second["metrics"]["successful_rows"] == 1
+        # Round two settles Rome. Kyiv must still be the user's choice, not undecided again.
+        third = resume(second, "Rome", "3169070")
+        assert third["status"] == "completed", third
+        assert third["metrics"]["successful_rows"] == 3
+        assert third["previous_job_id"] == second["job_id"]
+        audit = client.get(third["artifacts"]["report"]).json()["execution"]["resolution_report"]
+        chosen = {
+            operation["report"]["candidate_set"]["query"]["name"]: (
+                operation["report"]["decision"]["basis"],
+                operation["report"]["decision"]["selected"]["entity_id"],
+            )
+            for operation in audit["operations"]
+            if operation["report"]["decision"]["basis"] == "user_override"
+        }
+        assert chosen == {"Kyiv": ("user_override", "703448"), "Rome": ("user_override", "3169070")}
+        rows = {row["row"]: row for row in client.get(third["artifacts"]["report"]).json()["rows"]}
+        assert rows[4]["user_chosen_steps"] == ["from_city", "to_city"]
+        # Each job still starts from one earlier job and can be resumed on its own:
+        # choosing differently from the first job does not inherit the later rounds.
+        other = resume(first, "Rome", "3169071")
+        assert other["metrics"]["successful_rows"] == 1 and set(items(other)) == {"Kyiv"}
+
+
 def test_a_table_below_a_title_is_found_on_upload_and_runs_from_there(client):
     workbook = Workbook()
     sheet = workbook.active
