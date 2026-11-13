@@ -45,9 +45,11 @@ def test_more_rows_than_the_names_allow_is_refused_with_the_numbers() -> None:
 
 def test_unrecognized_countries_are_left_out_unless_asked_for() -> None:
     assert recognized("Nepal/China")
-    assert not recognized("Russia")
-    assert not recognized("Georgia/Russia")
-    assert "Russia" in left_out("capitals")
+    assert recognized("Georgia/Russia")
+    # Kosovo has no ISO 3166-1 code, so no spelling of it can be recognized.
+    assert not recognized("Kosovo")
+    assert not recognized("Georgia/Kosovo")
+    assert left_out("capitals") == ["Kosovo"]
     assert all(recognized(country) for _, country in names("capitals"))
     assert all(recognized(country) for _, country in names("mountains"))
     assert len(names("capitals", keep_unrecognized=True)) == len(CAPITALS)
