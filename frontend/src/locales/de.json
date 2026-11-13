@@ -62,7 +62,7 @@
     "rowNumber": "Zeile",
     "rowsTotal": "{{total}} Zeilen",
     "rowsMatching": "{{shown}} von {{total}} Zeilen passen",
-    "filterRows": "Zeilen nach Text filtern",
+    "filterRows": "Nach Text filtern",
     "tableToolsHint": "Filtern und Sortieren ändern nur, was Sie hier sehen, nicht die Auswahl oder den Lauf.",
     "sortBy": "Nach {{column}} sortieren",
     "noMatches": "Keine Zeile enthält diesen Text.",
