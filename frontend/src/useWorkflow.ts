@@ -58,6 +58,11 @@ export function useWorkflow(
         limits?: Limits;
         /** Basic mode: pressing the button is the consent, with no checkbox. */
         implicitConsent?: boolean;
+        /**
+         * Workbook and sheet, without the range. The task is reset when this
+         * changes; when it is absent, on every change of the selection.
+         */
+        tableKey?: string;
     } = {},
 ) {
     const [provider, setProviderState] = useState<ProviderReadiness | null>(
@@ -147,10 +152,15 @@ export function useWorkflow(
         };
     }, []);
     // The hook lives above all workspace bodies. Navigation never owns job lifetime.
+    // Any change of the selection invalidates the plan and the run made for it.
     useEffect(() => {
         invalidate();
-        // A bundled example arrives with its instruction and output column;
-        // any other source starts empty.
+    }, [sourceKey]);
+    // The task itself belongs to the table, not to its boundaries: adjusting
+    // the range keeps the instruction, the output column and a pasted plan.
+    // Another workbook or sheet is another table and starts empty; a bundled
+    // example arrives with its instruction and output column.
+    useEffect(() => {
         setInstruction(sample?.instruction ?? "");
         setMapping([
             {
@@ -161,7 +171,7 @@ export function useWorkflow(
         ]);
         setSavedPlan("");
         setExistingOutputs("keep");
-    }, [sourceKey]);
+    }, [options.tableKey ?? sourceKey]);
     // A table with exactly one empty column most likely wants that column
     // filled: propose it, as long as nothing was chosen yet. The user sees the
     // proposal and can change it.

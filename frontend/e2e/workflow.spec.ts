@@ -859,7 +859,11 @@ test("invalid saved plan cannot be approved; source selection clears its draft",
     await page.getByLabel("Last row", { exact: true }).fill("10");
     await expect(page.getByTestId("fingerprint")).toHaveCount(0);
     await page.getByRole("button", { name: "Preview selection" }).click();
-    await expect(page.getByLabel("Enrichment instruction")).toHaveValue("");
+    // The draft made for the old boundaries is gone; the task written for the
+    // table is not.
+    await expect(page.getByLabel("Enrichment instruction")).toHaveValue(
+        "Calculate literal city distances.",
+    );
 });
 
 test("new column outside selection: collision protection, offline validation, real output and keyboard/mobile access", async ({

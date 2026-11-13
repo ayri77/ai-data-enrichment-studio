@@ -1787,6 +1787,39 @@ it("says next to the button what is still missing, and opens settings for a miss
     );
 });
 
+it("keeps the task when the boundaries of the table are adjusted", async () => {
+    render(<App />);
+    await prepare();
+    await userEvent.click(button("ws.buildPlan"));
+    await waitFor(() => expect(api.createPlan).toHaveBeenCalledTimes(1));
+    await navigate("dataset");
+    // Another last row: the plan made for the old selection is gone …
+    fireEvent.change(screen.getByLabelText("Last row"), {
+        target: { value: "8" },
+    });
+    await userEvent.click(button("previewAction"));
+    await waitFor(() =>
+        expect(api.preview).toHaveBeenLastCalledWith(
+            "source",
+            "Sheet1",
+            "A1:E8",
+        ),
+    );
+    // … but what was asked for and where it goes are still there.
+    expect(screen.getByLabelText("Enrichment instruction")).toHaveValue(
+        "Literal cities",
+    );
+    expect(screen.getByLabelText("Output column 1")).toHaveValue("E");
+    await userEvent.click(button("ws.buildPlan"));
+    await waitFor(() => expect(api.createPlan).toHaveBeenCalledTimes(2));
+    expect(api.createPlan).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+            instruction: "Literal cities",
+            output_columns: { distance: "E" },
+        }),
+    );
+});
+
 it("shows no list of missing items once a plan can be built", async () => {
     render(<App />);
     await prepare();
