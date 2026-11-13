@@ -37,7 +37,7 @@ These four row-level problems reduce to **two repeated input/context queries**, 
 
 ## Reproduction notes
 
-Run from the repository root. The source workbooks are tracked, but the generated plans, output-column binding files, results and resolution reports used for these runs were retained **locally** under `temp/` and are **not committed**. Generate and validate equivalent plans using `enrichment plan generate` and `enrichment plan evaluate` before running these commands; see the [README](../README.md). Plan generation requires an explicitly configured model API key; executing an existing saved plan does not.
+Run from the repository root. The source workbooks are tracked, but the generated plans, output-column binding files, results and resolution reports used for these runs were retained **locally** under `temp/` and are **not committed**. Generate and validate equivalent plans using `enrichment plan generate` and `enrichment plan evaluate` before running these commands; see [command-line and developer tools](28-cli-and-developer-tools.md). Plan generation requires an explicitly configured model API key; executing an existing saved plan does not.
 
 The following commands reproduce the *configuration* of the recorded execution once the local plans exist:
 

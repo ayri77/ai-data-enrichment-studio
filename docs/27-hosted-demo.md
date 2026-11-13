@@ -42,7 +42,7 @@ deployment cannot be open by accident.
 | `PORT` | no | Listening port, default `10000` in the image |
 
 Do not set the `ENRICHMENT_MAX_*` variables on a hosted demo. They raise the
-bounds of one run for local measurement (see the README's scale experiment);
+bounds of one run for local measurement (see the scale experiment in [command-line and developer tools](28-cli-and-developer-tools.md));
 the defaults — 20 rows, 400 requests per source, 300 seconds — are what keeps a
 shared instance short, cheap and polite to the free external sources.
 
