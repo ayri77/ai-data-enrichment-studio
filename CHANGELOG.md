@@ -25,6 +25,9 @@ to end in the browser.
 - **Results:** each row says whether it was filled and why not; the filled
   workbook is a separate copy; a JSON audit records how each value was
   obtained, the user's choices and where another name came from.
+- **A resume asks only for what is open:** values an earlier run of the same
+  plan confirmed are taken over without asking the sources again; the audit
+  says how many.
 - **Existing values are kept** unless the user chooses to replace them; each
   replaced cell is listed in the audit with its earlier value.
 - **Hosted demo:** one process behind a shared access code, with a Docker image
@@ -34,8 +37,8 @@ to end in the browser.
 
 ### Measured
 
-- Planning: 10 of 10 valid plans on each sample task with `gpt-4.1-mini` and
-  with `gpt-6-luna` at effort `low`
+- Planning: 10 of 10 valid plans on each sample task with `gpt-6-luna` at
+  effort `low` (the default model) and with `gpt-4.1-mini`
   ([live planning reliability](docs/26-live-planning-reliability.md)).
 - The two 10-row samples against live sources
   ([record of 2026-11-09](docs/18-academic-live-acceptance.md)).
