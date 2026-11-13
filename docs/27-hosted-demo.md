@@ -36,7 +36,7 @@ deployment cannot be open by accident.
 | --- | --- | --- |
 | `ENRICHMENT_ACCESS_CODE` | yes | Shared access code |
 | `OPENAI_API_KEY` | for live planning | Used only on the server |
-| `OPENAI_MODEL` | no | A model of the catalog (`planning/model_catalog.py`): `gpt-4.1-mini` (the default when unset) and `gpt-6-luna` (what `render.yaml` sets) were measured for planning; `gpt-4.1` was not. Measure a model before serving it: [live planning reliability](26-live-planning-reliability.md) |
+| `OPENAI_MODEL` | no | A model of the catalog (`planning/model_catalog.py`): `gpt-6-luna` (the default when unset, and what `render.yaml` sets) and `gpt-4.1-mini` were measured for planning; `gpt-4.1` was not. Measure a model before serving it: [live planning reliability](26-live-planning-reliability.md) |
 | `ENRICHMENT_ALLOW_NETWORK` | for live runs | `1` opens the server network gate; each run still needs the visitor's own consent |
 | `ENRICHMENT_STATIC_DIR` | no | Built frontend, default `frontend/dist` (set in the image) |
 | `PORT` | no | Listening port, default `10000` in the image |
@@ -85,7 +85,7 @@ buttons appear in the local launcher when it is started from the repository root
 docker build -t enrichment-studio .
 docker run --rm -p 10000:10000 `
     -e ENRICHMENT_ACCESS_CODE=choose-a-code `
-    --env-file .env -e OPENAI_MODEL=gpt-4.1-mini -e ENRICHMENT_ALLOW_NETWORK=1 `
+    --env-file .env -e OPENAI_MODEL=gpt-6-luna -e ENRICHMENT_ALLOW_NETWORK=1 `
     enrichment-studio
 ```
 

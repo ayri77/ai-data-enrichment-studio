@@ -241,9 +241,9 @@ to directly resolve mountain elevations"): it does not compose `resolve_entity` 
 `lookup_property`. The result predates the contract changes, so it is not a regression.
 A first-attempt abstention is final by design, so the repair loop does not help.
 
-`gpt-4o-mini` is therefore removed from the model catalog (`planning/model_catalog.py`), and `gpt-4.1-mini` is the
-default when `OPENAI_MODEL` is unset. `gpt-6-luna` met the same bar on 2026-11-13 (section
-below) and is what the hosted demo runs. `gpt-4.1` remains selectable but has not been
+`gpt-4o-mini` is therefore removed from the model catalog (`planning/model_catalog.py`), and `gpt-4.1-mini` became the
+default. `gpt-6-luna` met the same bar on 2026-11-13 (section below); since then it is the
+default when `OPENAI_MODEL` is unset and what the hosted demo runs. `gpt-4.1` remains selectable but has not been
 measured. Free-form and non-English instructions have not been measured on any model.
 The samples are small; treat the table as a floor for decisions, not as a rate.
 
@@ -257,7 +257,7 @@ been run against this project (result below); `gpt-5.6-luna` has not.
 
 | Model | Input / output per 1M tokens | Released | Kind |
 | --- | --- | --- | --- |
-| `gpt-4.1-mini` (default) | $0.40 / $1.60 | 2025-04 | no reasoning |
+| `gpt-4.1-mini` (default at the time) | $0.40 / $1.60 | 2025-04 | no reasoning |
 | `gpt-4.1` | $2.00 / $8.00 | 2025-04 | no reasoning |
 | `gpt-5.6-luna` | $0.20 / $1.20 | 2026-07 | reasoning, default effort `medium` |
 | `gpt-6-luna` | $0.10 / $0.50 | 2026-09 | reasoning, default effort `medium` |
@@ -310,7 +310,10 @@ limit of 4,096 tokens.
 No request needed a repair, so none came back `incomplete` or malformed; the extra
 message item reported on the forum did not show in these 20 requests. The catalog entry
 is therefore `measured=True` with effort `low`, and `render.yaml` names the model for the
-hosted demo. The default for a process without `OPENAI_MODEL` stays `gpt-4.1-mini`.
+hosted demo. By the owner's decision of the same day it is also the default for a process
+without `OPENAI_MODEL`: both measured models met the same bar, and it is the cheaper by
+list price. `gpt-4.1-mini` stays in the catalog as the measured alternative without
+reasoning.
 
 What this does not cover: effort `none` and the other efforts; what a plan costs in
 practice, since the script does not record token usage; the two other requests the

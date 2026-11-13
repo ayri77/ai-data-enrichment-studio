@@ -28,16 +28,17 @@ class ModelSpec:
 
 
 MODELS: tuple[ModelSpec, ...] = (
-    ModelSpec("gpt-4.1-mini", measured=True),
-    ModelSpec("gpt-4.1", measured=False),
     # Measured 2026-11-13 with effort "low": 10 of 10 valid plans on each sample,
     # all on the first attempt (docs/26). Other efforts were not measured, and
     # the reserve is headroom: the measurement passed without it.
     # gpt-4o-mini was removed after measurement (1 valid Mountains plan in 20);
     # see docs/26 before trusting a new entry.
     ModelSpec("gpt-6-luna", measured=True, reasoning_effort="low", reasoning_reserve_tokens=4096),
+    ModelSpec("gpt-4.1-mini", measured=True),
+    ModelSpec("gpt-4.1", measured=False),
 )
-DEFAULT_MODEL = "gpt-4.1-mini"
+# Both measured models met the same bar; this one is the cheaper by list price.
+DEFAULT_MODEL = "gpt-6-luna"
 SUPPORTED_MODELS: tuple[str, ...] = tuple(model.id for model in MODELS)
 _BY_ID = {model.id: model for model in MODELS}
 

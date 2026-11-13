@@ -328,7 +328,7 @@ def test_network_requires_both_opt_ins(server_enabled, request_enabled):
         # An explicitly configured but unsupported model is reported, not replaced.
         ("gpt-4o-mini", "llm_not_configured"),
         ("gpt-4.1-mini", "missing_api_key"),
-        # No configured model falls back to the measured default.
+        # No configured model falls back to the default, which is a measured one.
         (None, "missing_api_key"),
     ],
 )
