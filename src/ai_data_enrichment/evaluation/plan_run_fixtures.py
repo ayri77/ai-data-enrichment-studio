@@ -71,6 +71,26 @@ def offline_executor(
     )
 
 
+class FixtureNamesClient:
+    """Answer a request for other names of a place from a fixed table."""
+
+    # Warsaw is the one name the offline source lists differently.
+    NAMES = {"Warsaw": ["Warszawa", "Varsovie"], "Vienna": ["Wien"]}
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def complete(self, *, messages: list[dict[str, str]], response_schema: dict[str, Any]) -> str:
+        self.calls.append({"messages": messages, "response_schema": response_schema})
+        place = json.loads(messages[1]["content"])
+        return json.dumps({"names": self.NAMES.get(place["name"], [])})
+
+
+def asks_for_names(response_schema: dict[str, Any]) -> bool:
+    """Whether a completion request is for other names rather than a plan."""
+    return "names" in response_schema.get("properties", {})
+
+
 class FixturePlanClient:
     """Return a supplied model response while exercising the real LLMPlanner."""
 

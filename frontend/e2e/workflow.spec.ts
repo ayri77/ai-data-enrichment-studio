@@ -344,13 +344,30 @@ test("capitals: a name the source does not know is found under another name", as
         timeout: 30_000,
     });
     await page.getByRole("button", { name: "Review issues" }).click();
-    // The offline source knows Warsaw under its Polish name only.
+    // A name typed by hand that the source does not confirm either.
+    const vienna = page.getByTestId("unresolved-Vienna");
+    await vienna.getByText("Search under another name").click();
+    await vienna
+        .getByLabel("Name to search for instead of “Vienna”")
+        .fill("Wien");
+    await vienna.getByRole("button", { name: "Search" }).click();
+    await expect(vienna.getByTestId("other-name-found")).toContainText(
+        "no confirmed match for “Wien”",
+    );
+    // The offline source knows Warsaw under its Polish name only; the AI
+    // proposes it, and the proposal is searched like a typed name.
     const warsaw = page.getByTestId("unresolved-Warsaw");
     await warsaw.getByText("Search under another name").click();
     await warsaw
-        .getByLabel("Name to search for instead of “Warsaw”")
-        .fill("Warszawa");
-    await warsaw.getByRole("button", { name: "Search" }).click();
+        .getByRole("button", { name: "Ask the AI for other names" })
+        .click();
+    await page.screenshot({
+        path: testInfo.outputPath("review-ai-names.png"),
+    });
+    await warsaw
+        .getByTestId("ai-names")
+        .getByRole("button", { name: "Warszawa" })
+        .click();
     // The source is asked at once and the confirmed match is offered.
     const match = warsaw.getByTestId("found-open-meteo:756135");
     await expect(match).toContainText("Warszawa");

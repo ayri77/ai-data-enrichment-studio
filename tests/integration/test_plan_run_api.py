@@ -26,6 +26,7 @@ from ai_data_enrichment import plan_run
 from ai_data_enrichment.api import create_app
 from ai_data_enrichment.evaluation.plan_run_fixtures import (
     APITransportFixture,
+    FixtureNamesClient,
     FixturePlanClient,
     offline_executor,
 )
@@ -1487,3 +1488,90 @@ def test_a_search_needs_a_reviewable_item_and_stays_within_its_limit(other_names
     assert search(client, first, varsovie, "Warsaw").status_code == 200
     limited = search(client, first, varsovie, "Warszawa")
     assert limited.status_code == 429 and limited.json()["error"]["code"] == "search_limit"
+
+
+@pytest.fixture
+def asking():
+    """A job with unknown names and a model that proposes other names for them."""
+    names = FixtureNamesClient()
+    names.NAMES = {"Varsovie": ["Warsaw", "varsovie", "Warschau"]}
+    app = create_app(offline_executor_factory=other_spellings_executor, offline_plan_client=names)
+    with TestClient(app) as client:
+        content, range_ref = table(
+            CAPITALS_HEADER,
+            ("Varsovie", "Poland", "Paris", "France"),
+            ("Kiev", "Ukraine", "London", "United Kingdom"),
+        )
+        dataset_id = upload(client, "capitals", content)
+        response = client.post(
+            "/api/plans", json={**request_body(dataset_id, "capitals"), "range_ref": range_ref}
+        )
+        job = wait(client, start(client, approve(client, response.json())))
+        yield client, job, names
+
+
+def ask(client, job, operation_id):
+    return client.post(f"/api/jobs/{job['job_id']}/review/{operation_id}/suggestions", json={})
+
+
+def test_the_model_proposes_names_and_each_is_searched_like_a_typed_one(asking):
+    client, job, model = asking
+    unknown = listed(client, job, "informational")
+    varsovie = unknown["Varsovie"]
+    response = ask(client, job, varsovie["operation_id"])
+    assert response.status_code == 200, response.text
+    # The row's own value is not a proposal.
+    assert response.json() == {
+        "operation_id": varsovie["operation_id"],
+        "names": ["Warsaw", "Warschau"],
+    }
+    # Only the name, its kind, country and source were sent.
+    [call] = model.calls
+    assert json.loads(call["messages"][1]["content"]) == {
+        "name": "Varsovie",
+        "kind": "city",
+        "country": "PL",
+        "source": "GeoNames; a name must equal the entry's English name",
+        "already_tried": [],
+    }
+    # Asking again costs nothing.
+    assert ask(client, job, varsovie["operation_id"]).json()["names"] == ["Warsaw", "Warschau"]
+    assert len(model.calls) == 1
+    # A proposal decides nothing: it is a name to search, verified by the source.
+    assert client.get(f"/api/jobs/{job['job_id']}/review").json()["informational"] == list(
+        unknown.values()
+    )
+    found = search(client, job, varsovie, "Warsaw").json()
+    assert [(c["entity_id"], c["selectable"]) for c in found["candidates"]] == [("756135", True)]
+    assert search(client, job, varsovie, "Warschau").json()["candidates"] == []
+    # A place the model does not know gets an empty list, not an error.
+    assert ask(client, job, unknown["Kiev"]["operation_id"]).json()["names"] == []
+
+
+def test_asking_the_model_is_refused_or_reported_without_guessing(asking, monkeypatch):
+    client, job, model = asking
+    varsovie = listed(client, job, "informational")["Varsovie"]["operation_id"]
+    unknown = ask(client, job, "unknown")
+    assert unknown.status_code == 422 and unknown.json()["error"]["code"] == "invalid_search"
+    assert ask(client, {"job_id": "missing"}, varsovie).status_code == 404
+
+    def broken(**_):
+        raise RuntimeError("model unavailable")
+
+    monkeypatch.setattr(model, "complete", broken)
+    failed = ask(client, job, varsovie)
+    assert failed.status_code == 502 and failed.json()["error"]["code"] == "suggestions_failed"
+    monkeypatch.setattr(model, "complete", lambda **_: "The capital of Poland is Warsaw.")
+    assert ask(client, job, varsovie).json()["error"]["code"] == "suggestions_failed"
+    monkeypatch.setattr(plan_run, "MAX_REVIEW_SUGGESTIONS", 2)
+    limited = ask(client, job, varsovie)
+    assert limited.status_code == 429 and limited.json()["error"]["code"] == "suggestion_limit"
+
+
+def test_asking_the_model_needs_the_network_opt_in_and_a_configured_model(other_names):
+    client, job = other_names
+    varsovie = listed(client, job, "informational")["Varsovie"]["operation_id"]
+    endpoint = f"/api/jobs/{job['job_id']}/review/{varsovie}/suggestions"
+    assert client.post(endpoint, json={}).json()["error"]["code"] == "network_disabled"
+    refused = client.post(endpoint, json={"allow_network": True})
+    assert refused.status_code == 403 and refused.json()["error"]["code"] == "network_disabled"

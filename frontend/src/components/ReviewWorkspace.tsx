@@ -6,6 +6,7 @@ import {
     LoaderCircle,
     Play,
     Search,
+    Sparkles,
 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -222,6 +223,15 @@ function OtherName({
     if (!item.other_name) return null;
     const name = otherName(item, text);
     const offered = foundCandidates(found);
+    const proposed = w.suggestions[item.operation_id];
+    // The AI needs what planning needs: consent, a model and a key.
+    const canAsk =
+        w.planningReadiness === "ready" || w.planningReadiness === "offline";
+    const search = (searched: string) =>
+        void w.action(
+            () => w.searchOtherName(item.operation_id, searched),
+            "search",
+        );
     return (
         <details className="other-name" open={open || !!found || undefined}>
             <summary>{t("review.otherName.toggle")}</summary>
@@ -229,10 +239,7 @@ function OtherName({
                 onSubmit={(event) => {
                     event.preventDefault();
                     if (!name || w.locked || !w.consent) return;
-                    void w.action(
-                        () => w.searchOtherName(item.operation_id, name),
-                        "search",
-                    );
+                    search(name);
                 }}
             >
                 <label htmlFor={id}>
@@ -299,6 +306,55 @@ function OtherName({
                         </p>
                     )}
                 </div>
+            )}
+            {proposed === undefined ? (
+                <div className="other-name-ai">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        disabled={!canAsk || w.locked || !w.consent}
+                        onClick={() =>
+                            void w.action(
+                                () => w.suggestNames(item.operation_id),
+                                "suggest",
+                            )
+                        }
+                    >
+                        <Sparkles aria-hidden="true" />
+                        {t("review.ai.ask")}
+                    </Button>
+                    <p className="muted">
+                        {t(
+                            canAsk
+                                ? "review.ai.sends"
+                                : "review.ai.unavailable",
+                        )}
+                    </p>
+                </div>
+            ) : proposed.length > 0 ? (
+                <div className="other-name-ai" data-testid="ai-names">
+                    <p className="muted">{t("review.ai.proposed")}</p>
+                    <div className="other-name-proposed">
+                        {proposed.map((suggested) => (
+                            <Button
+                                key={suggested}
+                                type="button"
+                                variant="outline"
+                                disabled={w.locked || !w.consent}
+                                onClick={() => {
+                                    setText(suggested);
+                                    search(suggested);
+                                }}
+                            >
+                                {suggested}
+                            </Button>
+                        ))}
+                    </div>
+                </div>
+            ) : (
+                <p className="muted" data-testid="ai-names">
+                    {t("review.ai.none", { name: item.query.name })}
+                </p>
             )}
         </details>
     );

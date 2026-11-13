@@ -44,6 +44,7 @@ export type Operation =
     | "start"
     | "resume"
     | "search"
+    | "suggest"
     | "cancel"
     | "download";
 export function useWorkflow(
@@ -110,6 +111,10 @@ export function useWorkflow(
     const [choices, setChoices] = useState<Choices>({});
     // What the latest search under another name found for each name.
     const [searches, setSearches] = useState<Searches>({});
+    // Other names the AI proposed for each name; they are only text to search.
+    const [suggestions, setSuggestions] = useState<Record<string, string[]>>(
+        {},
+    );
     const [history, setHistory] = useState<
         { job: Job; report: AuditReport | null; plan: PlanDraft | null }[]
     >([]);
@@ -218,6 +223,7 @@ export function useWorkflow(
         setReview(null);
         setChoices({});
         setSearches({});
+        setSuggestions({});
         setError("");
         setPollError("");
     }
@@ -350,6 +356,7 @@ export function useWorkflow(
         setReview(null);
         setChoices({});
         setSearches({});
+        setSuggestions({});
         setPollError("");
         setJob(started);
         setJobSince(Date.now());
@@ -464,6 +471,16 @@ export function useWorkflow(
                 : old,
         );
     }
+    async function suggestNames(operationId: string) {
+        if (!job || !consent) return;
+        const { names } = await api.suggestNames(
+            job.job_id,
+            operationId,
+            consent,
+        );
+        if (mounted.current)
+            setSuggestions((old) => ({ ...old, [operationId]: names }));
+    }
     function acceptRecommendations() {
         if (review && !locked)
             setChoices((old) => withRecommendations(review, old));
@@ -483,6 +500,7 @@ export function useWorkflow(
             setReview(null);
             setChoices({});
             setSearches({});
+            setSuggestions({});
             setPollError("");
             setJob(started);
             setJobSince(Date.now());
@@ -543,6 +561,8 @@ export function useWorkflow(
         unchoose,
         searches,
         searchOtherName,
+        suggestions,
+        suggestNames,
         acceptRecommendations,
         canResume,
         resume,

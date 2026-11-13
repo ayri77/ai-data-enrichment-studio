@@ -49,6 +49,7 @@ vi.mock("./api", async (original) => ({
         getReview: vi.fn(),
         resumeJob: vi.fn(),
         searchOtherName: vi.fn(),
+        suggestNames: vi.fn(),
         artifact: vi.fn(),
     },
 }));
@@ -1358,6 +1359,71 @@ it("offers the fill for a run with nothing to choose once a search has a chosen 
         ),
     ).toBeVisible();
     expect(button("review.resume")).toBeDisabled();
+});
+
+it("asks the AI for other names and searches the one that is chosen", async () => {
+    const [oslo] = review.informational;
+    const [berlin, kyiv] = review.items;
+    vi.mocked(api.getReview).mockResolvedValue({
+        ...review,
+        items: [berlin, { ...kyiv, other_name: true }],
+        informational: [{ ...oslo, other_name: true }],
+    });
+    vi.mocked(api.suggestNames)
+        .mockRejectedValueOnce(
+            new WorkspaceApiError("suggestions_failed", "sanitized"),
+        )
+        .mockImplementation(async (_job, operationId) => ({
+            operation_id: operationId,
+            names:
+                operationId === "op-oslo" ? ["Kristiania", "Christiania"] : [],
+        }));
+    vi.mocked(api.searchOtherName).mockResolvedValue({
+        ...oslo,
+        status: "resolved",
+        query: { ...oslo.query, searched_as: "Kristiania" },
+        candidates: [place("3143244", { label: "Kristiania" })],
+    });
+    render(<App />);
+    await start();
+    await navigate("review");
+    const ask = { name: i18n.t("review.ai.ask") };
+    const unmatched = within(await screen.findByTestId("unresolved-Oslo"));
+    // What leaves the workspace is said before anything is sent.
+    expect(unmatched.getByText(i18n.t("review.ai.sends"))).toBeInTheDocument();
+    await userEvent.click(unmatched.getByRole("button", ask));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+        i18n.t("error.suggestions_failed"),
+    );
+    await userEvent.click(unmatched.getByRole("button", ask));
+    expect(api.suggestNames).toHaveBeenLastCalledWith("job", "op-oslo", true);
+    const names = within(await unmatched.findByTestId("ai-names"));
+    expect(names.getByText(i18n.t("review.ai.proposed"))).toBeInTheDocument();
+    // A proposal is not a result: nothing is searched or chosen yet.
+    expect(api.searchOtherName).not.toHaveBeenCalled();
+    expect(button("review.resume")).toBeDisabled();
+    await userEvent.click(names.getByRole("button", { name: "Kristiania" }));
+    expect(api.searchOtherName).toHaveBeenCalledWith(
+        "job",
+        "op-oslo",
+        "Kristiania",
+        true,
+    );
+    expect(
+        unmatched.getByLabelText(
+            i18n.t("review.otherName.label", { name: "Oslo" }),
+        ),
+    ).toHaveValue("Kristiania");
+    // The source's answer still has to be chosen.
+    await unmatched.findByTestId("found-open-meteo:3143244");
+    expect(button("review.resume")).toBeDisabled();
+
+    // No proposals is said as such.
+    const card = within(screen.getByTestId("review-Kyiv"));
+    await userEvent.click(card.getByRole("button", ask));
+    expect(await card.findByTestId("ai-names")).toHaveTextContent(
+        i18n.t("review.ai.none", { name: "Kyiv" }),
+    );
 });
 
 it("shows results with source values, readable numbers, reasons, filters and details", async () => {
