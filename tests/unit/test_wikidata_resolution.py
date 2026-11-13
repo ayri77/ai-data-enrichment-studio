@@ -10,6 +10,7 @@ from ai_data_enrichment.execution.models import EntityRef
 from ai_data_enrichment.providers.http_transport import JsonTransportError
 from ai_data_enrichment.providers.wikidata import WikidataMountainResolver
 from ai_data_enrichment.providers.wikidata_resolution import WikidataMountainResolutionService
+from ai_data_enrichment.resolution.approvals import approval_blocker
 from ai_data_enrichment.resolution.engine import ResolutionEngine
 from ai_data_enrichment.resolution.models import CandidateSet, ResolutionPolicy, ResolutionReport
 from ai_data_enrichment.resolution.mountain import MountainRankingStrategy
@@ -169,9 +170,19 @@ def test_claim_batches_do_not_hide_an_unfinished_candidate_scan(verified_only: b
         policy=_policy(verified_only=verified_only),
     )
     if verified_only:
-        assert outcome.operation.value == EntityRef(source="wikidata", entity_id="Q10000")
-        assert outcome.report.decision.basis == "verified_only"
-        assert "unchecked_alternatives_remain" in outcome.report.decision.reason_codes
+        # One candidate is confirmed, fifty were never looked at. That is not
+        # "the only confirmed match": a person decides, and can pick it.
+        decision = outcome.report.decision
+        assert outcome.operation.status == "failure" and decision.selected is None
+        assert decision.status == "needs_review"
+        assert decision.reason_codes == (
+            "single_positively_verified_candidate",
+            "candidates_not_examined",
+        )
+        confirmed = outcome.report.candidate_set.candidates[0]
+        assert confirmed.verification == "verified"
+        assert approval_blocker(confirmed, outcome.report) is None
+        assert approval_blocker(outcome.report.candidate_set.candidates[1], outcome.report)
     else:
         assert outcome.operation.error_code == "INCOMPLETE_VERIFICATION"
     assert not outcome.report.candidate_set.candidate_scan_complete
@@ -237,7 +248,8 @@ def test_the_lookup_budget_follows_the_search_order_not_the_entity_ids() -> None
     )
     by_id = {c.reference.entity_id: c for c in outcome.report.candidate_set.candidates}
     assert by_id["Q583"].verification == "verified"
-    assert outcome.operation.value == EntityRef(source="wikidata", entity_id="Q583")
+    # Confirmed, and offered for confirmation: ten namesakes were not examined.
+    assert outcome.report.decision.status == "needs_review"
     # The summit is typed as a mountain and its country is known, so it costs
     # nothing. The budget of two goes to two streets in the same country, which
     # are ruled out; ten are left unexamined.
