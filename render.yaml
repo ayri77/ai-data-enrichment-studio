@@ -21,6 +21,10 @@ services:
       # Measured for planning in docs/26-live-planning-reliability.md.
       - key: OPENAI_MODEL
         value: gpt-6-luna
+      # Optional: offers the driving distance by road. Leave it empty until the
+      # planner was measured with it (docs/30-road-distance-and-ratio.md).
+      - key: OPENROUTESERVICE_API_KEY
+        sync: false
       # Server network gate; each run still needs the visitor's own consent.
       - key: ENRICHMENT_ALLOW_NETWORK
         value: "1"

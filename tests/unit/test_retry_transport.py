@@ -299,3 +299,63 @@ def test_semantic_result_is_returned_untouched_without_retries() -> None:
     retry = wrap(transport)
     assert invoke(retry) is payload
     assert len(transport.calls) == 1
+
+
+class PostingTransport(ScriptedTransport):
+    """Replay outcomes for requests that send a JSON body."""
+
+    def post_json(
+        self,
+        *,
+        url: str,
+        body: Mapping[str, object],
+        timeout_seconds: float,
+    ) -> object:
+        self.calls.append((url, {key: str(value) for key, value in body.items()}, timeout_seconds))
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def post(wrapper: RetryingJsonTransport) -> object:
+    return wrapper.post_json(
+        url="https://approved.test/route", body={"geometry": False}, timeout_seconds=20.0
+    )
+
+
+def test_a_request_with_a_body_is_retried_under_the_same_policy() -> None:
+    transport = PostingTransport(
+        [JsonTransportError("http_status", status_code=429), {"routes": []}]
+    )
+    clock = FakeTime()
+    retry = wrap(transport, clock=clock)
+
+    assert post(retry) == {"routes": []}
+    assert transport.calls[0] == transport.calls[1]
+    assert transport.calls[0] == ("https://approved.test/route", {"geometry": "False"}, 20.0)
+    assert clock.waits == [0.25]
+    assert retry.snapshot_stats().transport_attempts == 2
+
+
+def test_a_refusal_with_a_body_is_not_retried_and_keeps_its_reason() -> None:
+    refusal = JsonTransportError("http_status", status_code=404, payload={"error": {"code": 2009}})
+    transport = PostingTransport([refusal])
+    retry = wrap(transport)
+
+    with pytest.raises(JsonTransportError) as captured:
+        post(retry)
+
+    assert captured.value is refusal
+    assert len(transport.calls) == 1
+
+
+def test_a_transport_that_cannot_send_a_body_is_refused_before_any_attempt() -> None:
+    transport = ScriptedTransport([{"ok": True}])
+    retry = wrap(transport)
+
+    with pytest.raises(TypeError):
+        post(retry)
+
+    assert transport.calls == []
+    assert retry.snapshot_stats().transport_attempts == 0

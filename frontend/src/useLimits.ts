@@ -9,12 +9,21 @@ export interface Limits {
     /** Data rows and cells of a table that can be read and looked through. */
     maxTableRows: number;
     maxTableCells: number;
+    /** Ids of what a plan may use on this server. */
+    capabilities: string[];
 }
 export const DEMO_LIMITS: Limits = {
     maxRows: 20,
     maxTimeout: 300,
     maxTableRows: 5000,
     maxTableCells: 100_000,
+    // Until the server says otherwise, nothing that needs a configured source.
+    capabilities: [
+        "geocode",
+        "geodesic_distance",
+        "resolve_entity",
+        "lookup_property",
+    ],
 };
 
 export function useLimits(): Limits {
@@ -32,6 +41,8 @@ export function useLimits(): Limits {
                             stated.max_table_rows ?? DEMO_LIMITS.maxTableRows,
                         maxTableCells:
                             stated.max_table_cells ?? DEMO_LIMITS.maxTableCells,
+                        capabilities:
+                            stated.capabilities ?? DEMO_LIMITS.capabilities,
                     });
             } catch {
                 // The demo's bounds stay; the server still checks every value.

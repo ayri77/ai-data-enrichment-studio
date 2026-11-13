@@ -10,6 +10,10 @@ export type Cause =
     | "country"
     | "too_long"
     | "not_reverified"
+    | "no_route"
+    | "off_road"
+    | "too_far"
+    | "access"
     | "other";
 const CAUSES: Record<string, Cause> = {
     AMBIGUOUS: "ambiguous",
@@ -28,6 +32,10 @@ const CAUSES: Record<string, Cause> = {
     UNRECOGNIZED_COUNTRY: "country",
     NAME_TOO_LONG: "too_long",
     APPROVAL_NOT_REVERIFIED: "not_reverified",
+    NO_ROUTE: "no_route",
+    POINT_NOT_ON_ROAD: "off_road",
+    ROUTE_TOO_LONG: "too_far",
+    SOURCE_ACCESS_DENIED: "access",
 };
 export interface ResultStep {
     stepId: string;
@@ -149,11 +157,14 @@ export function resultRows(
         const outputs: ResultRow["outputs"] = {};
         for (const output of plan?.outputs ?? []) {
             const step = steps.find((s) => s.stepId === output.step_id);
-            const field =
-                step?.ok && step.value && typeof step.value === "object"
-                    ? (step.value as Record<string, unknown>)[
-                          output.value_field
-                      ]
+            // A step returns either a structured value with named fields or a
+            // plain one, which is its own "value".
+            const field = !step?.ok
+                ? undefined
+                : step.value && typeof step.value === "object"
+                  ? (step.value as Record<string, unknown>)[output.value_field]
+                  : output.value_field === "value"
+                    ? step.value
                     : undefined;
             outputs[output.target_column] = scalar(field) ? field : undefined;
         }

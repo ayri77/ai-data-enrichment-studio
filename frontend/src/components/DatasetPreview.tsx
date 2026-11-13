@@ -30,6 +30,7 @@ export function DatasetPreview({
     hasWorkbook,
     filled = [],
     maxRows = 20,
+    capabilities,
     runLast = null,
 }: {
     preview: Preview | null;
@@ -39,6 +40,7 @@ export function DatasetPreview({
     /** Columns chosen to be filled: being empty is expected of them. */
     filled?: string[];
     maxRows?: number;
+    capabilities?: string[];
     /** Worksheet row of the last row a run takes; later rows are only shown. */
     runLast?: number | null;
 }) {
@@ -422,7 +424,10 @@ export function DatasetPreview({
                                 {hasWorkbook ? (
                                     <p>{t("readyHint")}</p>
                                 ) : (
-                                    <CanDo maxRows={maxRows} />
+                                    <CanDo
+                                        maxRows={maxRows}
+                                        capabilities={capabilities}
+                                    />
                                 )}
                             </div>
                         </div>

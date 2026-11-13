@@ -64,9 +64,11 @@ export function PlanDescription({ draft }: { draft: PlanDraft }) {
 export function PlanRefusal({
     draft,
     maxRows,
+    capabilities,
 }: {
     draft: PlanDraft;
     maxRows: number;
+    capabilities?: string[];
 }) {
     const { t } = useTranslation();
     const status =
@@ -87,7 +89,7 @@ export function PlanRefusal({
                     {draft.reason}
                 </p>
             )}
-            <CanDo maxRows={maxRows} />
+            <CanDo maxRows={maxRows} capabilities={capabilities} />
             <p>{t("plan.rephrase")}</p>
         </div>
     );

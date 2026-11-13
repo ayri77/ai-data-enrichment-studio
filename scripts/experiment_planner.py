@@ -31,9 +31,7 @@ from tests.support.planning import (
     workbook_profile,
 )
 
-from ai_data_enrichment.capabilities.definitions import get_builtin_capabilities
-from ai_data_enrichment.capabilities.registry import CapabilityRegistry
-from ai_data_enrichment.plan_run_worker import MAX_PLAN_STEPS
+from ai_data_enrichment.plan_run_worker import MAX_PLAN_STEPS, builtin_registry
 from ai_data_enrichment.planning.llm_planner import LLMPlanner, PlanGenerationError
 from ai_data_enrichment.planning.openai_client import OpenAIPlanClient
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy
@@ -139,9 +137,11 @@ def run() -> None:
     if not instruction:
         parser.error("Instruction cannot be empty")
 
-    registry = CapabilityRegistry()
-    for capability in get_builtin_capabilities():
-        registry.register(capability)
+    # What the application offers in this environment: a road distance is part
+    # of it only with a routing key, and the planner is measured on that set.
+    registry = builtin_registry()
+    offered = sorted(spec.id for spec in registry.list_all())
+    print(f"Capabilities offered to the planner: {', '.join(offered)}")
 
     experiment_dir = args.out / (
         datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8]
@@ -221,6 +221,7 @@ def run() -> None:
         "model": args.model,
         "reasoning_effort": args.reasoning_effort,
         "max_output_tokens": args.max_output_tokens,
+        "capabilities": offered,
         "request_timing": timing,
         "git_revision": source_revision(),
         "repeat": args.repeat,

@@ -108,6 +108,7 @@ def no_parent_network(monkeypatch):
         pytest.fail("Offline integration tests attempted external HTTP")
 
     monkeypatch.setattr(UrllibJsonTransport, "get_json", denied)
+    monkeypatch.setattr(UrllibJsonTransport, "post_json", denied)
 
 
 @pytest.fixture
@@ -936,7 +937,8 @@ def test_a_running_job_is_never_evicted(monkeypatch):
         assert client.get(f"/api/jobs/{running['job_id']}").status_code == 404
 
 
-def test_limits_state_what_one_run_accepts(client):
+def test_limits_state_what_one_run_accepts(client, monkeypatch):
+    monkeypatch.delenv("OPENROUTESERVICE_API_KEY", raising=False)
     limits = client.get("/api/limits").json()
     assert limits == {
         "max_table_rows": 5000,
@@ -944,7 +946,17 @@ def test_limits_state_what_one_run_accepts(client):
         "max_run_rows": MAX_RUN_ROWS,
         "max_timeout_seconds": MAX_TIMEOUT_SECONDS,
         "default_timeout_seconds": DEFAULT_TIMEOUT_SECONDS,
+        "capabilities": [
+            "geocode",
+            "geodesic_distance",
+            "lookup_property",
+            "ratio",
+            "resolve_entity",
+        ],
     }
+    # A road distance is listed only where its source is configured.
+    monkeypatch.setenv("OPENROUTESERVICE_API_KEY", "key-for-the-offline-fixture")
+    assert "road_distance" in client.get("/api/limits").json()["capabilities"]
     # The stated bound is the enforced one.
     plan = draft(client)
     approve(client, plan)
@@ -1824,3 +1836,165 @@ def test_task_ideas_need_the_network_opt_in_and_a_configured_model(client):
     dataset_id = upload(client, "capitals")
     refused = task_ideas(client, dataset_id, allow_network=True)
     assert refused.status_code == 403 and refused.json()["error"]["code"] == "network_disabled"
+
+
+ROADS_HEADER = (*CAPITALS_HEADER[:4], "straight", "road", "detour")
+ROADS_PLAN = {
+    "version": "1.0",
+    "steps": [
+        *plan_payload()["steps"][:2],
+        {
+            "id": "straight",
+            "capability": "geodesic_distance",
+            "inputs": {
+                "point_a": {"kind": "step_output", "step_id": "from_city"},
+                "point_b": {"kind": "step_output", "step_id": "to_city"},
+            },
+            "parameters": {"unit": "km"},
+        },
+        {
+            "id": "road",
+            "capability": "road_distance",
+            "inputs": {
+                "point_a": {"kind": "step_output", "step_id": "from_city"},
+                "point_b": {"kind": "step_output", "step_id": "to_city"},
+            },
+            "parameters": {"unit": "km"},
+        },
+        {
+            "id": "detour",
+            "capability": "ratio",
+            "inputs": {
+                "numerator": {"kind": "step_output", "step_id": "road"},
+                "denominator": {"kind": "step_output", "step_id": "straight"},
+            },
+            "parameters": {},
+        },
+    ],
+    "outputs": [
+        {
+            "step_id": "straight",
+            "value_field": "value",
+            "target_column": "straight",
+            "expected_unit": "km",
+        },
+        {
+            "step_id": "road",
+            "value_field": "value",
+            "target_column": "road",
+            "expected_unit": "km",
+        },
+        {"step_id": "detour", "value_field": "value", "target_column": "detour"},
+    ],
+    "assumptions": [],
+}
+
+
+def roads_request(client):
+    """Two pairs with a route (one of them twice), one without, one unresolved city."""
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet.title = "Sheet1"
+    sheet.append(ROADS_HEADER)
+    for pair in (
+        KNOWN_PAIR,
+        ("Paris", "France", "London", "United Kingdom"),
+        ("Warszawa", "Poland", "Rome", "Italy"),
+        KNOWN_PAIR,
+        ("London", "United Kingdom", "Kyiv", "Ukraine"),
+    ):
+        sheet.append(pair)
+    buffer = BytesIO()
+    workbook.save(buffer)
+    return {
+        "dataset_id": upload(client, "roads", buffer.getvalue()),
+        "sheet_name": "Sheet1",
+        "range_ref": "A1:G6",
+        "instruction": "Straight-line and road distance in km, and how much longer the road is.",
+        "output_columns": {"straight": "E", "road": "F", "detour": "G"},
+        "plan": ROADS_PLAN,
+    }
+
+
+def test_a_plan_fills_three_columns_from_a_branching_graph(client, monkeypatch):
+    monkeypatch.setenv("OPENROUTESERVICE_API_KEY", "key-for-the-offline-fixture")
+    response = client.post("/api/plans", json=roads_request(client))
+    assert response.status_code == 201, response.text
+    plan = response.json()
+    assert plan["validation"]["valid"], plan["validation"]
+    approve(client, plan)
+
+    job = wait(client, start(client, plan))
+    report = client.get(job["artifacts"]["report"]).json()
+    execution = report["execution"]
+    rows = {row["row"]: row for row in report["rows"]}
+    results = {
+        rows_by["row"]: {step["step_id"]: step["result"] for step in record["row_result"]["steps"]}
+        for record in execution["records"]
+        for rows_by in report["rows"]
+        if rows_by["record_id"] == record["record_id"]
+    }
+
+    # London to Rome: both distances and their ratio, each from its own step.
+    assert rows[2]["status"] == "success"
+    straight, road, detour = (results[2][step]["value"] for step in ("straight", "road", "detour"))
+    assert straight["value"] == pytest.approx(1434.0, abs=2) and straight["unit"] == "km"
+    assert road == {"value": 1870.0, "unit": "km"}
+    assert detour == pytest.approx(1870.0 / straight["value"])
+    # A road distance names the service that computed it, not a record.
+    assert results[2]["road"]["evidence"] == [
+        {"source": "openrouteservice", "reference": "driving-car:osm-2026-11-02T00:00:00Z"}
+    ]
+    assert results[2]["detour"]["evidence"] == [{"source": "calculation", "reference": "ratio:km"}]
+
+    # No route: the straight-line distance is still written, the other two are not.
+    assert rows[4]["status"] == "partial"
+    assert results[4]["straight"]["status"] == "success"
+    assert results[4]["road"]["error_code"] == "NO_ROUTE"
+    assert results[4]["detour"]["error_code"] == "DEPENDENCY_FAILED"
+    # An ambiguous city costs every value that needs it.
+    assert results[6]["to_city"]["error_code"] == "AMBIGUOUS"
+    assert {results[6][step]["error_code"] for step in ("straight", "road", "detour")} == {
+        "DEPENDENCY_FAILED"
+    }
+
+    # The routing service was asked once per distinct pair: three, not four.
+    routing = execution["provider_requests"]["openrouteservice"]
+    assert routing["transport_attempts"] == 3 and routing["retry_attempts"] == 0
+    assert "key-for-the-offline-fixture" not in json.dumps(report)
+
+    workbook = load_workbook(BytesIO(client.get(job["artifacts"]["result"]).content))
+    try:
+        sheet = workbook["Sheet1"]
+        assert sheet["F2"].value == 1870.0 and sheet["F3"].value == 460.0
+        assert sheet["G2"].value == pytest.approx(1870.0 / sheet["E2"].value)
+        assert sheet["E4"].value and sheet["F4"].value is None and sheet["G4"].value is None
+        assert [sheet[f"{column}6"].value for column in "EFG"] == [None, None, None]
+        assert sheet["F5"].value == 1870.0
+    finally:
+        workbook.close()
+
+    # The same plan run again takes the routes over instead of asking again.
+    again = wait(client, start(client, plan))
+    repeated = client.get(again["artifacts"]["report"]).json()["execution"]
+    assert repeated["provider_requests"]["openrouteservice"]["transport_attempts"] == 1
+    assert repeated["metrics"]["persistent_cache_hits"] >= 2
+
+
+def test_without_a_routing_key_a_plan_cannot_ask_for_a_road_distance(client, monkeypatch):
+    monkeypatch.delenv("OPENROUTESERVICE_API_KEY", raising=False)
+    response = client.post("/api/plans", json=roads_request(client))
+    assert response.status_code == 201, response.text
+    plan = response.json()
+
+    assert not plan["validation"]["valid"]
+    assert {(error["code"], error["step_id"]) for error in plan["validation"]["errors"]} >= {
+        ("UNSUPPORTED_CAPABILITY", "road")
+    }
+    refused = client.post(
+        f"/api/plans/{plan['plan_id']}/approve",
+        json={"approved": True, "fingerprint": plan["fingerprint"]},
+    )
+    assert refused.status_code == 422
+    assert refused.json()["error"]["code"] == "invalid_plan"

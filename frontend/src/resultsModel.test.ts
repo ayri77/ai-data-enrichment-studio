@@ -330,3 +330,101 @@ it("tells a kept or replaced earlier value from a value this run filled in", () 
     expect(rows[0].kept).toEqual([]);
     expect(rows[0].filled).toBe(true);
 });
+
+it("reads a plain number a step returned, and names what a routing service said", () => {
+    const roads: EnrichmentPlan = {
+        version: "1.0",
+        steps: [
+            {
+                id: "road",
+                capability: "road_distance",
+                inputs: {
+                    point_a: { kind: "step_output", step_id: "from" },
+                    point_b: { kind: "step_output", step_id: "to" },
+                },
+                parameters: { unit: "km" },
+            },
+            {
+                id: "detour",
+                capability: "ratio",
+                inputs: {
+                    numerator: { kind: "step_output", step_id: "road" },
+                    denominator: { kind: "step_output", step_id: "straight" },
+                },
+                parameters: {},
+            },
+        ],
+        outputs: [
+            {
+                step_id: "road",
+                value_field: "value",
+                target_column: "road",
+                expected_unit: "km",
+            },
+            {
+                step_id: "detour",
+                value_field: "value",
+                target_column: "detour",
+            },
+            // A plain number has no other field to read.
+            { step_id: "detour", value_field: "unit", target_column: "odd" },
+        ],
+        assumptions: [],
+    };
+    const row = (
+        number: number,
+        road: ReturnType<typeof ok | typeof failed>,
+        detour: ReturnType<typeof ok | typeof failed>,
+    ) => ({
+        row: {
+            record_id: `Sheet1!${number}`,
+            status: "partial" as const,
+            row: number,
+            inputs: {},
+        },
+        execution: {
+            record_id: `Sheet1!${number}`,
+            row_result: {
+                steps: [
+                    { step_id: "road", result: road },
+                    { step_id: "detour", result: detour },
+                ],
+            },
+        },
+    });
+    const codes = [
+        "NO_ROUTE",
+        "POINT_NOT_ON_ROAD",
+        "ROUTE_TOO_LONG",
+        "SOURCE_ACCESS_DENIED",
+    ];
+    const made = [
+        row(2, ok({ value: 1870, unit: "km" }), ok(1.337)),
+        ...codes.map((code, index) =>
+            row(3 + index, failed(code), failed("DEPENDENCY_FAILED")),
+        ),
+    ];
+    const result = resultRows(
+        {
+            rows: made.map((d) => d.row),
+            execution: {
+                provider_requests: {},
+                records: made.map((d) => d.execution),
+            },
+        } as unknown as AuditReport,
+        roads,
+    );
+    expect(result[0].outputs).toEqual({
+        road: 1870,
+        detour: 1.337,
+        odd: undefined,
+    });
+    expect(describeValue(result[0].steps[1].value, "en")).toBe("1.34");
+    // A distance is about two places, so the cause names the row, not one of them.
+    expect(result.slice(1).map((r) => r.cause)).toEqual([
+        { kind: "no_route", code: "NO_ROUTE", subject: null },
+        { kind: "off_road", code: "POINT_NOT_ON_ROAD", subject: null },
+        { kind: "too_far", code: "ROUTE_TOO_LONG", subject: null },
+        { kind: "access", code: "SOURCE_ACCESS_DENIED", subject: null },
+    ]);
+});

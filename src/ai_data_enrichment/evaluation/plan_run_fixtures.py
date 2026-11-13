@@ -17,11 +17,58 @@ from ai_data_enrichment.plan_run_worker import (
     Reuse,
     live_executor,
 )
+from ai_data_enrichment.providers.http_transport import JsonTransportError
 from ai_data_enrichment.providers.open_meteo import GEOCODING_URL
+from ai_data_enrichment.providers.openrouteservice import DIRECTIONS_URL
 from ai_data_enrichment.providers.wikidata import WIKIDATA_API_URL
+
+# Deliberately sparse. Kyiv is ambiguous; unknown cities stay unresolved.
+# Warsaw is known under its Polish name only, so that giving another
+# name during review can be exercised.
+FIXTURE_CITIES = {
+    "Warszawa": (756135, "PL", 52.22977, 21.01178),
+    "London": (2643743, "GB", 51.50853, -0.12574),
+    "Rome": (3169070, "IT", 41.89193, 12.51133),
+    "Paris": (2988507, "FR", 48.85341, 2.3488),
+    "Kyiv": (703448, "UA", 50.45466, 30.5238),
+}
+# Route lengths in metres between fixture cities, in either direction. Round
+# figures of the right order; a pair that is not listed has no route.
+FIXTURE_ROADS = {
+    frozenset({"Paris", "London"}): 460_000.0,
+    frozenset({"Rome", "Paris"}): 1_420_000.0,
+    frozenset({"Rome", "London"}): 1_870_000.0,
+    frozenset({"Warszawa", "Paris"}): 1_590_000.0,
+    frozenset({"Warszawa", "London"}): 1_620_000.0,
+    # Warszawa and Rome are left out on purpose: a pair without a route.
+}
+FIXTURE_GRAPH_DATE = "2026-11-02T00:00:00Z"
 
 
 class APITransportFixture:
+    def post_json(self, *, url: str, body: Mapping[str, object], timeout_seconds: float) -> object:
+        """Answer a route request the way the routing service does."""
+        if url != DIRECTIONS_URL:
+            raise AssertionError("No external transport is allowed in this fixture.")
+        by_point = {
+            (longitude, latitude): city
+            for city, (_, _, latitude, longitude) in FIXTURE_CITIES.items()
+        }
+        coordinates = body["coordinates"]
+        assert isinstance(coordinates, list)
+        ends = frozenset(by_point.get(tuple(point), "") for point in coordinates)
+        metres = FIXTURE_ROADS.get(ends)
+        if metres is None:
+            raise JsonTransportError(
+                "http_status",
+                status_code=404,
+                payload={"error": {"code": 2009, "message": "Route could not be found."}},
+            )
+        return {
+            "routes": [{"summary": {"distance": metres, "duration": 0.0}}],
+            "metadata": {"engine": {"graph_date": FIXTURE_GRAPH_DATE}},
+        }
+
     def get_json(self, *, url: str, params: Mapping[str, str], timeout_seconds: float) -> object:
         if url == WIKIDATA_API_URL:
             return OfflineWikidataTransport().get_json(
@@ -29,16 +76,7 @@ class APITransportFixture:
             )
         if url != GEOCODING_URL:
             raise AssertionError("No external transport is allowed in this fixture.")
-        # Deliberately sparse. Kyiv is ambiguous; unknown cities stay unresolved.
-        # Warsaw is known under its Polish name only, so that giving another
-        # name during review can be exercised.
-        locations = {
-            "Warszawa": (756135, "PL", 52.22977, 21.01178),
-            "London": (2643743, "GB", 51.50853, -0.12574),
-            "Rome": (3169070, "IT", 41.89193, 12.51133),
-            "Paris": (2988507, "FR", 48.85341, 2.3488),
-            "Kyiv": (703448, "UA", 50.45466, 30.5238),
-        }
+        locations = FIXTURE_CITIES
         city = params["name"]
         if city not in locations:
             return {"results": []}

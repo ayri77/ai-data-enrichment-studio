@@ -164,6 +164,30 @@ class RetryingJsonTransport:
         timeout_seconds: float,
     ) -> object:
         """Make at most max_attempts calls; never bypass a denied wait hint."""
+        return self._send(
+            lambda: self._transport.get_json(
+                url=url, params=params, timeout_seconds=timeout_seconds
+            )
+        )
+
+    def post_json(
+        self,
+        *,
+        url: str,
+        body: Mapping[str, object],
+        timeout_seconds: float,
+    ) -> object:
+        """The same bounded attempts for a request that sends a JSON body.
+
+        Only for requests that compute an answer and change nothing at the
+        source, so that repeating one is safe.
+        """
+        post = getattr(self._transport, "post_json", None)
+        if not callable(post):
+            raise TypeError("The wrapped transport cannot send a JSON body.")
+        return self._send(lambda: post(url=url, body=body, timeout_seconds=timeout_seconds))
+
+    def _send(self, call: Callable[[], object]) -> object:
         waited = 0.0
         for index in range(self._policy.max_attempts):
             if self._before_attempt is not None:
@@ -172,9 +196,7 @@ class RetryingJsonTransport:
             if index:
                 self._retries += 1
             try:
-                return self._transport.get_json(
-                    url=url, params=params, timeout_seconds=timeout_seconds
-                )
+                return call()
             except JsonTransportError as error:
                 if not retryable_transport_error(error, self._policy):
                     self._failures += 1

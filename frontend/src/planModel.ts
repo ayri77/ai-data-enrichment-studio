@@ -52,6 +52,15 @@ function action(step: Step): Pick<PlanLine, "action" | "values" | "notes"> {
                 values: { unit: text(p.unit) },
                 notes: [],
             };
+        case "road_distance":
+            return {
+                action: text(p.unit) ? "roadDistanceIn" : "roadDistance",
+                values: { unit: text(p.unit) },
+                // The value comes from a routing service, not from a record.
+                notes: ["routing"],
+            };
+        case "ratio":
+            return { action: "ratio", values: {}, notes: [] };
         case "resolve_entity":
             return p.entity_type === "mountain"
                 ? { action: "mountain", values: {}, notes: [] }

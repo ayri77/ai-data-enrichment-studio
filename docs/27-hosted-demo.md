@@ -37,6 +37,7 @@ deployment cannot be open by accident.
 | `ENRICHMENT_ACCESS_CODE` | yes | Shared access code |
 | `OPENAI_API_KEY` | for live planning | Used only on the server |
 | `OPENAI_MODEL` | no | A model of the catalog (`planning/model_catalog.py`): `gpt-6-luna` (the default when unset, and what `render.yaml` sets) and `gpt-4.1-mini` were measured for planning; `gpt-4.1` was not. Measure a model before serving it: [live planning reliability](26-live-planning-reliability.md) |
+| `OPENROUTESERVICE_API_KEY` | no | Offers the driving distance by road; one account's daily quota is shared by all visitors. See [road distance and ratio](30-road-distance-and-ratio.md) |
 | `ENRICHMENT_ALLOW_NETWORK` | for live runs | `1` opens the server network gate; each run still needs the visitor's own consent |
 | `ENRICHMENT_STATIC_DIR` | no | Built frontend, default `frontend/dist` (set in the image) |
 | `PORT` | no | Listening port, default `10000` in the image |
