@@ -22,6 +22,7 @@ from ai_data_enrichment.providers.wikidata_country import (
     parse_country_codes,
     referenced_countries,
 )
+from ai_data_enrichment.providers.wikidata_facts import recorded_facts
 from ai_data_enrichment.providers.wikidata_search import fetch_wikidata_search
 from ai_data_enrichment.providers.wikidata_verification import (
     decided_without_requests,
@@ -255,7 +256,9 @@ class WikidataMountainResolutionService:
                 break
 
         candidates = tuple(
-            replacements.get(candidate.reference.entity_id, candidate)
+            self._with_recorded_facts(
+                replacements.get(candidate.reference.entity_id, candidate), entities
+            )
             for candidate in normalized.candidates
         )
         # The decision layer must be told when unverified candidates remain;
@@ -294,6 +297,17 @@ class WikidataMountainResolutionService:
             ),
             policy=policy,
         )
+
+    @staticmethod
+    def _with_recorded_facts(
+        candidate: ResolutionCandidate, entities: Mapping[str, object]
+    ) -> ResolutionCandidate:
+        """Add what the fetched claims say about where and how high it is."""
+        qid = candidate.reference.entity_id
+        facts = recorded_facts(qid, entities.get(qid))
+        if not facts:
+            return candidate
+        return candidate.model_copy(update={"attributes": (*candidate.attributes, *facts)})
 
     def _learn_countries(self, entities: Mapping[str, object]) -> None:
         """Read, in one request, the codes of the countries the candidates refer to.

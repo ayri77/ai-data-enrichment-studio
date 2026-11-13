@@ -1465,3 +1465,7 @@
 .review-fold {
     align-self: flex-start;
 }
+.candidate-description {
+    font-size: 13px;
+    overflow-wrap: anywhere;
+}

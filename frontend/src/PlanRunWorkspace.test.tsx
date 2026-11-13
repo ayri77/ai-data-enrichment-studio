@@ -2249,3 +2249,77 @@ it("starting over asks first when a filled table would be lost", async () => {
         i18n.t("exec.idle"),
     );
 });
+
+it("tells mountain namesakes apart by what the source records about each", async () => {
+    const [first] = review.items;
+    const mountain = (
+        entity_id: string,
+        attributes: Record<string, string | number>,
+    ) => ({
+        ...first.candidates[0],
+        source: "wikidata",
+        entity_id,
+        label: "Mont Blanc",
+        selectable: true,
+        blocker: null,
+        recommended: false,
+        recommendation_reasons: [],
+        attributes: {
+            match_kind: "label",
+            country_codes: "FR/IT",
+            ...attributes,
+        },
+    });
+    vi.mocked(api.getReview).mockResolvedValue({
+        ...review,
+        items: [
+            {
+                ...first,
+                provider_id: "wikidata",
+                capability: "resolve_entity",
+                query: {
+                    name: "Mont Blanc",
+                    entity_type: "mountain",
+                    context: { country_codes: "FR/IT" },
+                },
+                candidates: [
+                    mountain("Q583", {
+                        description: "highest mountain in the Alps",
+                        elevation_m: 4805.59,
+                        latitude: 45.8327,
+                        longitude: 6.8651,
+                    }),
+                    mountain("Q31605638", {
+                        description:
+                            "mountain in French Southern and Antarctic Lands",
+                        latitude: -49.4,
+                        longitude: 69.4,
+                    }),
+                ],
+            },
+        ],
+    });
+    render(<App />);
+    await start();
+    await navigate("review");
+    const alps = within(await screen.findByTestId("candidate-wikidata:Q583"));
+    expect(alps.getByText("highest mountain in the Alps")).toBeVisible();
+    expect(
+        alps.getByText(
+            new RegExp(
+                `${i18n.t("review.elevation", { value: "4,806" })} · 45\\.83, 6\\.87`,
+            ),
+        ),
+    ).toBeVisible();
+    const other = within(screen.getByTestId("candidate-wikidata:Q31605638"));
+    expect(
+        other.getByText("mountain in French Southern and Antarctic Lands"),
+    ).toBeVisible();
+    // No elevation is recorded for the namesake, and none is invented.
+    expect(other.queryByText(/elevation/)).toBeNull();
+    // The folded card keeps the description of what was chosen.
+    await userEvent.click(alps.getByRole("radio"));
+    expect(chosen("Mont Blanc")).toHaveTextContent(
+        "highest mountain in the Alps",
+    );
+});

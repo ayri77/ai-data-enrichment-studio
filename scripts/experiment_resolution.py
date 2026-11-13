@@ -21,9 +21,10 @@ from __future__ import annotations
 import argparse
 import json
 from collections import Counter
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from time import sleep
+from time import perf_counter, sleep
 from typing import Any
 from uuid import uuid4
 
@@ -93,9 +94,43 @@ def class_labels(transport: JsonTransport, class_ids: set[str]) -> dict[str, str
     return labels
 
 
-def inspect(transport: JsonTransport, name: str, country: str, policy: ResolutionPolicy) -> dict:
-    outcome = WikidataMountainResolutionService(transport).resolve(
-        inputs={"name": name, "country": country}, policy=policy
+class CountingTransport:
+    """Count the requests that pass through, to see what one name costs."""
+
+    def __init__(self, delegate: JsonTransport) -> None:
+        self.delegate = delegate
+        self.requests = 0
+
+    def get_json(self, *, url: str, params: Mapping[str, str], timeout_seconds: float) -> object:
+        self.requests += 1
+        return self.delegate.get_json(url=url, params=params, timeout_seconds=timeout_seconds)
+
+
+def inspect(
+    transport: JsonTransport,
+    name: str,
+    country: str,
+    policy: ResolutionPolicy,
+    *,
+    service: WikidataMountainResolutionService | None = None,
+) -> dict:
+    """Resolve one name and describe every candidate.
+
+    Pass the same ``service`` for all names to measure them as one run does:
+    the service remembers country codes between names. It must have been built
+    on ``transport``, and ``transport`` must be a ``CountingTransport`` for the
+    request count to be reported.
+    """
+    service = service or WikidataMountainResolutionService(transport)
+    before = transport.requests if isinstance(transport, CountingTransport) else None
+    started = perf_counter()
+    outcome = service.resolve(inputs={"name": name, "country": country}, policy=policy)
+    seconds = round(perf_counter() - started, 2)
+    # Only the resolution itself is measured; the lookups below are for this printout.
+    requests = (
+        transport.requests - before
+        if before is not None and isinstance(transport, CountingTransport)
+        else None
     )
     candidate_set = outcome.report.candidate_set
     qids = tuple(c.reference.entity_id for c in candidate_set.candidates)
@@ -115,12 +150,19 @@ def inspect(transport: JsonTransport, name: str, country: str, policy: Resolutio
     candidates = []
     for candidate in candidate_set.candidates:
         qid = candidate.reference.entity_id
-        match = next((a.value for a in candidate.attributes if a.name == "match_kind"), None)
+        shown = {a.name: a.value for a in candidate.attributes}
+        match = shown.get("match_kind")
         candidates.append(
             {
                 "id": qid,
                 "label": candidate.label,
                 "match": match,
+                # What a person sees on Review to tell namesakes apart.
+                "description": shown.get("description"),
+                "elevation_m": shown.get("elevation_m"),
+                "coordinates": [shown["latitude"], shown["longitude"]]
+                if "latitude" in shown and "longitude" in shown
+                else None,
                 "verification": candidate.verification,
                 "reason_codes": list(candidate.reason_codes),
                 "classes": [f"{c} {labels.get(c, '?')}" for c in facts[qid]["classes"]],
@@ -138,6 +180,8 @@ def inspect(transport: JsonTransport, name: str, country: str, policy: Resolutio
         "search_complete": candidate_set.search_complete,
         "verification_complete": candidate_set.verification_complete,
         "incomplete_reason": candidate_set.incomplete_reason,
+        "requests": requests,
+        "seconds": seconds,
         "candidates": candidates,
     }
 
@@ -154,9 +198,24 @@ def summarize(result: dict) -> str:
         f"{result['name']} ({result['country']}): {result['status']}"
         f"{' -> ' + result['selected'] if result['selected'] else ''}"
         f" | candidates {len(candidates)}"
-        f" | incomplete: {result['incomplete_reason'] or '-'}",
+        f" | incomplete: {result['incomplete_reason'] or '-'}"
+        + (
+            f" | requests {result['requests']} | {result['seconds']} s"
+            if result.get("requests") is not None
+            else ""
+        ),
         *(f"    {count:>2}  {state}" for state, count in sorted(by_state.items())),
     ]
+    confirmed = [c for c in candidates if c["verification"] == "verified"]
+    if len(confirmed) > 1:
+        # Several confirmed: these lines are what a person chooses between.
+        lines.append(f"    confirmed: {len(confirmed)}")
+        for candidate in confirmed:
+            height = candidate.get("elevation_m")
+            lines.append(
+                f"      {candidate['id']:<12} {candidate.get('description') or '(no description)'}"
+                f" | {f'{height:g} m' if height is not None else 'no elevation recorded'}"
+            )
     if unknown:
         lines.append(
             f"    unconfirmed: {len(unknown)} | with a recorded type: {typed}"
@@ -207,10 +266,13 @@ def run() -> None:
     policy = ResolutionPolicy(
         policy_id=f"mountain_{args.policy}", version="1.0", strategy=args.policy
     )
+    # One service for all names, as in a run: it remembers country codes between them.
+    counting = CountingTransport(transport)
+    service = WikidataMountainResolutionService(counting)
     results = []
     for name, country in names:
         try:
-            result = inspect(transport, name, country, policy)
+            result = inspect(counting, name, country, policy, service=service)
         except Exception as exc:  # A diagnostic should report, not stop at the first name.
             result = {
                 "name": name,
@@ -222,6 +284,8 @@ def run() -> None:
                 "search_complete": None,
                 "verification_complete": None,
                 "incomplete_reason": None,
+                "requests": None,
+                "seconds": None,
                 "candidates": [],
             }
         results.append(result)
@@ -241,7 +305,13 @@ def run() -> None:
         encoding="utf-8",
     )
     resolved = sum(1 for r in results if r["status"] == "resolved")
+    measured = [r for r in results if r["requests"] is not None]
     print(f"\nResolved {resolved} of {len(results)} under {args.policy}. Report: {report}")
+    if measured:
+        print(
+            f"Resolution requests: {sum(r['requests'] for r in measured)} for "
+            f"{len(measured)} names | {round(sum(r['seconds'] for r in measured), 1)} s"
+        )
 
 
 if __name__ == "__main__":
