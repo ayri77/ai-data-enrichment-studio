@@ -4,6 +4,7 @@
 
 [![CI](https://github.com/ayri77/ai-data-enrichment-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/ayri77/ai-data-enrichment-studio/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.12%2B-blue)
+![License: MIT](https://img.shields.io/badge/License-MIT-green)
 
 You upload an Excel workbook and say in plain words what to fill in. A language
 model turns the request into a structured plan; the plan is checked against the
@@ -202,4 +203,4 @@ The project began as the final assignment for the **Agentic AI** course of the
 Neoversity MSc programme in Artificial Intelligence and Machine Learning, and
 continues as an engineering portfolio project.
 
-**License:** no open-source license has been selected yet.
+**License:** [MIT](LICENSE). It covers this repository's own code and documents; the libraries it depends on and the data returned by Open-Meteo and Wikidata keep their own terms.
