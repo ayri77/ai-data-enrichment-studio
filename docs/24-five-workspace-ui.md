@@ -1,10 +1,10 @@
 # Five-workspace Data Enrichment Studio
 
-Implements the immediate UI foundation in [#112](https://github.com/ayri77/ai-data-enrichment-studio/issues/112). The application now has five real, freely navigable workspaces. It uses the existing FastAPI Plan/Run routes and Python execution pipeline without backend changes.
+The application has five freely navigable workspaces — Dataset, Plan, Execution, Review, Results — over the FastAPI Plan/Run routes and the Python execution pipeline. It began as the UI foundation of [#112](https://github.com/ayri77/ai-data-enrichment-studio/issues/112); this document describes the interface as it is at the MVP. The walk-through below is written for **Advanced** mode, which shows everything; [Basic](#basic-and-advanced-modes) leaves out what a first run does not need.
 
 ## Run and demonstrate
 
-Use the backend environment and frontend startup commands in [the E2E-0 setup](23-e2e0-browser.md#start-the-real-application). The regular application has no fixture selector or simulated execution fallback.
+Start the API and the interface as the [README](../README.md#run-it-locally) describes. The regular application has no fixture selector or simulated execution fallback.
 
 1. **Dataset:** upload an original sample, select its worksheet/range, and preview. The range offered first is the table the server found on the sheet (`ingestion/table_detection.py`): a header row of at least two adjacent text cells with unique names and the rows under it down to the first empty row, wherever on the sheet it is, so a title above the table or empty columns beside it do not have to be worked around by hand. It is a guess for the default selection only; the selected range is validated as before and can be changed. A sheet with nothing that looks like a table is offered from A1 as before. Enter the enrichment instruction. Choose an existing output by letter/header (`E · distance` for Capitals, `C · height` for Mountains). Alternatively choose **New column**, supply its physical letter or one-based index and a unique header. New destinations must follow all known worksheet columns, even when some lie outside the selected range. The backend still validates bindings and preserves occupied cells. While no workbook is loaded, bundled examples can be started with one click: the example goes through the ordinary upload and preview and arrives with its instruction and output column; its prepared plan can replace the AI request ([hosted demo](27-hosted-demo.md), "Examples"). The task panel also asks what to do **if the source confirms exactly one match** while other matches with the same name could not be confirmed: *fill it in automatically* (the UI default; this is the existing `verified_only` policy) or *ask me to confirm* (`strict`). The API and CLI default stays `strict`; the UI always sends its choice explicitly. Next to **Build Plan** the screen lists what is still missing (preview, selection limit, instruction, output column, external-request consent, provider readiness). The same list enables the button, so the two cannot disagree; a missing model or key links straight to Provider / Model settings.
 2. Opt in to external requests for AI planning/execution. **Build Plan** requests generation and validation, then opens Plan. Alternatively expand **Use an existing plan**, paste a supplied plan, and choose **Submit and validate plan**; this validation works offline. Named plan outputs must match the selected headers. Existing demo plans are in `demo/`.
@@ -73,11 +73,11 @@ In Basic the **Review** step is available only when a run needs a choice; a fini
 
 `Advanced` from `frontend/src/mode.tsx` renders its children in Advanced only; `useAdvanced()` serves the few places that need a different layout. The existing unit and browser suites run in Advanced; Basic has its own tests and the one-click example scenario runs in it.
 
-## Provider setup and deferred work
+## Provider setup and what is not built
 
-**Provider / Model settings** now exposes non-secret readiness, a supported OpenAI model picker, and masked key apply/replace/remove actions. Keys stay in backend process memory. See [the trusted local launcher, access boundary, and acceptance steps](25-provider-settings.md). The separate network-consent state and server gate remain authoritative.
+**Provider / Model settings** exposes non-secret readiness, a supported OpenAI model picker, and masked key apply/replace/remove actions. Keys stay in backend process memory. See [the trusted local launcher, access boundary, and acceptance steps](25-provider-settings.md). The separate network-consent state and server gate remain authoritative.
 
-Advanced DAG editing/strategy tooling remains in #101; actual node events and playback in #102; candidate Review/Resume in #103/#68. Autonomous agent visualization, advanced analytics and a complete Simple/Advanced product mode are outside this slice. Live Mountains acceptance remains deferred as agreed; these tests do not assert independent live academic accuracy.
+Not built: editing a plan in the browser (the graph is read-only); node-by-node events and playback on the graph (#102); review at scale (#105); an agent mode (#106, #107). The browser tests run against injected answers and do not assert live accuracy.
 
 ## Verification and evidence
 
@@ -102,24 +102,23 @@ Additional acceptance covers navigation while a real job's status response is de
 
 For each of the five workspaces and both files, the browser suite checks document width/height and action visibility at **1366×768, 1440×900 and 3440×1440** and captures screenshots. At 1366×768 it then switches the interface to Ukrainian and German, in Advanced and in Basic, and checks that the page still fits, that no button cuts its text off and that no footer label wraps onto a second line. `tests/unit/test_error_texts.py` checks that every error code the server answers with has a text in all three languages, and `preferences.test.ts` that the languages share keys and placeholders. Other tests cover terminal errors, cancellation, status retry, same-plan retry, late responses and source-bound approval. These are integration and UI acceptance evidence, not a substitute for independent numeric/source evaluation or a recorded live submission demo.
 
-Local verification on this branch: **1,262 Python tests passed, 2 live tests skipped; 101 frontend tests passed; all 5 browser acceptance cases passed.** Ruff lint/format, Pyright, the 1,000-row controlled benchmark, frontend formatting and the production build also passed.
+## Screenshots (offline integration evidence)
 
-## Desktop screenshots (offline integration evidence)
+Taken by the browser suite at 1440×900 in Advanced mode, against injected source
+answers that know only a few names — hence the banner in them and the rows left
+empty. The same scenarios check the other two sizes without keeping pictures of
+them. Screens of the Basic flow are in the [README](../README.md).
 
-| Workspace | 1366×768 | 1440×900 | 3440×1440 |
-| --- | --- | --- | --- |
-| Dataset | [Open](screenshots/issue-112/capitals-dataset-1366x768.png) | [Open](screenshots/issue-112/capitals-dataset-1440x900.png) | [Open](screenshots/issue-112/capitals-dataset-3440x1440.png) |
-| Plan | [Open](screenshots/issue-112/capitals-plan-1366x768.png) | [Open](screenshots/issue-112/capitals-plan-1440x900.png) | [Open](screenshots/issue-112/capitals-plan-3440x1440.png) |
-| Execution | [Open](screenshots/issue-112/capitals-execution-1366x768.png) | [Open](screenshots/issue-112/capitals-execution-1440x900.png) | [Open](screenshots/issue-112/capitals-execution-3440x1440.png) |
-| Review | [Open](screenshots/issue-112/capitals-review-1366x768.png) | [Open](screenshots/issue-112/capitals-review-1440x900.png) | [Open](screenshots/issue-112/capitals-review-3440x1440.png) |
-| Export | [Open](screenshots/issue-112/capitals-export-1366x768.png) | [Open](screenshots/issue-112/capitals-export-1440x900.png) | [Open](screenshots/issue-112/capitals-export-3440x1440.png) |
+| Workspace | Capitals | Mountains |
+| --- | --- | --- |
+| Dataset | [Open](screenshots/workspaces/capitals-dataset-1440x900.png) | [Open](screenshots/workspaces/mountains-dataset-1440x900.png) |
+| Plan | [Open](screenshots/workspaces/capitals-plan-1440x900.png) | [Open](screenshots/workspaces/mountains-plan-1440x900.png) |
+| Execution | [Open](screenshots/workspaces/capitals-execution-1440x900.png) | [Open](screenshots/workspaces/mountains-execution-1440x900.png) |
+| Review | [Open](screenshots/workspaces/capitals-review-1440x900.png) | [Open](screenshots/workspaces/mountains-review-1440x900.png) |
+| Results | [Open](screenshots/workspaces/capitals-export-1440x900.png) | [Open](screenshots/workspaces/mountains-export-1440x900.png) |
 
-Mountains at 1440×900: [Dataset](screenshots/issue-112/mountains-dataset-1440x900.png), [Plan](screenshots/issue-112/mountains-plan-1440x900.png), [Execution](screenshots/issue-112/mountains-execution-1440x900.png), [Review](screenshots/issue-112/mountains-review-1440x900.png), [Export](screenshots/issue-112/mountains-export-1440x900.png).
-
-![Dataset](screenshots/issue-112/capitals-dataset-1440x900.png)
-![Plan](screenshots/issue-112/capitals-plan-1440x900.png)
-![Execution](screenshots/issue-112/capitals-execution-1440x900.png)
-![Review](screenshots/issue-112/capitals-review-1440x900.png)
-![Export](screenshots/issue-112/capitals-export-1440x900.png)
+![Dataset](screenshots/workspaces/capitals-dataset-1440x900.png)
+![Plan](screenshots/workspaces/capitals-plan-1440x900.png)
+![Review](screenshots/workspaces/capitals-review-1440x900.png)
 
 Provider / Model settings now support [backend-owned ephemeral local setup](25-provider-settings.md) (#113), replacing the original not-reported placeholder.
