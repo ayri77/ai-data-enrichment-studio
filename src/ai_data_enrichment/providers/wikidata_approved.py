@@ -14,7 +14,7 @@ from ai_data_enrichment.providers.http_transport import JsonTransport
 from ai_data_enrichment.providers.wikidata_country import parse_country_codes
 from ai_data_enrichment.providers.wikidata_resolution import WikidataResolutionOutcome
 from ai_data_enrichment.providers.wikidata_verification import verify_wikidata_mountain_candidate
-from ai_data_enrichment.resolution.approvals import ResolutionApproval
+from ai_data_enrichment.resolution.approvals import ResolutionApproval, approvable_statuses
 from ai_data_enrichment.resolution.models import (
     CandidateSet,
     ResolutionAttribute,
@@ -58,7 +58,7 @@ class ApprovedWikidataMountainResolutionService:
             raise ValueError("Approved entity and source report must both use Wikidata.")
         if query.entity_type != "mountain":
             raise ValueError("Approved entity must come from a mountain resolution query.")
-        if source_report.decision.status not in {"needs_review", "incomplete_verification"}:
+        if source_report.decision.status not in approvable_statuses(source_report):
             raise ValueError("Source resolution does not require user review.")
 
         matches = [

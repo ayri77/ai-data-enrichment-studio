@@ -13,10 +13,15 @@ from ai_data_enrichment.domain.enrichment_plan import (
 from ai_data_enrichment.resolution.approvals import (
     ApprovalManifest,
     ResolutionApproval,
+    approval_blocker,
     validate_approval_manifest,
 )
 from ai_data_enrichment.resolution.input_errors import MAX_NAME_LENGTH
-from ai_data_enrichment.resolution.models import ResolutionJobReport, ResolutionReport
+from ai_data_enrichment.resolution.models import (
+    ResolutionJobReport,
+    ResolutionOperationAudit,
+    ResolutionReport,
+)
 from ai_data_enrichment.resolution.other_name import (
     OtherNameCapability,
     same_name,
@@ -54,6 +59,42 @@ def accepts_other_name(report: ResolutionReport) -> bool:
     )
 
 
+def usable_other_name(name: str, row_name: str) -> str:
+    """The name as it will be searched, or an error when it cannot help."""
+    searched_as = " ".join(name.split())
+    if not searched_as or len(searched_as) > MAX_NAME_LENGTH:
+        raise ValueError("The name to search for is blank or too long.")
+    if same_name(searched_as, row_name):
+        raise ValueError("The name to search for is the row's own value.")
+    return searched_as
+
+
+def other_name_capability(
+    operation: ResolutionOperationAudit, plan: EnrichmentPlan
+) -> OtherNameCapability:
+    """The lookup an operation's rows share, if another name can be given for it.
+
+    The operation must still be undecided, and every step that used it must be
+    an audited lookup that reads its inputs straight from the workbook.
+    """
+    if not accepts_other_name(operation.report):
+        raise ValueError("Another name was given for an operation that cannot use one.")
+    step_by_id = {step.id: step for step in plan.steps}
+    capabilities: set[str] = set()
+    for link in operation.record_links:
+        step = step_by_id.get(link.step_id)
+        if (
+            step is None
+            or not supports_other_name(step)
+            or any(isinstance(ref, StepOutputReference) for ref in step.inputs.values())
+        ):
+            raise ValueError(f"Another name targets an unsupported plan step: {link.step_id}.")
+        capabilities.add(step.capability)
+    if len(capabilities) != 1:
+        raise ValueError("Another name needs exactly one kind of lookup.")
+    return cast(OtherNameCapability, capabilities.pop())
+
+
 def build_other_names(
     *,
     names: Mapping[str, str],
@@ -62,36 +103,72 @@ def build_other_names(
 ) -> dict[tuple[str, str], OtherName]:
     """Expand each operation's new name to every record/step that shares it.
 
-    Nothing is trusted from the request but the name itself: the operation must
-    be one of the reviewed job, still undecided, and resolved by a lookup step
-    that reads its inputs straight from the workbook.
+    Nothing is trusted from the request but the name itself.
     """
     operations = {operation.operation_id: operation for operation in report.operations}
-    step_by_id = {step.id: step for step in plan.steps}
     selections: dict[tuple[str, str], OtherName] = {}
     for operation_id, name in names.items():
         operation = operations.get(operation_id)
-        if operation is None or not accepts_other_name(operation.report):
-            raise ValueError("Another name was given for an operation that cannot use one.")
-        searched_as = " ".join(name.split())
+        if operation is None:
+            raise ValueError("Another name was given for an unknown operation.")
+        capability = other_name_capability(operation, plan)
         row_name = operation.report.candidate_set.query.name
-        if not searched_as or len(searched_as) > MAX_NAME_LENGTH:
-            raise ValueError("The name to search for is blank or too long.")
-        if same_name(searched_as, row_name):
-            raise ValueError("The name to search for is the row's own value.")
+        searched_as = usable_other_name(name, row_name)
         for link in operation.record_links:
-            step = step_by_id.get(link.step_id)
-            if (
-                step is None
-                or not supports_other_name(step)
-                or any(isinstance(ref, StepOutputReference) for ref in step.inputs.values())
-            ):
-                raise ValueError(f"Another name targets an unsupported plan step: {link.step_id}.")
             selections[(link.record_id, link.step_id)] = OtherName(
                 operation_id=operation_id,
-                capability=cast(OtherNameCapability, step.capability),
+                capability=capability,
                 row_name=row_name,
                 searched_as=searched_as,
+            )
+    return selections
+
+
+def build_searched_selections(
+    *,
+    choices: Mapping[str, tuple[str, str, str]],
+    searches: Mapping[str, ResolutionReport],
+    report: ResolutionJobReport,
+    plan: EnrichmentPlan,
+) -> dict[tuple[str, str], ResumeSelection]:
+    """Approve candidates the user chose from a search under another name.
+
+    ``choices`` maps an operation to (name, source, entity ID); ``searches``
+    holds the server's own report of the latest search for each operation. The
+    choice must be a confirmed, not excluded candidate of exactly that search.
+    The job verifies it again before using it.
+    """
+    operations = {operation.operation_id: operation for operation in report.operations}
+    selections: dict[tuple[str, str], ResumeSelection] = {}
+    for operation_id, (name, source, entity_id) in choices.items():
+        operation = operations.get(operation_id)
+        if operation is None:
+            raise ValueError("A searched candidate was chosen for an unknown operation.")
+        other_name_capability(operation, plan)
+        searched_as = usable_other_name(name, operation.report.candidate_set.query.name)
+        found = searches.get(operation_id)
+        if found is None or found.candidate_set.query.searched_as != searched_as:
+            raise ValueError("The chosen candidate does not come from the latest search.")
+        matches = [
+            candidate
+            for candidate in found.candidate_set.candidates
+            if (candidate.reference.source, candidate.reference.entity_id) == (source, entity_id)
+        ]
+        if len(matches) != 1 or approval_blocker(matches[0], found) is not None:
+            raise ValueError("The chosen candidate was not confirmed by the search.")
+        step_by_id = {step.id: step for step in plan.steps}
+        for link in operation.record_links:
+            approval = ResolutionApproval(
+                record_id=link.record_id,
+                step_id=link.step_id,
+                operation_id=operation_id,
+                source=source,
+                entity_id=entity_id,
+            )
+            if not _resumable(step_by_id[link.step_id], approval):
+                raise ValueError("The chosen candidate comes from another source.")
+            selections[(link.record_id, link.step_id)] = ResumeSelection(
+                approval=approval, source_report=found
             )
     return selections
 

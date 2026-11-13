@@ -263,8 +263,9 @@ export interface Review {
     affected_rows: number;
 }
 /**
- * A listed candidate (`source` and `entity_id`), another name to search the
- * source for (`name`), or neither: the query is left empty on purpose.
+ * A listed candidate (`source` and `entity_id`); a candidate found by a search
+ * under another name (the same, with that `name`); or neither: the query is
+ * left empty on purpose.
  */
 export interface ReviewDecision {
     operation_id: string;
@@ -351,6 +352,17 @@ export const api = {
     cancelJob: (id: string) => post<Job>(`/api/jobs/${id}/cancel`),
     getReview: (id: string, signal?: AbortSignal) =>
         response<Review>(call(`/api/jobs/${id}/review`, { signal })),
+    /** Ask the source once for another name of a reviewed query. */
+    searchOtherName: (
+        id: string,
+        operationId: string,
+        name: string,
+        allow_network: boolean,
+    ) =>
+        post<ReviewItem>(
+            `/api/jobs/${id}/review/${encodeURIComponent(operationId)}/search`,
+            { name, allow_network },
+        ),
     resumeJob: (
         id: string,
         decisions: ReviewDecision[],

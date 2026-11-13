@@ -43,21 +43,20 @@ _RECOMMENDATION_REASONS = (
 
 
 class ReviewDecision(BaseModel):
-    """Choose a listed candidate, give another name to search for, or leave it empty."""
+    """Choose a candidate, give another name to search for, or leave it empty."""
 
     model_config = ConfigDict(extra="forbid")
     operation_id: str = Field(min_length=1, max_length=128)
     source: str | None = Field(default=None, min_length=1, max_length=64)
     entity_id: str | None = Field(default=None, min_length=1, max_length=64)
-    # Instead of a candidate: search the source again under this name.
+    # Alone: search the source under this name when the job runs. With a
+    # candidate: that candidate was found by a search under this name.
     name: str | None = Field(default=None, min_length=1, max_length=MAX_NAME_LENGTH)
 
     @model_validator(mode="after")
     def candidate_is_complete(self) -> "ReviewDecision":
         if (self.source is None) != (self.entity_id is None):
             raise ValueError("Give both source and entity_id, or neither to leave it empty.")
-        if self.name is not None and self.source is not None:
-            raise ValueError("Give a candidate or another name, not both.")
         return self
 
 
@@ -195,7 +194,8 @@ def approvals_from_decisions(
         seen.add(decision.operation_id)
         operation = operations.get(decision.operation_id)
         if decision.name is not None:
-            # Another name is not an approval of a candidate; see names_from_decisions.
+            # Decisions that carry a name are validated on their own: see
+            # names_from_decisions and searched_from_decisions.
             continue
         if operation is None or operation.report.decision.status not in REVIEWABLE_STATUSES:
             raise ValueError("A decision targets an operation that does not need review.")
@@ -223,8 +223,29 @@ def approvals_from_decisions(
 def names_from_decisions(decisions: list[ReviewDecision]) -> dict[str, str]:
     """The operations the user gave another name for, with that name."""
     return {
-        decision.operation_id: decision.name for decision in decisions if decision.name is not None
+        decision.operation_id: decision.name
+        for decision in decisions
+        if decision.name is not None and decision.entity_id is None
     }
+
+
+def searched_from_decisions(decisions: list[ReviewDecision]) -> dict[str, tuple[str, str, str]]:
+    """Candidates chosen from a search under another name: name, source, entity ID."""
+    return {
+        decision.operation_id: (decision.name, decision.source, decision.entity_id)
+        for decision in decisions
+        if decision.name is not None
+        and decision.source is not None
+        and decision.entity_id is not None
+    }
+
+
+def searched_item(
+    operation: ResolutionOperationAudit, found: ResolutionReport, plan: EnrichmentPlan
+) -> dict[str, Any]:
+    """A review item for what a search under another name found for an operation."""
+    capabilities = {step.id: step.capability for step in plan.steps}
+    return _item(operation.model_copy(update={"report": found}), capabilities)
 
 
 def _steps_where(

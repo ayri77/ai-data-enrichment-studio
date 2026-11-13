@@ -16,7 +16,7 @@ from ai_data_enrichment.providers.open_meteo_resolution import (
     GeocodingResolutionOutcome,
     OpenMeteoResolutionService,
 )
-from ai_data_enrichment.resolution.approvals import ResolutionApproval
+from ai_data_enrichment.resolution.approvals import ResolutionApproval, approvable_statuses
 from ai_data_enrichment.resolution.geography import normalize_country_code
 from ai_data_enrichment.resolution.models import (
     ResolutionDecision,
@@ -52,7 +52,7 @@ class ApprovedOpenMeteoResolutionService:
             raise ValueError("Approved location and source report must both use Open-Meteo.")
         if query.entity_type != "city":
             raise ValueError("Approved location must come from a city resolution query.")
-        if source_report.decision.status not in {"needs_review", "incomplete_verification"}:
+        if source_report.decision.status not in approvable_statuses(source_report):
             raise ValueError("Source resolution does not require user review.")
         if re.fullmatch(r"[1-9]\d*", approval.entity_id) is None:
             raise ValueError("Approved Open-Meteo location has an invalid ID.")

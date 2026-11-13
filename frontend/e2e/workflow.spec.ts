@@ -350,9 +350,16 @@ test("capitals: a name the source does not know is found under another name", as
     await warsaw
         .getByLabel("Name to search for instead of “Warsaw”")
         .fill("Warszawa");
-    await warsaw.getByRole("button", { name: "Use this name" }).click();
+    await warsaw.getByRole("button", { name: "Search" }).click();
+    // The source is asked at once and the confirmed match is offered.
+    const match = warsaw.getByTestId("found-open-meteo:756135");
+    await expect(match).toContainText("Warszawa");
+    await page.screenshot({
+        path: testInfo.outputPath("review-other-name-found.png"),
+    });
+    await match.getByRole("radio").click();
     await expect(warsaw.getByTestId("review-chosen")).toContainText(
-        "Will be searched as “Warszawa”",
+        "found under “Warszawa”",
     );
     await page
         .getByTestId("review-Kyiv")
@@ -369,7 +376,11 @@ test("capitals: a name the source does not know is found under another name", as
     await page.getByRole("button", { name: "Fill in remaining rows" }).click();
     const sent = (await resumeRequest).postDataJSON();
     expect(sent.decisions).toHaveLength(2);
-    expect(sent.decisions[1]).toMatchObject({ name: "Warszawa" });
+    expect(sent.decisions[1]).toMatchObject({
+        source: "open-meteo",
+        entity_id: "756135",
+        name: "Warszawa",
+    });
     // Kyiv–Paris and Warsaw–Kyiv are now complete.
     await expect(page.getByTestId("metric-successful_rows")).toHaveText("3", {
         timeout: 30_000,
@@ -393,11 +404,11 @@ test("capitals: a name the source does not know is found under another name", as
         .filter((report: any) => report.candidate_set.query.name === "Warsaw")
         .map((report: any) => [
             report.candidate_set.query.searched_as,
-            report.decision.status,
+            report.decision.basis,
             report.decision.selected.entity_id,
         ]);
-    // The audit keeps the row's value, the name searched and what was found.
-    expect(queries).toEqual([["Warszawa", "resolved", "756135"]]);
+    // The audit keeps the row's value, the name searched and whose choice it was.
+    expect(queries).toEqual([["Warszawa", "user_override", "756135"]]);
 });
 
 test("capitals: a chosen candidate resumes as a new audited job and fills the row", async ({

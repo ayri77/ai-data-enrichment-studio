@@ -5,6 +5,7 @@ import {
     ExternalLink,
     LoaderCircle,
     Play,
+    Search,
 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -14,11 +15,13 @@ import type { Workflow } from "../useWorkflow";
 import {
     candidateKey,
     countryName,
+    foundCandidates,
     isCandidate,
-    isName,
+    isSearched,
     MAX_OTHER_NAME,
     otherName,
     pendingRecommendations,
+    pickedCandidate,
     rowList,
     sourceLink,
 } from "../reviewModel";
@@ -106,24 +109,31 @@ function Candidate({
     candidate,
     w,
     onPicked,
+    searchedAs,
 }: {
     item: ReviewItem;
     candidate: ReviewCandidate;
     w: Workflow;
     onPicked: () => void;
+    /** Set for a candidate that a search under this name found. */
+    searchedAs?: string;
 }) {
     const { t } = useTranslation();
     const code = useCode();
     const choice = w.choices[item.operation_id];
     const key = candidateKey(candidate);
-    const checked = isCandidate(choice) && candidateKey(choice) === key;
+    // The same place can be listed and found by a search; they are two options.
+    const checked =
+        isCandidate(choice) &&
+        candidateKey(choice) === key &&
+        choice.name === searchedAs;
     const link = sourceLink(candidate);
     return (
         <div
             className="candidate"
             data-selected={checked}
             data-disabled={!candidate.selectable}
-            data-testid={`candidate-${key}`}
+            data-testid={`${searchedAs === undefined ? "candidate" : "found"}-${key}`}
         >
             <label>
                 <input
@@ -135,6 +145,9 @@ function Candidate({
                         w.choose(item.operation_id, {
                             source: candidate.source,
                             entity_id: candidate.entity_id,
+                            ...(searchedAs === undefined
+                                ? {}
+                                : { name: searchedAs }),
                         })
                     }
                     onClick={(event) => byPointer(event) && onPicked()}
@@ -187,34 +200,39 @@ function Candidate({
 /**
  * A name in the workbook may be one the source does not know: another
  * language, an older spelling, a typo. The person can say what to search for
- * instead. The search itself runs with the next fill, under the same checks.
+ * instead. The source is asked at once, with the same checks as in a run, and
+ * what it confirms is offered as a choice; nothing is written before that.
  */
 function OtherName({
     item,
     w,
     open = false,
-    onUsed,
+    onPicked,
 }: {
     item: ReviewItem;
     w: Workflow;
     open?: boolean;
-    onUsed: () => void;
+    onPicked: () => void;
 }) {
     const { t } = useTranslation();
     const id = useId();
-    const choice = w.choices[item.operation_id];
-    const [text, setText] = useState(isName(choice) ? choice.name : "");
+    const found = w.searches[item.operation_id];
+    const searchedAs = found?.query.searched_as ?? undefined;
+    const [text, setText] = useState(searchedAs ?? "");
     if (!item.other_name) return null;
     const name = otherName(item, text);
+    const offered = foundCandidates(found);
     return (
-        <details className="other-name" open={open || undefined}>
+        <details className="other-name" open={open || !!found || undefined}>
             <summary>{t("review.otherName.toggle")}</summary>
             <form
                 onSubmit={(event) => {
                     event.preventDefault();
-                    if (!name || w.locked) return;
-                    w.choose(item.operation_id, { name });
-                    onUsed();
+                    if (!name || w.locked || !w.consent) return;
+                    void w.action(
+                        () => w.searchOtherName(item.operation_id, name),
+                        "search",
+                    );
                 }}
             >
                 <label htmlFor={id}>
@@ -233,14 +251,78 @@ function OtherName({
                     <Button
                         type="submit"
                         variant="outline"
-                        disabled={!name || w.locked}
+                        disabled={!name || w.locked || !w.consent}
                     >
-                        {t("review.otherName.use")}
+                        <Search aria-hidden="true" />
+                        {t("review.otherName.search")}
                     </Button>
                 </div>
                 <p className="muted">{t("review.otherName.hint")}</p>
             </form>
+            {found && searchedAs !== undefined && (
+                <div
+                    className="other-name-found"
+                    data-testid="other-name-found"
+                    role="status"
+                >
+                    {offered.length > 0 ? (
+                        <fieldset
+                            className="candidate-list"
+                            aria-label={t("review.otherName.found", {
+                                name: searchedAs,
+                            })}
+                        >
+                            <legend>
+                                {t("review.otherName.found", {
+                                    name: searchedAs,
+                                })}
+                            </legend>
+                            {offered.map((candidate) => (
+                                <Candidate
+                                    key={candidateKey(candidate)}
+                                    item={item}
+                                    candidate={candidate}
+                                    w={w}
+                                    onPicked={onPicked}
+                                    searchedAs={searchedAs}
+                                />
+                            ))}
+                        </fieldset>
+                    ) : (
+                        <p className="notice">
+                            {t(
+                                found.status === "provider_failure"
+                                    ? "review.otherName.failed"
+                                    : "review.otherName.none",
+                                { name: searchedAs },
+                            )}
+                        </p>
+                    )}
+                </div>
+            )}
         </details>
+    );
+}
+
+/** What was chosen from a search: the candidate and the name that found it. */
+function Picked({
+    candidate,
+    searchedAs,
+}: {
+    candidate: ReviewCandidate;
+    searchedAs?: string;
+}) {
+    const { t } = useTranslation();
+    return (
+        <span className="candidate-body">
+            <span className="candidate-title">{candidate.label}</span>
+            <Facts candidate={candidate} />
+            {searchedAs !== undefined && (
+                <span className="muted">
+                    {t("review.otherName.foundAs", { name: searchedAs })}
+                </span>
+            )}
+        </span>
     );
 }
 
@@ -365,11 +447,7 @@ function ReviewCard({
         if (!open && moveFocus.current) change.current?.focus();
         moveFocus.current = false;
     }, [open]);
-    const picked = isCandidate(choice)
-        ? item.candidates.find(
-              (candidate) => candidateKey(candidate) === candidateKey(choice),
-          )
-        : undefined;
+    const picked = pickedCandidate(item, choice, w.searches[item.operation_id]);
     const folded = !open && !!choice;
     return (
         <article
@@ -395,23 +473,20 @@ function ReviewCard({
             {folded ? (
                 <div className="review-chosen" data-testid="review-chosen">
                     <Check aria-hidden="true" />
-                    <span className="candidate-body">
-                        <span className="candidate-title">
-                            {picked
-                                ? picked.label
-                                : isName(choice)
-                                  ? t("review.otherName.pending", {
-                                        name: choice.name,
-                                    })
-                                  : t("review.leaveEmpty")}
-                        </span>
-                        {picked && <Facts candidate={picked} />}
-                        {isName(choice) && (
-                            <span className="muted">
-                                {t("review.otherName.pendingHint")}
+                    {picked ? (
+                        <Picked
+                            candidate={picked}
+                            searchedAs={
+                                isSearched(choice) ? choice.name : undefined
+                            }
+                        />
+                    ) : (
+                        <span className="candidate-body">
+                            <span className="candidate-title">
+                                {t("review.leaveEmpty")}
                             </span>
-                        )}
-                    </span>
+                        </span>
+                    )}
                     <button
                         type="button"
                         className="inline-link"
@@ -470,7 +545,7 @@ function ReviewCard({
                             </label>
                         </div>
                     </fieldset>
-                    <OtherName item={item} w={w} onUsed={fold} />
+                    <OtherName item={item} w={w} onPicked={fold} />
                     {choice && (
                         <button
                             type="button"
@@ -489,17 +564,18 @@ function ReviewCard({
     );
 }
 
-/** A name with nothing to choose from; another name can be given for it. */
+/** A name with nothing to choose from; it can be searched under another name. */
 function Unmatched({ item, w }: { item: ReviewItem; w: Workflow }) {
     const { t, i18n } = useTranslation();
     const code = useCode();
     const locale = i18n.resolvedLanguage ?? "en";
     const choice = w.choices[item.operation_id];
-    const [editing, setEditing] = useState(false);
+    const picked = pickedCandidate(item, choice, w.searches[item.operation_id]);
+    const [open, setOpen] = useState(false);
     return (
         <li
             data-testid={`unresolved-${item.query.name}`}
-            data-decided={isName(choice)}
+            data-decided={!!picked}
         >
             <strong>{item.query.name}</strong>
             <span className="muted">
@@ -520,24 +596,20 @@ function Unmatched({ item, w }: { item: ReviewItem; w: Workflow }) {
             <span className="review-rows">
                 {t("review.rows", { rows: rowList(item) })}
             </span>
-            {isName(choice) && !editing ? (
+            {picked && !open ? (
                 <div className="review-chosen" data-testid="review-chosen">
                     <Check aria-hidden="true" />
-                    <span className="candidate-body">
-                        <span className="candidate-title">
-                            {t("review.otherName.pending", {
-                                name: choice.name,
-                            })}
-                        </span>
-                        <span className="muted">
-                            {t("review.otherName.pendingHint")}
-                        </span>
-                    </span>
+                    <Picked
+                        candidate={picked}
+                        searchedAs={
+                            isSearched(choice) ? choice.name : undefined
+                        }
+                    />
                     <button
                         type="button"
                         className="inline-link"
                         disabled={w.locked}
-                        onClick={() => setEditing(true)}
+                        onClick={() => setOpen(true)}
                     >
                         {t("review.change")}
                     </button>
@@ -547,7 +619,7 @@ function Unmatched({ item, w }: { item: ReviewItem; w: Workflow }) {
                         disabled={w.locked}
                         onClick={() => w.unchoose(item.operation_id)}
                     >
-                        {t("review.otherName.cancel")}
+                        {t("review.otherName.clear")}
                     </button>
                 </div>
             ) : (
@@ -555,8 +627,8 @@ function Unmatched({ item, w }: { item: ReviewItem; w: Workflow }) {
                     item={item}
                     w={w}
                     // Closed until asked for: a long list of names stays short.
-                    open={editing}
-                    onUsed={() => setEditing(false)}
+                    open={open}
+                    onPicked={() => setOpen(false)}
                 />
             )}
         </li>

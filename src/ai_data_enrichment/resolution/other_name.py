@@ -15,7 +15,11 @@ from typing import Literal, cast
 from ai_data_enrichment.domain.enrichment_plan import PlanStep
 from ai_data_enrichment.execution.models import OperationResult, RuntimeValue
 from ai_data_enrichment.resolution.job import ParameterizedResolutionService, ResolutionService
-from ai_data_enrichment.resolution.models import ResolutionPolicy, ResolutionReport
+from ai_data_enrichment.resolution.models import (
+    ResolutionPolicy,
+    ResolutionQuery,
+    ResolutionReport,
+)
 
 OtherNameCapability = Literal["geocode", "resolve_entity"]
 # The input that carries the name, the source that resolves it and the step
@@ -143,3 +147,35 @@ class OtherNameResolutionService:
         if marked.report.candidate_set.provider_error_code is None:
             self._found[key] = marked
         return marked
+
+
+def search_under(
+    service: ResolutionService,
+    policy: ResolutionPolicy,
+    *,
+    capability: OtherNameCapability,
+    query: ResolutionQuery,
+    searched_as: str,
+) -> ResolutionReport:
+    """Search once for another name, outside a job, as a reviewed query asked.
+
+    The inputs are rebuilt from the audited query: the row's name, its
+    recognized country and, for a city, its area and required role. The result
+    is the same report a job would produce for that name.
+    """
+    context = {attribute.name: attribute.value for attribute in query.context}
+    country = context.get("country_code") or context.get("country_codes") or context.get("country")
+    if not isinstance(country, str):
+        raise ValueError("The reviewed query has no country to search in.")
+    inputs: dict[str, RuntimeValue] = {name_input(capability): query.name, "country": country}
+    parameters: dict[str, str] = {}
+    if capability == "geocode":
+        area, role = context.get("administrative_area"), context.get("required_role")
+        if isinstance(area, str):
+            inputs["administrative_area"] = area
+        if isinstance(role, str):
+            parameters["required_role"] = role
+    renamed = OtherNameResolutionService(
+        service, capability=capability, row_name=query.name, searched_as=searched_as
+    )
+    return renamed.resolve(inputs=inputs, policy=policy, parameters=parameters).report

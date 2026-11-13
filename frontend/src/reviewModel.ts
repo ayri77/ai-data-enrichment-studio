@@ -7,23 +7,26 @@ import type {
 } from "./api";
 
 /**
- * A chosen candidate, another name to search the source for, or an explicit
- * "leave this query empty".
+ * A chosen candidate, or an explicit "leave this query empty". A candidate
+ * found by a search under another name carries that name.
  */
 export type Choice =
-    { source: string; entity_id: string } | { name: string } | "empty";
+    { source: string; entity_id: string; name?: string } | "empty";
 export type Choices = Record<string, Choice>;
+/** What the latest search under another name found, by operation. */
+export type Searches = Record<string, ReviewItem>;
 
 export const candidateKey = (c: { source: string; entity_id: string }) =>
     `${c.source}:${c.entity_id}`;
 export const isCandidate = (
     choice: Choice | undefined,
-): choice is { source: string; entity_id: string } =>
-    !!choice && choice !== "empty" && "entity_id" in choice;
-export const isName = (
+): choice is { source: string; entity_id: string; name?: string } =>
+    !!choice && choice !== "empty";
+/** A candidate that a search under another name found. */
+export const isSearched = (
     choice: Choice | undefined,
-): choice is { name: string } =>
-    !!choice && choice !== "empty" && "name" in choice;
+): choice is { source: string; entity_id: string; name: string } =>
+    isCandidate(choice) && choice.name !== undefined;
 
 const spelled = (text: string) => text.trim().replace(/\s+/g, " ");
 /** The longest name the field accepts; the server allows more. */
@@ -39,6 +42,25 @@ export function otherName(item: ReviewItem, text: string) {
         spelled(item.query.name).toLocaleLowerCase();
     return name && name.length <= MAX_OTHER_NAME && !same ? name : null;
 }
+/** The candidates of a search that can be chosen. */
+export const foundCandidates = (found: ReviewItem | undefined) =>
+    (found?.candidates ?? []).filter((candidate) => candidate.selectable);
+/** The candidate a choice stands for, among the listed or the searched ones. */
+export function pickedCandidate(
+    item: ReviewItem,
+    choice: Choice | undefined,
+    found: ReviewItem | undefined,
+) {
+    if (!isCandidate(choice)) return undefined;
+    const from = isSearched(choice)
+        ? found?.query.searched_as === choice.name
+            ? found.candidates
+            : []
+        : item.candidates;
+    return from.find(
+        (candidate) => candidateKey(candidate) === candidateKey(choice),
+    );
+}
 
 /** Drop choices that the current review no longer offers. */
 export function validChoices(review: Review | null, choices: Choices): Choices {
@@ -47,8 +69,10 @@ export function validChoices(review: Review | null, choices: Choices): Choices {
         const choice = choices[item.operation_id];
         if (
             choice === "empty" ||
-            (isName(choice) && item.other_name) ||
+            // What a search found is checked by the server when it is sent.
+            (isSearched(choice) && item.other_name) ||
             (isCandidate(choice) &&
+                !isSearched(choice) &&
                 item.candidates.some(
                     (c) =>
                         c.selectable &&
@@ -57,10 +81,11 @@ export function validChoices(review: Review | null, choices: Choices): Choices {
         )
             next[item.operation_id] = choice;
     }
-    // A name with no match offers nothing to choose, only another name.
+    // A name with no match offers nothing to choose but what a search finds.
     for (const item of review?.informational ?? []) {
         const choice = choices[item.operation_id];
-        if (isName(choice) && item.other_name) next[item.operation_id] = choice;
+        if (isSearched(choice) && item.other_name)
+            next[item.operation_id] = choice;
     }
     return next;
 }
@@ -72,7 +97,6 @@ export function withRecommendations(review: Review, choices: Choices): Choices {
     const next = { ...choices };
     for (const item of review.items) {
         const suggested = recommendation(item);
-        // A name already given for this row is a choice too.
         if (suggested && !next[item.operation_id])
             next[item.operation_id] = {
                 source: suggested.source,
@@ -98,20 +122,17 @@ export function decisions(review: Review, choices: Choices): ReviewDecision[] {
             ? [{ operation_id: item.operation_id }]
             : [{ operation_id: item.operation_id, ...choice }];
     });
-    const named = review.informational.flatMap((item) => {
+    const searched = review.informational.flatMap((item) => {
         const choice = choices[item.operation_id];
-        return isName(choice)
-            ? [{ operation_id: item.operation_id, name: choice.name }]
+        return isSearched(choice)
+            ? [{ operation_id: item.operation_id, ...choice }]
             : [];
     });
-    return [...chosen, ...named];
+    return [...chosen, ...searched];
 }
-/**
- * A resume needs at least one chosen candidate or one other name to search
- * for; "leave empty" alone changes nothing.
- */
+/** A resume needs at least one chosen candidate; "leave empty" alone changes nothing. */
 export const hasCandidateChoice = (review: Review | null, choices: Choices) =>
-    !!review && decisions(review, choices).some((d) => d.entity_id || d.name);
+    !!review && decisions(review, choices).some((d) => d.entity_id);
 
 export function rowList(item: ReviewItem) {
     const rows = [

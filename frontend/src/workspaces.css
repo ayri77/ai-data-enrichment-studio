@@ -1506,3 +1506,18 @@
     padding-top: 8px;
     border-top: 1px solid var(--studio-border);
 }
+.other-name-found {
+    margin-top: 10px;
+}
+.other-name-found legend {
+    padding: 0;
+    margin-bottom: 6px;
+    font-size: 12px;
+    color: var(--studio-muted);
+}
+.other-name-found .notice {
+    margin: 0;
+}
+.review-informational li > .other-name[open] {
+    padding-bottom: 6px;
+}

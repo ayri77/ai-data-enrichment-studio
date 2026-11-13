@@ -73,7 +73,7 @@ A candidate's `verified` flag means *the provider supplied evidence supporting i
 
 A user may explicitly select an already verified candidate even from an incomplete candidate set; that selection is labeled `user_override` and the partial-search metadata remains visible. An *unchecked* candidate cannot be promoted to a definitive result just because the user selected its search-list position; it must be verified first.
 
-A user may also give another name to search a row's value under. That changes only what the source is asked for: verification, the country constraint and the decision policy are the same, so the decision keeps its ordinary basis (`unique_verified`, `verified_only`) and status. The report records the fact in `query.searched_as`, and a value selected in such a report counts as the user's decision in the public row summary.
+A user may also have a row's value searched under another name. That changes only what the source is asked for: verification, the country constraint and the decision policy are the same. The report records the fact in `query.searched_as`. A candidate the user chooses from such a search is verified again by the job and selected with `basis: user_override`, even when the search confirmed a single match, because the row's own value did not find it; approved-candidate services therefore accept a `resolved` source report only when it has `searched_as`. Any value selected in a report with `searched_as` counts as the user's decision in the public row summary.
 
 ## 3. Example — Berlin auto-selection with alternatives
 

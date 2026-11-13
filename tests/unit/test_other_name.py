@@ -14,7 +14,7 @@ from ai_data_enrichment.providers.open_meteo_resolution import (
     GeocodingResolutionOutcome,
     OpenMeteoResolutionService,
 )
-from ai_data_enrichment.resolution.approvals import ResolutionApproval
+from ai_data_enrichment.resolution.approvals import ResolutionApproval, approvable_statuses
 from ai_data_enrichment.resolution.models import (
     ResolutionJobReport,
     ResolutionOperationAudit,
@@ -26,10 +26,22 @@ from ai_data_enrichment.resolution.models import (
 from ai_data_enrichment.resolution.other_name import (
     OtherNameResolutionService,
     same_name,
+    search_under,
     searched_under,
 )
-from ai_data_enrichment.resolution.resume import OtherName, accepts_other_name, build_other_names
-from ai_data_enrichment.review import ReviewDecision, review_payload, user_chosen_steps
+from ai_data_enrichment.resolution.resume import (
+    OtherName,
+    accepts_other_name,
+    build_other_names,
+    build_searched_selections,
+)
+from ai_data_enrichment.review import (
+    ReviewDecision,
+    names_from_decisions,
+    review_payload,
+    searched_from_decisions,
+    user_chosen_steps,
+)
 
 STRICT = ResolutionPolicy(policy_id="capital_strict", version="1.0", strategy="strict")
 ROW = {"city": "München", "country": "Germany"}
@@ -259,12 +271,85 @@ def test_a_step_fed_by_another_step_cannot_be_given_a_name() -> None:
         build_other_names(names={"missing": "Munich"}, report=job_report(searched()), plan=PLAN)
 
 
-def test_a_decision_is_a_candidate_or_a_name_never_both() -> None:
-    assert ReviewDecision(operation_id="operation-1", name="Munich").name == "Munich"
+def test_a_decision_may_name_a_search_alone_or_with_the_candidate_it_found() -> None:
+    alone = ReviewDecision(operation_id="operation-1", name="Munich")
+    found = ReviewDecision(
+        operation_id="operation-2", source="open-meteo", entity_id="1", name="Munich"
+    )
+    listed = ReviewDecision(operation_id="operation-3", source="open-meteo", entity_id="1")
+    decisions = [alone, found, listed]
+    assert names_from_decisions(decisions) == {"operation-1": "Munich"}
+    assert searched_from_decisions(decisions) == {"operation-2": ("Munich", "open-meteo", "1")}
+
+
+def test_a_single_search_asks_as_the_reviewed_query_did() -> None:
+    reviewed = OpenMeteoResolutionService(StubJsonTransport({"results": []})).resolve(
+        inputs={**ROW, "administrative_area": "Bavaria"},
+        policy=STRICT,
+        parameters={"required_role": "country_capital"},
+    )
+    transport = StubJsonTransport({"results": [munich(feature_code="PPLC")]})
+    found = search_under(
+        OpenMeteoResolutionService(transport),
+        STRICT,
+        capability="geocode",
+        query=reviewed.report.candidate_set.query,
+        searched_as="Munich",
+    )
+    assert transport.requests[0][1]["name"] == "Munich"
+    assert transport.requests[0][1]["countryCode"] == "DE"
+    query = found.candidate_set.query
+    assert (query.name, query.searched_as) == ("München", "Munich")
+    # The area and the required role of the row still constrain the match.
+    assert {a.name: a.value for a in query.context} == {
+        "country_code": "DE",
+        "administrative_area": "Bavaria",
+        "required_role": "country_capital",
+    }
+
+
+def chosen(found: ResolutionReport, entity_id: str, name: str = "Munich"):
+    return build_searched_selections(
+        choices={"operation-1": (name, "open-meteo", entity_id)},
+        searches={"operation-1": found},
+        report=job_report(searched()),
+        plan=PLAN,
+    )
+
+
+def test_a_candidate_chosen_from_a_search_is_checked_against_that_search() -> None:
+    one, _ = renamed(munich(7))
+    found = one.resolve(inputs=ROW, policy=STRICT, parameters={}).report
+    # One confirmed match is still the user's to approve: the row did not find it.
+    assert found.decision.status == "resolved"
+    assert approvable_statuses(found) == {"needs_review", "incomplete_verification", "resolved"}
+    assert approvable_statuses(searched(village(1))) == {"needs_review", "incomplete_verification"}
+    selections = chosen(found, "7")
+    assert set(selections) == {("Sheet1!2", "place"), ("Sheet1!7", "place")}
+    selection = selections[("Sheet1!2", "place")]
+    assert selection.source_report is found and selection.approval.entity_id == "7"
+    # The job accepts it only after verifying it again under the same name.
+    transport = StubJsonTransport({"results": [munich(7)]})
+    approved = ApprovedOpenMeteoResolutionService(
+        transport, approval=selection.approval, source_report=found
+    )
+    outcome = approved.resolve(inputs=ROW, policy=STRICT, parameters={})
+    assert outcome.report.decision.basis == "user_override"
+    assert outcome.report.candidate_set.query.searched_as == "Munich"
+
+    for entity_id, name in (("8", "Munich"), ("7", "Monaco"), ("7", "münchen")):
+        with pytest.raises(ValueError):
+            chosen(found, entity_id, name)
     with pytest.raises(ValueError):
-        ReviewDecision(
-            operation_id="operation-1", source="open-meteo", entity_id="1", name="Munich"
+        build_searched_selections(
+            choices={"operation-1": ("Munich", "open-meteo", "7")},
+            searches={},
+            report=job_report(searched()),
+            plan=PLAN,
         )
+    # A report of the row's own search is not a search under another name.
+    with pytest.raises(ValueError):
+        chosen(searched(village(1), village(2)), "1")
 
 
 def test_a_value_found_under_the_users_name_is_marked_as_the_users_decision() -> None:
