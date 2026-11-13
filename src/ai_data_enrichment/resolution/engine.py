@@ -41,6 +41,10 @@ def _reference_key(ref: EntityRef) -> tuple[str, str]:
     return ref.source, ref.entity_id
 
 
+# Set by a source adapter whose bounded examination left candidates unlooked at.
+_BUDGET_EXCEEDED = "candidate_verification_budget_exceeded"
+
+
 class ResolutionEngine:
     """Apply common acceptance and abstention rules to pluggable assessments."""
 
@@ -79,8 +83,32 @@ class ResolutionEngine:
                 explanation="The data provider failed before a definitive decision.",
             )
         elif policy.strategy == "verified_only" and candidate_set.search_complete and eligible:
-            decision = (
-                ResolutionDecision(
+            if len(eligible) > 1:
+                decision = ResolutionDecision(
+                    status="needs_review",
+                    reason_codes=("multiple_positively_verified_candidates",),
+                    explanation="Several positively verified candidates satisfy the context.",
+                )
+            elif candidate_set.incomplete_reason == _BUDGET_EXCEEDED:
+                # "Could not be confirmed" and "was never looked at" are different.
+                # The policy accepts a single confirmed candidate next to others
+                # that were examined without a verdict. It does not accept one
+                # that is single only because the examination stopped: which
+                # candidates were reached then decides the answer. A person
+                # confirms it instead; the candidate stays selectable.
+                decision = ResolutionDecision(
+                    status="needs_review",
+                    reason_codes=(
+                        "single_positively_verified_candidate",
+                        "candidates_not_examined",
+                    ),
+                    explanation=(
+                        "One candidate is positively verified, but the verification budget "
+                        "ended before every candidate was examined."
+                    ),
+                )
+            else:
+                decision = ResolutionDecision(
                     status="resolved",
                     selected=eligible[0].reference,
                     basis="verified_only",
@@ -92,13 +120,6 @@ class ResolutionEngine:
                     )
                     + (" Unchecked alternatives remain uncertain." if unchecked else ""),
                 )
-                if len(eligible) == 1
-                else ResolutionDecision(
-                    status="needs_review",
-                    reason_codes=("multiple_positively_verified_candidates",),
-                    explanation="Several positively verified candidates satisfy the context.",
-                )
-            )
         elif not complete:
             decision = ResolutionDecision(
                 status="incomplete_verification",
