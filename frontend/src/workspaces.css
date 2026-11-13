@@ -1569,3 +1569,13 @@
     flex-wrap: wrap;
     gap: 6px;
 }
+
+/* Review: applying the choices is the step at the bottom of the panel. */
+.workspace-actions > .review-fill,
+.workspace-actions > .notice {
+    flex-basis: 100%;
+}
+.workspace-actions > .notice {
+    margin: 0;
+    font-size: 13px;
+}
