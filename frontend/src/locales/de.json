@@ -308,6 +308,8 @@
     "review.blocker.type": "ein Objekt anderer Art",
     "review.leaveEmpty": "Leer lassen",
     "review.leaveEmptyHint": "Die Zellen in diesen Zeilen bleiben leer.",
+    "review.change": "Ändern",
+    "review.fold": "Optionen ausblenden",
     "review.population": "{{value}} Einwohner",
     "review.type.city": "Stadt",
     "review.type.settlement": "Ortschaft",
