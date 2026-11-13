@@ -3,10 +3,19 @@ import { api } from "./api";
 
 /** What one run accepts. The demo's bounds apply until the server answers. */
 export interface Limits {
+    /** Data rows one run fills. */
     maxRows: number;
     maxTimeout: number;
+    /** Data rows and cells of a table that can be read and looked through. */
+    maxTableRows: number;
+    maxTableCells: number;
 }
-export const DEMO_LIMITS: Limits = { maxRows: 20, maxTimeout: 300 };
+export const DEMO_LIMITS: Limits = {
+    maxRows: 20,
+    maxTimeout: 300,
+    maxTableRows: 5000,
+    maxTableCells: 100_000,
+};
 
 export function useLimits(): Limits {
     const [limits, setLimits] = useState(DEMO_LIMITS);
@@ -19,6 +28,10 @@ export function useLimits(): Limits {
                     setLimits({
                         maxRows: stated.max_run_rows,
                         maxTimeout: stated.max_timeout_seconds,
+                        maxTableRows:
+                            stated.max_table_rows ?? DEMO_LIMITS.maxTableRows,
+                        maxTableCells:
+                            stated.max_table_cells ?? DEMO_LIMITS.maxTableCells,
                     });
             } catch {
                 // The demo's bounds stay; the server still checks every value.

@@ -312,6 +312,92 @@ for (const name of ["capitals", "mountains"]) {
     });
 }
 
+test("a table longer than one run accepts is shown whole, and the run takes its first rows", async ({
+    page,
+}, testInfo) => {
+    // Sixty data rows: three times what one run accepts.
+    const source = testInfo.outputPath("long.xlsx");
+    const made = spawnSync(
+        "uv",
+        [
+            "run",
+            "--locked",
+            "python",
+            "-c",
+            `
+import sys
+from openpyxl import load_workbook
+book = load_workbook('samples/capitals.xlsx')
+sheet = book['Sheet1']
+rows = [[cell.value for cell in row] for row in sheet.iter_rows(min_row=2, max_row=11)]
+for index in range(50):
+    sheet.append(rows[index % 10])
+book.save(sys.argv[1])
+`,
+            source,
+        ],
+        { cwd: "..", encoding: "utf8" },
+    );
+    expect(made.status, made.stdout + made.stderr).toBe(0);
+
+    await advanced(page);
+    await page.goto("/");
+    await page.getByLabel("Upload Excel workbook").setInputFiles(source);
+    await page.getByRole("button", { name: "Preview selection" }).click();
+    // The whole table is there to look through …
+    await expect(page.getByTestId("row-count")).toHaveText("60 rows");
+    await expect(page.locator(".source-reference")).toContainText("A1:E61");
+    await page
+        .getByRole("searchbox", { name: "Filter rows by text" })
+        .fill("kyiv");
+    await expect(page.getByTestId("row-count")).toHaveText(
+        /^1[0-9] of 60 rows match$/,
+    );
+    await page.getByRole("searchbox", { name: "Filter rows by text" }).fill("");
+    await page.getByRole("combobox", { name: "Show" }).selectOption("all");
+    const body = page.locator(".table-scroll tbody");
+    await expect(body.getByRole("row")).toHaveCount(60);
+    // … and the run says which of its rows it takes.
+    const run = page.getByTestId("run-rows");
+    await expect(run).toContainText(
+        "The first 20 of 60 rows will be filled (worksheet rows 2–21).",
+    );
+    await expect(run).toContainText("One run fills at most 20 rows.");
+    await expect(body.getByRole("row").nth(19)).not.toHaveAttribute(
+        "data-out-of-run",
+    );
+    await expect(body.getByRole("row").nth(20)).toHaveAttribute(
+        "data-out-of-run",
+        "true",
+    );
+    await page.screenshot({ path: testInfo.outputPath("long-table.png") });
+    await page
+        .getByLabel("Enrichment instruction")
+        .fill("Calculate distances in km between the city pairs.");
+    await page.getByLabel("Output column 1", { exact: true }).selectOption("E");
+    await page
+        .getByLabel(
+            "Allow external network requests for planning and execution",
+        )
+        .check();
+    await run.getByLabel("Rows to fill, from the top of the table").fill("3");
+    const planned = page.waitForResponse(
+        (r) =>
+            r.url().endsWith("/api/plans") && r.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Build Plan", exact: true }).click();
+    const draft = await (await planned).json();
+    // The plan is made for the run's rows, not for the table that is shown.
+    expect(draft.range_ref).toBe("A1:E4");
+    await page
+        .getByRole("button", { name: "Approve / Continue to Execution" })
+        .click();
+    await page.getByRole("button", { name: "Start bounded run" }).click();
+    await expect(page.getByTestId("metric-total_rows")).toHaveText("3", {
+        timeout: 30_000,
+    });
+});
+
 test("dataset: the whole table can be looked through, filtered and sorted", async ({
     page,
 }, testInfo) => {

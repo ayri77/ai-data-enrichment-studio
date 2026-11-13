@@ -329,6 +329,9 @@ async function configureProvider(
 }
 /** What one run accepts; the server may be started with other bounds. */
 export interface RunLimits {
+    /** A table of up to this size can be read and looked through. */
+    max_table_rows?: number;
+    max_table_cells?: number;
     max_run_rows: number;
     max_timeout_seconds: number;
     default_timeout_seconds: number;

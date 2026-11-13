@@ -7,8 +7,9 @@ export interface TableRow {
     cells: Cell[];
 }
 export type Sort = { column: number; descending: boolean } | null;
-/** How many rows are drawn at first and added by each "show more". */
-export const PAGE_ROWS = 50;
+/** How many rows can be shown at once; the person chooses, or asks for all. */
+export const SHOWN_ROWS = [20, 50, 100];
+export const ALL_ROWS = Number.MAX_SAFE_INTEGER;
 
 /**
  * Every row the server sent. A response without rows (an older server, a test
@@ -26,6 +27,37 @@ export function tableRows(preview: Preview): TableRow[] {
         cells: names.map((name) => record[name] ?? null),
     }));
 }
+
+/**
+ * The rows one run takes from the table: its first ``count`` data rows. The
+ * answer is the range to send, header included, and the worksheet row of the
+ * last of them. Null when the count is not a whole number of rows the table
+ * has, or when those rows span more of the worksheet than a run accepts
+ * (empty rows in between count towards the span).
+ */
+export function runRows(
+    preview: Preview | null,
+    count: number,
+    maxRows: number,
+) {
+    const range = preview?.range_ref.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
+    if (!preview || !range || !Number.isInteger(count) || count < 1)
+        return null;
+    const header = Number(range[2]);
+    const numbers = preview.rows?.row_numbers;
+    const total = numbers?.length ?? preview.profile.row_count;
+    if (count > total || count > maxRows) return null;
+    // Without the rows themselves, the table is taken to have no gaps.
+    const last = numbers ? numbers[count - 1] : header + count;
+    if (last - header > maxRows) return null;
+    return { range: `${range[1]}${header}:${range[3]}${last}`, last };
+}
+/** How many rows a run takes when nothing else was asked for. */
+export const defaultRunCount = (preview: Preview | null, maxRows: number) =>
+    Math.min(
+        preview?.rows?.row_numbers.length ?? preview?.profile.row_count ?? 0,
+        maxRows,
+    );
 
 /**
  * Worksheet rows in which a column already holds a value. Empty when the

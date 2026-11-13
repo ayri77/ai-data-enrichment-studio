@@ -1,9 +1,11 @@
 import { expect, it } from "vitest";
 import type { Preview } from "./api";
 import {
+    defaultRunCount,
     filterRows,
     nextSort,
     occupiedRows,
+    runRows,
     sortRows,
     tableRows,
     type TableRow,
@@ -102,4 +104,52 @@ it("finds the worksheet rows in which a column already holds a value", () => {
         [],
     );
     expect(occupiedRows(null, "distance")).toEqual([]);
+});
+
+it("takes the first rows of the table for a run, within what a run accepts", () => {
+    const preview = {
+        range_ref: "C4:G1004",
+        profile: { row_count: 1000, columns: [], sample_records: [] },
+        rows: {
+            row_numbers: Array.from({ length: 1000 }, (_, index) => index + 5),
+            values: [],
+        },
+    } as unknown as Preview;
+    // A long table does not stop a run: its first rows are taken.
+    expect(defaultRunCount(preview, 20)).toBe(20);
+    expect(runRows(preview, 20, 20)).toEqual({ range: "C4:G24", last: 24 });
+    expect(runRows(preview, 3, 20)).toEqual({ range: "C4:G7", last: 7 });
+    // More than a run accepts, none, or not a whole number: nothing to send.
+    expect(runRows(preview, 21, 20)).toBeNull();
+    expect(runRows(preview, 0, 20)).toBeNull();
+    expect(runRows(preview, 2.5, 20)).toBeNull();
+    expect(runRows(null, 5, 20)).toBeNull();
+    // A short table is taken whole.
+    const short = {
+        ...preview,
+        range_ref: "A1:B4",
+        rows: { row_numbers: [2, 3, 4], values: [] },
+    } as unknown as Preview;
+    expect(defaultRunCount(short, 20)).toBe(3);
+    expect(runRows(short, 3, 20)).toEqual({ range: "A1:B4", last: 4 });
+    expect(runRows(short, 4, 20)).toBeNull();
+    // Empty rows in between count towards the span a run accepts.
+    const gaps = {
+        ...short,
+        range_ref: "A1:B60",
+        rows: { row_numbers: [2, 3, 59], values: [] },
+    } as unknown as Preview;
+    expect(runRows(gaps, 2, 20)).toEqual({ range: "A1:B3", last: 3 });
+    expect(runRows(gaps, 3, 20)).toBeNull();
+    // Without the rows themselves the table is taken to have no gaps.
+    const bare = { ...short, rows: undefined } as unknown as Preview;
+    expect(
+        defaultRunCount({ ...bare, profile: { row_count: 3 } } as Preview, 20),
+    ).toBe(3);
+    expect(
+        runRows({ ...bare, profile: { row_count: 3 } } as Preview, 2, 20),
+    ).toEqual({
+        range: "A1:B3",
+        last: 3,
+    });
 });

@@ -9,9 +9,14 @@ import {
 import { columnLetter, parseRange } from "./range";
 
 export function useDataset(
-    // Basic mode previews a table as soon as it is known, taking no more rows
-    // than one run accepts; Advanced leaves the selection to the user.
-    options: { auto: boolean; maxRows: number } = { auto: false, maxRows: 20 },
+    // Basic mode previews a table as soon as it is known; Advanced waits for
+    // the button. Either way the whole table is offered, up to what the server
+    // reads: looking through a table is not limited to the rows of one run.
+    options: {
+        auto: boolean;
+        maxTableRows?: number;
+        maxTableCells?: number;
+    } = { auto: false },
 ) {
     const [dataset, setDataset] = useState<Dataset | null>(null);
     const [sheet, setSheet] = useState("");
@@ -49,9 +54,15 @@ export function useDataset(
     const fullRange = (source: Dataset | null, name: string) => {
         const selected = source?.worksheets.find((ws) => ws.name === name);
         if (!selected) return "";
-        const rows = options.auto
-            ? Math.min(selected.row_count, options.maxRows)
-            : selected.row_count;
+        const columns = selected.table
+            ? selected.table.last_column - selected.table.first_column + 1
+            : Math.max(1, selected.columns.length);
+        const rows = Math.min(
+            selected.row_count,
+            options.maxTableRows ?? 5000,
+            // The header row counts towards the cells of the selection.
+            Math.floor((options.maxTableCells ?? 100_000) / columns) - 1,
+        );
         // The server looks for the table: a title above it or empty columns
         // beside it must not make a person type the range by hand.
         const table = selected.table;

@@ -37,7 +37,11 @@ function Studio() {
     >(null);
     const heading = useRef<HTMLHeadingElement>(null);
     const limits = useLimits();
-    const d = useDataset({ auto: mode === "basic", maxRows: limits.maxRows });
+    const d = useDataset({
+        auto: mode === "basic",
+        maxTableRows: limits.maxTableRows,
+        maxTableCells: limits.maxTableCells,
+    });
     const w = useWorkflow(
         d.preview,
         `${d.dataset?.dataset_id ?? ""}:${d.sheet}:${d.range}`,
