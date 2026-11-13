@@ -74,11 +74,28 @@ function Note({ row, w }: { row: ResultRow; w: Workflow }) {
         w.review.items.length > 0;
     return (
         <>
-            <span
-                className={row.filled ? "outcome-success" : "outcome-failure"}
-            >
-                {t(row.filled ? "results.filled" : "results.empty")}
-            </span>
+            {row.kept.length > 0 ? (
+                <span className="result-kept" data-testid="result-kept">
+                    {t("results.kept")}
+                </span>
+            ) : (
+                <span
+                    className={
+                        row.filled ? "outcome-success" : "outcome-failure"
+                    }
+                >
+                    {t(row.filled ? "results.filled" : "results.empty")}
+                </span>
+            )}
+            {Object.entries(row.replaced).map(([column, old]) => (
+                <span
+                    key={column}
+                    className="result-replaced"
+                    data-testid="result-replaced"
+                >
+                    {t("results.replaced", { old: String(old) })}
+                </span>
+            ))}
             {row.chosen.length > 0 && (
                 <span className="result-chosen">
                     {t("results.chosen", { names: row.chosen.join(", ") })}
@@ -91,7 +108,7 @@ function Note({ row, w }: { row: ResultRow; w: Workflow }) {
                     })}
                 </span>
             )}
-            {!row.filled && row.cause && (
+            {!row.filled && row.kept.length === 0 && row.cause && (
                 <span className="result-cause">
                     {t(`results.cause.${row.cause.kind}`, {
                         subject: row.cause.subject ?? t("results.thisRow"),
@@ -340,6 +357,31 @@ function ResultTable({ w }: { w: Workflow }) {
                                     ))}
                                     {outputs.map((column) => {
                                         const value = row.outputs[column.key];
+                                        // A kept cell holds its earlier value;
+                                        // what was found is not in the file.
+                                        if (row.kept.includes(column.key))
+                                            return (
+                                                <td
+                                                    key={column.key}
+                                                    className="result-value muted"
+                                                    title={
+                                                        value === undefined
+                                                            ? undefined
+                                                            : t(
+                                                                  "results.keptFound",
+                                                                  {
+                                                                      value: formatValue(
+                                                                          value,
+                                                                          locale,
+                                                                          column.unit,
+                                                                      ),
+                                                                  },
+                                                              )
+                                                    }
+                                                >
+                                                    {t("results.keptCell")}
+                                                </td>
+                                            );
                                         return (
                                             <td
                                                 key={column.key}

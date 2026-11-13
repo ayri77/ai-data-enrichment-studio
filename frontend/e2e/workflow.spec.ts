@@ -339,6 +339,86 @@ test("dataset: the whole table can be looked through, filtered and sorted", asyn
     await expect(page.locator(".source-reference")).toContainText("A1:E11");
 });
 
+test("existing values in the output column are announced, kept by default and replaced on request", async ({
+    page,
+}, testInfo) => {
+    // Kyiv–Paris cannot be resolved offline; London–Rome can. Both cells are occupied.
+    const source = testInfo.outputPath("occupied.xlsx");
+    const python = (code: string, ...args: string[]) =>
+        spawnSync("uv", ["run", "--locked", "python", "-c", code, ...args], {
+            cwd: "..",
+            encoding: "utf8",
+        });
+    const made = python(
+        `
+import sys
+from openpyxl import load_workbook
+book = load_workbook('samples/capitals.xlsx')
+book['Sheet1']['E2'] = 99999
+book['Sheet1']['E3'] = 5
+book.save(sys.argv[1])
+`,
+        source,
+    );
+    expect(made.status, made.stdout + made.stderr).toBe(0);
+
+    await advanced(page);
+    await page.goto("/");
+    await page.getByLabel("Upload Excel workbook").setInputFiles(source);
+    await page.getByRole("button", { name: "Preview selection" }).click();
+    await page
+        .getByLabel("Enrichment instruction")
+        .fill("Calculate distances in km between the city pairs.");
+    await page.getByLabel("Output column 1", { exact: true }).selectOption("E");
+    const notice = page.getByTestId("existing-outputs");
+    await expect(notice).toContainText(
+        "2 of 10 rows already have a value (rows 2, 3)",
+    );
+    await expect(notice.getByLabel(/Keep them/)).toBeChecked();
+    await notice.getByLabel(/Replace them/).check();
+    await page.screenshot({
+        path: testInfo.outputPath("existing-outputs.png"),
+    });
+    await page
+        .getByLabel(
+            "Allow external network requests for planning and execution",
+        )
+        .check();
+    await page.getByRole("button", { name: "Build Plan", exact: true }).click();
+    await page
+        .getByRole("button", { name: "Approve / Continue to Execution" })
+        .click();
+    await page.getByRole("button", { name: "Start bounded run" }).click();
+    await expect(page.getByTestId("metric-successful_rows")).toHaveText("1", {
+        timeout: 30_000,
+    });
+    await page.getByRole("button", { name: "Review issues" }).click();
+    await page.getByRole("button", { name: "Continue to results" }).click();
+    // Row 3 was found and replaced; row 2 was not found and keeps its value.
+    await expect(page.getByTestId("result-replaced")).toHaveText(
+        "Replaced the earlier value: 5",
+    );
+    await expect(page.getByTestId("result-kept")).toHaveCount(1);
+    await page.screenshot({
+        path: testInfo.outputPath("existing-results.png"),
+    });
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download enriched XLSX" }).click();
+    const output = testInfo.outputPath("occupied-result.xlsx");
+    await (await download).saveAs(output);
+    const check = python(
+        `
+import sys
+from openpyxl import load_workbook
+sheet = load_workbook(sys.argv[1])['Sheet1']
+assert sheet['E2'].value == 99999, sheet['E2'].value
+assert isinstance(sheet['E3'].value, float) and sheet['E3'].value > 1000, sheet['E3'].value
+`,
+        output,
+    );
+    expect(check.status, check.stdout + check.stderr).toBe(0);
+});
+
 test("capitals: a name the source does not know is found under another name", async ({
     page,
 }, testInfo) => {

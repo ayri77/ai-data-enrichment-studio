@@ -145,6 +145,8 @@ export interface PlanRequest {
     output_columns: Record<string, string>;
     allow_network: boolean;
     mountain_resolution_policy: "strict" | "verified_only";
+    /** What a run does with an output cell that already holds a value. */
+    existing_outputs?: "keep" | "replace";
     plan?: EnrichmentPlan;
 }
 export interface PlanDraft extends Omit<PlanRequest, "allow_network" | "plan"> {
@@ -201,6 +203,10 @@ export interface AuditReport extends Job {
         user_chosen_steps?: string[];
         /** Steps accepted automatically while other matches stayed unconfirmed. */
         auto_accepted_steps?: string[];
+        /** Output columns whose cell already held a value and still holds it. */
+        kept_outputs?: string[];
+        /** Output columns whose earlier value was replaced, with that value. */
+        replaced_outputs?: Record<string, string | number | boolean>;
     }[];
     execution?: {
         provider_requests: Record<string, Record<string, number>>;

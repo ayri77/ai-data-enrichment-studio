@@ -385,6 +385,41 @@
     flex-shrink: 0;
     margin-top: 2px;
 }
+/* Dataset: the chosen output column already holds values. */
+.existing-outputs {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--studio-warning, var(--studio-border));
+    border-radius: 6px;
+    font-size: 13px;
+}
+.existing-outputs legend {
+    padding: 0 4px;
+    font-weight: 600;
+}
+.existing-outputs p {
+    margin: 0;
+}
+.workspace-body .existing-choice {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 8px;
+}
+.workspace-body .existing-choice input {
+    width: 16px;
+    min-height: 16px;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+.result-kept,
+.result-replaced {
+    display: block;
+    color: var(--studio-muted);
+}
 .workspace-body details {
     border-top: 1px solid var(--studio-border);
     padding-top: 10px;

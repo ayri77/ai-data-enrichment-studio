@@ -150,6 +150,9 @@ class PlanRequest(BaseModel):
     plan: EnrichmentPlan | None = None
     allow_network: bool = False
     mountain_resolution_policy: MountainPolicy = "strict"
+    # An output cell that already holds a value is kept by default. "replace"
+    # writes a newly found value over it; a row with no new value keeps its own.
+    existing_outputs: Literal["keep", "replace"] = "keep"
 
 
 class ApprovalRequest(BaseModel):
@@ -781,6 +784,8 @@ class PlanRunService:
             plan=EnrichmentPlan.model_validate(draft["plan"]),
             output_columns=dict(draft["output_columns"]),
             mountain_policy=draft["mountain_resolution_policy"],
+            # Drafts made before the option existed keep what they had.
+            existing_outputs=draft.get("existing_outputs", "keep"),
             resume_selections=resume_selections,
             previous_job_id=previous_job_id,
         )
@@ -860,6 +865,14 @@ class PlanRunService:
                         "user_chosen_steps": sorted(chosen.get(record.record_id, ())),
                         # Steps accepted automatically while other matches stayed unconfirmed.
                         "auto_accepted_steps": sorted(automatic.get(record.record_id, ())),
+                        # Output columns whose cell already held a value: kept as
+                        # it was, or replaced (with the value it held).
+                        "kept_outputs": source_rows.get(record.record_id, {}).get(
+                            "kept_outputs", []
+                        ),
+                        "replaced_outputs": source_rows.get(record.record_id, {}).get(
+                            "replaced_outputs", {}
+                        ),
                     }
                     for record in result.records
                 ]

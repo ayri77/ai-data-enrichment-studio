@@ -3,6 +3,7 @@ import type { Preview } from "./api";
 import {
     filterRows,
     nextSort,
+    occupiedRows,
     sortRows,
     tableRows,
     type TableRow,
@@ -75,4 +76,30 @@ it("cycles a column through ascending, descending and the original order", () =>
     expect(down).toEqual({ column: 1, descending: true });
     expect(nextSort(down, 1)).toBeNull();
     expect(nextSort(down, 0)).toEqual({ column: 0, descending: false });
+});
+
+it("finds the worksheet rows in which a column already holds a value", () => {
+    const preview = {
+        profile: {
+            columns: [{ name: "city" }, { name: "distance" }],
+            sample_records: [],
+        },
+        rows: {
+            row_numbers: [5, 6, 7, 9],
+            values: [
+                ["Hamburg", null],
+                ["Berlin", null],
+                ["Paris", 99999],
+                ["Rome", "=1+1"],
+            ],
+        },
+    } as unknown as Preview;
+    expect(occupiedRows(preview, "distance")).toEqual([7, 9]);
+    expect(occupiedRows(preview, "city")).toEqual([5, 6, 7, 9]);
+    // A column that is not in the table, or no rows from the server: nothing to say.
+    expect(occupiedRows(preview, "height")).toEqual([]);
+    expect(occupiedRows({ ...preview, rows: undefined }, "distance")).toEqual(
+        [],
+    );
+    expect(occupiedRows(null, "distance")).toEqual([]);
 });

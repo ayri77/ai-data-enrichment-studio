@@ -229,3 +229,29 @@ it("names a row's own unusable value as the cause", () => {
     });
     expect(made[1].cause).toMatchObject({ kind: "too_long" });
 });
+
+it("tells a kept or replaced earlier value from a value this run filled in", () => {
+    const column = plan.outputs[0].target_column;
+    const withExisting = {
+        ...report,
+        rows: report.rows!.map((row) =>
+            row.row === 2
+                ? { ...row, kept_outputs: [column] }
+                : row.row === 3
+                  ? { ...row, replaced_outputs: { [column]: 99999 } }
+                  : row,
+        ),
+    } as AuditReport;
+    const [kept, replaced, other] = resultRows(withExisting, plan);
+    // A value was found, yet the cell holds what it held: not filled by this run.
+    expect(kept.kept).toEqual([column]);
+    expect(kept.outputs[column]).toBeCloseTo(2023.79, 1);
+    expect(kept.filled).toBe(false);
+    expect(replaced.replaced).toEqual({ [column]: 99999 });
+    expect(replaced.filled).toBe(true);
+    expect(other.kept).toEqual([]);
+    expect(other.replaced).toEqual({});
+    // A report written before this was recorded reads as before.
+    expect(rows[0].kept).toEqual([]);
+    expect(rows[0].filled).toBe(true);
+});

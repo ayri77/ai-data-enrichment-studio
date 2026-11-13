@@ -382,6 +382,8 @@ it("uses exact source/mapping, validates and explicitly approves before a separa
         allow_network: true,
         // Default: accept the single confirmed match; "strict" asks instead.
         mountain_resolution_policy: "verified_only",
+        // Default: a cell that already holds a value is kept.
+        existing_outputs: "keep",
     });
     expect(api.approvePlan).not.toHaveBeenCalled();
     expect(api.startRun).not.toHaveBeenCalled();
@@ -1140,6 +1142,55 @@ it("lets a person settle each ambiguous name once and resumes as a new job", asy
     // The earlier run is kept for inspection, not overwritten.
     await userEvent.click(button("ws.diagnostics"));
     expect(screen.getByText(/job · Needs review/)).toBeInTheDocument();
+});
+
+it("says before the run that the chosen column already has values, and asks what to do with them", async () => {
+    // Rows 4 and 9 of the worksheet already have a distance.
+    vi.mocked(api.preview).mockResolvedValue({
+        ...preview,
+        rows: {
+            row_numbers: Array.from({ length: 10 }, (_, index) => index + 2),
+            values: Array.from({ length: 10 }, (_, index) => [
+                "UA",
+                "Kyiv",
+                "PL",
+                "Warsaw",
+                index === 2 ? 99999 : index === 7 ? "=1+1" : null,
+            ]),
+        },
+    });
+    render(<App />);
+    await userEvent.upload(
+        screen.getByLabelText("Upload Excel workbook"),
+        new File(["x"], "capitals.xlsx"),
+    );
+    await userEvent.click(button("previewAction"));
+    fireEvent.change(await screen.findByLabelText("Enrichment instruction"), {
+        target: { value: "Literal cities" },
+    });
+    await userEvent.selectOptions(
+        screen.getByLabelText("Output column 1"),
+        "E",
+    );
+    const notice = within(screen.getByTestId("existing-outputs"));
+    expect(
+        notice.getByText(
+            i18n.t("existing.found", {
+                column: "distance",
+                count: 2,
+                total: 10,
+                rows: "4, 9",
+            }),
+        ),
+    ).toBeInTheDocument();
+    // Keeping is the default; replacing has to be asked for.
+    expect(notice.getByLabelText(i18n.t("existing.keep"))).toBeChecked();
+    await userEvent.click(notice.getByLabelText(i18n.t("existing.replace")));
+    await userEvent.click(screen.getByLabelText(i18n.t("workflow.network")));
+    await userEvent.click(button("ws.buildPlan"));
+    expect(api.createPlan).toHaveBeenCalledWith(
+        expect.objectContaining({ existing_outputs: "replace" }),
+    );
 });
 
 it("makes applying the choices the next step once something is chosen", async () => {

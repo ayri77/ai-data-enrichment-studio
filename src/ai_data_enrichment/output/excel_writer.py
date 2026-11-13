@@ -1,7 +1,7 @@
 """Write explicitly selected cells to a new XLSX workbook."""
 
 import os
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from math import isfinite
 from pathlib import Path
 from tempfile import mkstemp
@@ -16,6 +16,8 @@ from openpyxl.worksheet.worksheet import Worksheet
 def _checked_empty_target_cell(
     sheet: Worksheet,
     coordinate: str,
+    *,
+    may_hold_value: bool = False,
 ) -> Cell:
     """Resolve an Excel cell and reject unsafe write targets."""
 
@@ -35,7 +37,7 @@ def _checked_empty_target_cell(
     if isinstance(cell, MergedCell):
         raise ValueError(f"Target cell belongs to a merged range: {coordinate}")
 
-    if cell.value is not None:
+    if cell.value is not None and not may_hold_value:
         raise ValueError(f"Target cell is not empty: {coordinate}")
 
     return cell
@@ -47,8 +49,14 @@ def write_excel_cells(
     *,
     sheet_name: str,
     writes: Mapping[str, str | float],
+    replace: Collection[str] = (),
 ) -> Path:
-    """Write values to empty cells in a separate workbook."""
+    """Write values to empty cells in a separate workbook.
+
+    A cell named in ``replace`` may already hold a value, which the write then
+    replaces. Every other target must be empty. The caller names such cells one
+    by one, so nothing is overwritten that it did not decide to overwrite.
+    """
 
     if source_path.suffix.lower() != ".xlsx":
         raise ValueError("Source must be an .xlsx file")
@@ -77,7 +85,9 @@ def write_excel_cells(
 
         # Validate every proposed write before modifying cells.
         for coordinate, value in writes.items():
-            cell = _checked_empty_target_cell(sheet, coordinate)
+            cell = _checked_empty_target_cell(
+                sheet, coordinate, may_hold_value=coordinate in replace
+            )
 
             if not (isinstance(value, str) or type(value) is float):
                 raise ValueError(f"Unsupported output value at {coordinate}")
