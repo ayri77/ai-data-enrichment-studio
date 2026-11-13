@@ -132,7 +132,8 @@ No names and no other cell values.
 ## Live run of 2026-11-13
 
 The owner ran the three-column task on `samples/capitals_roads.xlsx` (ten pairs
-of European capitals) with a key of the free plan, model `gpt-6-luna`.
+of European capitals) with a key of the free plan. The audit does not record
+which model planned; the default is `gpt-6-luna`.
 
 **Evidence** (the job's audit report):
 
