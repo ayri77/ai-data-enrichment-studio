@@ -52,6 +52,12 @@ export interface ResultRow {
     replaced: Record<string, Scalar>;
     /** Source values whose match the user chose during review. */
     chosen: string[];
+    /** Source values found under another name, and who gave that name. */
+    searched: {
+        subject: string | null;
+        searchedAs: string;
+        origin: "user" | "model" | null;
+    }[];
     /** Source values accepted automatically although other matches stayed unconfirmed. */
     automatic: string[];
     /** The first real failure in the row, not its downstream consequences. */
@@ -162,6 +168,13 @@ export function resultRows(
             kept: row.kept_outputs ?? [],
             replaced: row.replaced_outputs ?? {},
             chosen: subjects(row.user_chosen_steps),
+            searched: Object.entries(row.other_names ?? {}).map(
+                ([id, found]) => ({
+                    subject: subject(planSteps.get(id), inputs),
+                    searchedAs: found.searched_as,
+                    origin: found.origin ?? null,
+                }),
+            ),
             automatic: subjects(row.auto_accepted_steps),
             cause: failed
                 ? {

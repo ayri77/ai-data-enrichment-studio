@@ -154,7 +154,9 @@ Its resolution job ID matches the API job ID. Row summaries use the existing
 `success | partial | failure` classification and also carry the Excel `row`
 number, the source `inputs` the plan used for that row (only columns referenced
 by the plan), `user_chosen_steps` (steps whose entity the user chose during
-review) and `auto_accepted_steps` (steps resolved under `verified_only` while
+review), `other_names` (per step, the name the source was asked for instead of
+the row's value and, where the review recorded it, who gave that name) and
+`auto_accepted_steps` (steps resolved under `verified_only` while
 other matches stayed unconfirmed), so a result can be read without opening the
 workbook; candidate decisions distinguish
 ambiguity, unresolved matches, incomplete verification and provider errors.
@@ -255,6 +257,28 @@ same workbook hash, same plan) and starts a **new job** on the same approved
 plan. The response and the new job carry `previous_job_id` and
 `review_decisions` (both `null` for an ordinary run); the report stores them too. The first job, its workbook and its report are never
 modified, so a different choice can be made from the same starting point.
+
+The report of a resumed job also has `review_assistance` (`null` for an ordinary
+run), so that a value found under another name can be traced to where the name
+came from:
+
+- `other_names` — one entry per name used: `job_id` of the reviewed job,
+  `operation_id`, `name` (the row's value), `searched_as` and `origin`.
+  `origin` is `model` when the model had proposed exactly this name for this
+  item before it was used (compared without regard to case and spacing) and
+  `user` otherwise. It is decided from the server's own record of the model's
+  answers, never from the request; the server cannot tell a proposed name that
+  was clicked from the same name typed by hand.
+- `model_requests` — every request to the model for other names made while that
+  job was under review, used or not: `job_id`, `operation_id`, `name`, `model`
+  (`offline_fixture` for injected answers), `asked_at`, `outcome`
+  (`answered` | `failed`) and the names it `proposed` after filtering.
+
+A further resume carries both lists forward, because its result still rests on
+the earlier names; a new name for the same row value replaces the earlier entry.
+Model requests of a review that was never resumed are in no report, and the
+record does not survive a server restart. Requests for task ideas belong to no
+job and are not audited.
 
 During the new run each approved query is searched again and the approved
 candidate is accepted only if the source still verifies it; the decision is then

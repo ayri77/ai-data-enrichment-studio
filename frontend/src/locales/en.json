@@ -594,5 +594,8 @@
     "activity.ideas": "Asking the AI for a task",
     "activity.ideasDetail": "Column names, types and five sample rows are sent. Nothing is planned or written yet.",
     "error.task_ideas_failed": "The AI did not return usable tasks. Try again, or describe the task yourself.",
-    "error.task_idea_limit": "This workbook has asked the AI for tasks too many times. Describe the task yourself."
+    "error.task_idea_limit": "This workbook has asked the AI for tasks too many times. Describe the task yourself.",
+    "results.searchedAs.user": "“{{name}}” was found under the name you gave: “{{searched}}”",
+    "results.searchedAs.model": "“{{name}}” was found under a name the AI proposed: “{{searched}}”",
+    "results.searchedAs.unknown": "“{{name}}” was found under another name: “{{searched}}”"
 }
