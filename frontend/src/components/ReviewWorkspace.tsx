@@ -1,14 +1,27 @@
 import {
+    ArrowLeft,
     ArrowRight,
     Check,
     CircleAlert,
     ExternalLink,
     LoaderCircle,
     Play,
+    MapPinned,
     Search,
+    X,
+    ZoomIn,
+    ZoomOut,
     Sparkles,
 } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import {
+    createContext,
+    useContext,
+    useEffect,
+    useId,
+    useLayoutEffect,
+    useRef,
+    useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import type { ReviewCandidate, ReviewItem } from "../api";
 import { useAdvanced } from "../mode";
@@ -18,11 +31,14 @@ import {
     countryName,
     foundCandidates,
     hasCandidateChoice,
+    mapEmbedUrl,
+    MAP_SPANS,
     isCandidate,
     isSearched,
     MAX_OTHER_NAME,
     otherName,
     pendingRecommendations,
+    placeOf,
     pickedCandidate,
     rowList,
     sourceLink,
@@ -112,6 +128,7 @@ function Candidate({
     w,
     onPicked,
     searchedAs,
+    siblings,
 }: {
     item: ReviewItem;
     candidate: ReviewCandidate;
@@ -119,9 +136,12 @@ function Candidate({
     onPicked: () => void;
     /** Set for a candidate that a search under this name found. */
     searchedAs?: string;
+    /** The options shown together with this one, to step through on the map. */
+    siblings: ReviewCandidate[];
 }) {
     const { t } = useTranslation();
     const code = useCode();
+    const openMap = useContext(MapContext);
     const choice = w.choices[item.operation_id];
     const key = candidateKey(candidate);
     // The same place can be listed and found by a search; they are two options.
@@ -184,18 +204,196 @@ function Candidate({
                     )}
                 </span>
             </label>
-            {link && (
+            {placeOf(candidate) && (
+                <button
+                    type="button"
+                    className="candidate-link"
+                    onClick={() => {
+                        const placed = siblings.filter(placeOf);
+                        openMap({
+                            item,
+                            candidates: placed,
+                            index: placed.indexOf(candidate),
+                            searchedAs,
+                            onPicked,
+                        });
+                    }}
+                >
+                    {t("review.link.map")}
+                    <MapPinned aria-hidden="true" />
+                </button>
+            )}
+            {link?.kind === "wikidata" && (
                 <a
                     className="candidate-link"
                     href={link.href}
                     target="_blank"
                     rel="noreferrer noopener"
                 >
-                    {t(`review.link.${link.kind}`)}
+                    {t("review.link.wikidata")}
                     <ExternalLink aria-hidden="true" />
                 </a>
             )}
         </div>
+    );
+}
+
+/** What the map is opened for: one option among those shown with it. */
+interface MapRequest {
+    item: ReviewItem;
+    candidates: ReviewCandidate[];
+    index: number;
+    searchedAs?: string;
+    onPicked: () => void;
+}
+const MapContext = createContext<(request: MapRequest) => void>(() => {});
+
+/**
+ * Compare the options of one name where the choice is made: a map with the
+ * place marked, the option's facts beside it, steps to the neighbouring
+ * options and the choice itself. Opening links in other tabs left a person
+ * matching tabs back to list entries by memory.
+ */
+function CandidateMap({
+    request,
+    w,
+    onClose,
+}: {
+    request: MapRequest;
+    w: Workflow;
+    onClose: () => void;
+}) {
+    const { t } = useTranslation();
+    const ref = useRef<HTMLDialogElement>(null);
+    const [index, setIndex] = useState(Math.max(0, request.index));
+    const [zoom, setZoom] = useState(1);
+    useLayoutEffect(() => {
+        const previous = document.activeElement as HTMLElement | null;
+        const dialog = ref.current;
+        dialog?.showModal();
+        return () => {
+            dialog?.close();
+            previous?.focus();
+        };
+    }, []);
+    const { item, candidates, searchedAs } = request;
+    const candidate = candidates[index];
+    const place = candidate && placeOf(candidate);
+    if (!candidate || !place) return null;
+    const choice = w.choices[item.operation_id];
+    const chosen =
+        isCandidate(choice) &&
+        candidateKey(choice) === candidateKey(candidate) &&
+        choice.name === searchedAs;
+    const link = sourceLink(candidate);
+    return (
+        <dialog
+            ref={ref}
+            className="diagnostics-dialog map-dialog"
+            aria-labelledby="map-title"
+            data-testid="candidate-map"
+            onCancel={(event) => {
+                event.preventDefault();
+                onClose();
+            }}
+        >
+            <div className="dialog-heading">
+                <h2 id="map-title">
+                    {t("review.map.for", { name: item.query.name })}
+                </h2>
+                <button
+                    className="icon-button"
+                    aria-label={t("ws.close")}
+                    onClick={onClose}
+                >
+                    <X />
+                </button>
+            </div>
+            <div className="map-option">
+                <Picked candidate={candidate} searchedAs={searchedAs} />
+                {candidates.length > 1 && (
+                    <div className="map-steps">
+                        <Button
+                            variant="outline"
+                            disabled={index === 0}
+                            onClick={() => setIndex(index - 1)}
+                        >
+                            <ArrowLeft aria-hidden="true" />
+                            {t("review.map.previous")}
+                        </Button>
+                        <span data-testid="map-position">
+                            {t("review.map.position", {
+                                index: index + 1,
+                                total: candidates.length,
+                            })}
+                        </span>
+                        <Button
+                            variant="outline"
+                            disabled={index === candidates.length - 1}
+                            onClick={() => setIndex(index + 1)}
+                        >
+                            {t("review.map.next")}
+                            <ArrowRight aria-hidden="true" />
+                        </Button>
+                    </div>
+                )}
+            </div>
+            <iframe
+                key={`${candidateKey(candidate)}:${zoom}`}
+                className="map-frame"
+                title={t("review.map.title", { name: candidate.label })}
+                src={mapEmbedUrl(place, MAP_SPANS[zoom])}
+                referrerPolicy="no-referrer"
+                sandbox="allow-scripts allow-same-origin"
+            />
+            <div className="map-actions">
+                <Button
+                    variant="outline"
+                    aria-label={t("review.map.closer")}
+                    disabled={zoom === 0}
+                    onClick={() => setZoom(zoom - 1)}
+                >
+                    <ZoomIn aria-hidden="true" />
+                </Button>
+                <Button
+                    variant="outline"
+                    aria-label={t("review.map.wider")}
+                    disabled={zoom === MAP_SPANS.length - 1}
+                    onClick={() => setZoom(zoom + 1)}
+                >
+                    <ZoomOut aria-hidden="true" />
+                </Button>
+                <span className="muted">{t("review.map.source")}</span>
+                {link && (
+                    <a
+                        className="candidate-link"
+                        href={link.href}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                    >
+                        {t(`review.map.open.${link.kind}`)}
+                        <ExternalLink aria-hidden="true" />
+                    </a>
+                )}
+                <Button
+                    disabled={!candidate.selectable || w.locked || chosen}
+                    onClick={() => {
+                        w.choose(item.operation_id, {
+                            source: candidate.source,
+                            entity_id: candidate.entity_id,
+                            ...(searchedAs === undefined
+                                ? {}
+                                : { name: searchedAs }),
+                        });
+                        request.onPicked();
+                        onClose();
+                    }}
+                >
+                    <Check aria-hidden="true" />
+                    {t(chosen ? "review.map.chosen" : "review.map.choose")}
+                </Button>
+            </div>
+        </dialog>
     );
 }
 
@@ -293,6 +491,7 @@ function OtherName({
                                     w={w}
                                     onPicked={onPicked}
                                     searchedAs={searchedAs}
+                                    siblings={offered}
                                 />
                             ))}
                         </fieldset>
@@ -464,6 +663,7 @@ function Blocked({ item, w }: { item: ReviewItem; w: Workflow }) {
                         candidate={candidate}
                         w={w}
                         onPicked={() => undefined}
+                        siblings={blocked}
                     />
                 ))}
             </div>
@@ -572,6 +772,9 @@ function ReviewCard({
                                     candidate={candidate}
                                     w={w}
                                     onPicked={fold}
+                                    siblings={item.candidates.filter(
+                                        (other) => other.selectable,
+                                    )}
                                 />
                             ))}
                         <div
@@ -745,7 +948,29 @@ function ErrorCodes({ w }: { w: Workflow }) {
     );
 }
 
+/**
+ * The review stage with the one map window its options share. The window is
+ * kept here, outside the stage, so the stage's own markup stays as it is.
+ */
 export function ReviewWorkspace({ w }: { w: Workflow }) {
+    const [map, setMap] = useState<MapRequest | null>(null);
+    return (
+        <MapContext.Provider value={setMap}>
+            {map && (
+                <CandidateMap
+                    // A new request starts from its own option and zoom.
+                    key={`${map.item.operation_id}:${map.index}:${map.searchedAs ?? ""}`}
+                    request={map}
+                    w={w}
+                    onClose={() => setMap(null)}
+                />
+            )}
+            <ReviewStage w={w} />
+        </MapContext.Provider>
+    );
+}
+
+function ReviewStage({ w }: { w: Workflow }) {
     const { t } = useTranslation();
     const review = w.review?.job_id === w.job?.job_id ? w.review : null;
     const needsReview = w.job?.status === "needs_review";

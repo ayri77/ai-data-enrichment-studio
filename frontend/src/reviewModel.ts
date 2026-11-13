@@ -162,6 +162,37 @@ export function countryName(code: ReviewValue | undefined, locale: string) {
         .join(" / ");
 }
 /** Link to an independent page that lets a person tell two namesakes apart. */
+/** Where a candidate is, when the source recorded usable coordinates. */
+export function placeOf(candidate: ReviewCandidate) {
+    const { latitude, longitude } = candidate.attributes;
+    return typeof latitude === "number" &&
+        typeof longitude === "number" &&
+        Math.abs(latitude) <= 90 &&
+        Math.abs(longitude) <= 180
+        ? { latitude, longitude }
+        : null;
+}
+/** Half the width of the map, in degrees of longitude: close, regional, wide. */
+export const MAP_SPANS = [0.06, 0.6, 5];
+/**
+ * OpenStreetMap's own embeddable map with a marker on the place. Coordinates
+ * are numbers from the source, rounded; nothing else goes into the address.
+ */
+export function mapEmbedUrl(
+    place: { latitude: number; longitude: number },
+    span: number,
+) {
+    const { latitude, longitude } = place;
+    const box = [
+        longitude - span,
+        latitude - span / 2,
+        longitude + span,
+        latitude + span / 2,
+    ]
+        .map((value) => value.toFixed(5))
+        .join(",");
+    return `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(box)}&layer=mapnik&marker=${latitude.toFixed(5)},${longitude.toFixed(5)}`;
+}
 export function sourceLink(candidate: ReviewCandidate) {
     if (candidate.source === "wikidata" && /^Q\d+$/.test(candidate.entity_id))
         return {

@@ -1022,9 +1022,38 @@ it("lets a person settle each ambiguous name once and resumes as a new job", asy
     );
     expect(radio("2950200")).toBeDisabled();
     expect(berlin.getByText(/the source ruled it out/)).toBeVisible();
-    expect(
-        berlin.getAllByRole("link", { name: /Map/ })[0].getAttribute("href"),
-    ).toContain("openstreetmap.org");
+    // The map opens over the page, on the option it was asked for.
+    await userEvent.click(
+        berlin.getAllByRole("button", { name: i18n.t("review.link.map") })[1],
+    );
+    const map = () => screen.getByTestId("candidate-map");
+    const frame = () => map().querySelector("iframe")!;
+    expect(within(map()).getByTestId("map-position")).toHaveTextContent(
+        // The two options that can be chosen; the ruled-out one is listed apart.
+        i18n.t("review.map.position", { index: 2, total: 2 }),
+    );
+    expect(frame().src).toContain("openstreetmap.org/export/embed.html");
+    expect(frame().src).toContain("marker=52.52000,13.40000");
+    // Stepping to a neighbour and changing the zoom stay in the same window.
+    await userEvent.click(
+        within(map()).getByRole("button", {
+            name: i18n.t("review.map.previous"),
+        }),
+    );
+    expect(within(map()).getByTestId("map-position")).toHaveTextContent(
+        i18n.t("review.map.position", { index: 1, total: 2 }),
+    );
+    const regional = frame().src;
+    await userEvent.click(
+        within(map()).getByRole("button", {
+            name: i18n.t("review.map.closer"),
+        }),
+    );
+    expect(frame().src).not.toBe(regional);
+    await userEvent.click(
+        within(map()).getByRole("button", { name: i18n.t("ws.close") }),
+    );
+    expect(screen.queryByTestId("candidate-map")).toBeNull();
     // Names without any match are listed, with nothing to choose.
     expect(
         within(screen.getByTestId("unresolved-Oslo")).queryByRole("radio"),
@@ -1213,6 +1242,30 @@ it("makes applying the choices the next step once something is chosen", async ()
     ).toBeNull();
     await userEvent.click(button("review.toResultsUnfilled"));
     expect(button("workflow.downloadReport")).toBeInTheDocument();
+});
+
+it("makes the choice from the map, without going back to find the option in the list", async () => {
+    render(<App />);
+    await start();
+    await navigate("review");
+    const kyiv = within(await screen.findByTestId("review-Kyiv"));
+    await userEvent.click(
+        kyiv.getAllByRole("button", { name: i18n.t("review.link.map") })[0],
+    );
+    const map = within(screen.getByTestId("candidate-map"));
+    await userEvent.click(
+        map.getByRole("button", { name: i18n.t("review.map.next") }),
+    );
+    await userEvent.click(
+        map.getByRole("button", { name: i18n.t("review.map.choose") }),
+    );
+    // The window closes and the card shows what was chosen there.
+    expect(screen.queryByTestId("candidate-map")).toBeNull();
+    expect(chosen("Kyiv")).toBeInTheDocument();
+    expect(button("review.resume")).toBeEnabled();
+    expect(screen.getByTestId("review-progress")).toHaveTextContent(
+        i18n.t("review.progress", { decided: 1, total: 2 }),
+    );
 });
 
 it("reports a rejected resume with a localized message and keeps the choices", async () => {

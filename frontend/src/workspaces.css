@@ -712,6 +712,52 @@
 .diagnostics-dialog::backdrop {
     background: #0008;
 }
+/* Review: compare the options of one name on a map, in place. */
+.map-dialog {
+    width: min(1000px, calc(100% - 32px));
+    height: min(760px, 90dvh);
+}
+.map-option {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 16px;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--studio-border);
+}
+.map-steps {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+}
+.map-frame {
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+    border: 0;
+    background: var(--studio-surface0);
+}
+.map-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 18px;
+    border-top: 1px solid var(--studio-border);
+}
+.map-actions .muted {
+    flex: 1;
+    min-width: 180px;
+    font-size: 12px;
+}
+button.candidate-link {
+    border: 0;
+    background: none;
+    font: inherit;
+    cursor: pointer;
+}
 .dialog-heading {
     display: flex;
     align-items: center;
