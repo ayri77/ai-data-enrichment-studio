@@ -31,6 +31,11 @@ export interface Preview {
         sample_records: Record<string, string | number | boolean | null>[];
         schema_warnings: string[];
     };
+    /** Every non-empty data row of the selection, with its worksheet row. */
+    rows?: {
+        row_numbers: number[];
+        values: (string | number | boolean | null)[][];
+    };
 }
 /** Retain the backend's stable code; presentation decides how to localize it. */
 export class WorkspaceApiError extends Error {

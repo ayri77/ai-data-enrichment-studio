@@ -312,6 +312,33 @@ for (const name of ["capitals", "mountains"]) {
     });
 }
 
+test("dataset: the whole table can be looked through, filtered and sorted", async ({
+    page,
+}, testInfo) => {
+    await advanced(page);
+    await page.goto("/");
+    await page
+        .getByLabel("Upload Excel workbook")
+        .setInputFiles(resolve("../samples/capitals.xlsx"));
+    await page.getByRole("button", { name: "Preview selection" }).click();
+    const body = page.locator(".table-scroll tbody");
+    // Every row of the selection, numbered as in the worksheet.
+    await expect(page.getByText("10 rows", { exact: true })).toBeVisible();
+    await expect(body.getByRole("row")).toHaveCount(10);
+    await expect(body.getByRole("rowheader").first()).toHaveText("2");
+    await page.getByRole("button", { name: "Sort by Capital_From" }).click();
+    const first = await body.getByRole("row").first().innerText();
+    await page.getByRole("button", { name: "Sort by Capital_From" }).click();
+    expect(await body.getByRole("row").first().innerText()).not.toBe(first);
+    await page
+        .getByRole("searchbox", { name: "Filter rows by text" })
+        .fill("kyiv");
+    await expect(page.getByText(/of 10 rows match/)).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("dataset-table.png") });
+    // Looking through the table does not change what will be run.
+    await expect(page.locator(".source-reference")).toContainText("A1:E11");
+});
+
 test("capitals: a name the source does not know is found under another name", async ({
     page,
 }, testInfo) => {

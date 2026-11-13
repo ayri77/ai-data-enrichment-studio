@@ -852,3 +852,43 @@ select {
         border-color: ButtonText;
     }
 }
+
+/* Source table: looking through all rows. */
+.table-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+}
+.table-tools input {
+    flex: 0 1 260px;
+    min-width: 0;
+}
+.table-tools .muted {
+    font-size: 12px;
+}
+.table-scroll th:has(.sort-button) .column-head {
+    padding-right: 30px;
+}
+.table-scroll th .sort-button {
+    position: absolute;
+    top: 8px;
+    right: 6px;
+    display: inline-flex;
+    padding: 2px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: inherit;
+    opacity: 0.55;
+    cursor: pointer;
+}
+.table-scroll th .sort-button[aria-pressed="true"],
+.table-scroll th .sort-button:hover {
+    opacity: 1;
+}
+.table-scroll th .sort-button svg {
+    width: 14px;
+    height: 14px;
+}

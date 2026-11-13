@@ -31,7 +31,13 @@ test("column inspector is an Advanced tool; neither mode overflows the document"
     // Basic: the table takes the whole width, with no inspector beside it.
     await expect(page.getByRole("columnheader").nth(1)).toBeVisible();
     await expect(inspector).toHaveCount(0);
-    await expect(page.locator(".table-scroll th button")).toHaveCount(0);
+    // Sorting is offered in both modes; choosing a column to inspect is not.
+    await expect(
+        page.locator(".table-scroll th button.column-head"),
+    ).toHaveCount(0);
+    await expect(
+        page.locator(".table-scroll th button.sort-button"),
+    ).toHaveCount(5);
     for (const [width, height] of [
         [1366, 768],
         [1440, 900],
