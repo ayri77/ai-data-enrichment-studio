@@ -1142,6 +1142,28 @@ it("lets a person settle each ambiguous name once and resumes as a new job", asy
     expect(screen.getByText(/job · Needs review/)).toBeInTheDocument();
 });
 
+it("makes applying the choices the next step once something is chosen", async () => {
+    render(<App />);
+    await start();
+    await navigate("review");
+    await screen.findByTestId("review-Kyiv");
+    // Nothing chosen: the way on is to the results, and there is nothing to apply.
+    expect(screen.queryByTestId("review-unapplied")).toBeNull();
+    expect(button("ws.toExport")).toBeEnabled();
+    expect(button("review.resume")).toBeDisabled();
+    await userEvent.click(radio("703448"));
+    expect(screen.getByTestId("review-unapplied")).toHaveTextContent(
+        i18n.t("review.unapplied"),
+    );
+    expect(button("review.resume")).toBeEnabled();
+    // Leaving for the results is still possible, and says what it means.
+    expect(
+        screen.queryByRole("button", { name: i18n.t("ws.toExport") }),
+    ).toBeNull();
+    await userEvent.click(button("review.toResultsUnfilled"));
+    expect(button("workflow.downloadReport")).toBeInTheDocument();
+});
+
 it("reports a rejected resume with a localized message and keeps the choices", async () => {
     vi.mocked(api.resumeJob).mockRejectedValue(
         new WorkspaceApiError("invalid_decision", "sanitized"),

@@ -369,6 +369,8 @@
     "review.accept": "Empfehlungen übernehmen",
     "review.resume": "Übrige Zeilen ausfüllen",
     "review.resumeHint": "Startet einen neuen Lauf desselben freigegebenen Plans mit Ihrer Auswahl. Jede Auswahl wird erneut an der Quelle geprüft. Das frühere Ergebnis bleibt in der Diagnose.",
+    "review.unapplied": "Ihre Auswahl ist noch nicht in den Ergebnissen. Füllen Sie die restlichen Zeilen aus, um sie anzuwenden.",
+    "review.toResultsUnfilled": "Ergebnisse ohne Ausfüllen",
     "review.continued": "Dieser Lauf setzt einen früheren nach der Prüfung fort.",
     "error.invalid_decision": "Eine Auswahl oder ein Name ist nicht mehr gültig. Öffnen Sie die Prüfung erneut und wählen Sie aus den aufgeführten Kandidaten oder geben Sie einen anderen Namen an.",
     "error.no_decisions": "Wählen Sie für mindestens einen Namen einen Kandidaten.",
