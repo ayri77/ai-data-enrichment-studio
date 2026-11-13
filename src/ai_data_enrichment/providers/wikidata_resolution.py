@@ -153,16 +153,16 @@ class WikidataMountainResolutionService:
                 failure=entities,
             )
 
-        # Verify exact-label candidates before weaker search matches, within
-        # the fixed provider budget. Search rank alone is not evidence that
-        # any candidate is a verified mountain in the requested country.
-        ordered = sorted(
-            normalized.candidates,
-            key=lambda c: (
-                _match_kind(c) != "label",
-                c.reference.entity_id,
-            ),
-        )
+        # Verify exact-label candidates before weaker search matches, and within
+        # each group in the order the source returned them. Search rank is not
+        # evidence that a candidate is a verified mountain in the requested
+        # country, and it decides nothing here; it only says which candidates
+        # the fixed budget is spent on first. The earlier order, by entity ID as
+        # text, was arbitrary: for "Mont Blanc" (France/Italy) it put the summit
+        # of the Alps, the first search result, fifteenth among the candidates
+        # that need lookups, behind a budget of twelve, so a namesake on a
+        # sub-Antarctic island was the only mountain ever examined.
+        ordered = sorted(normalized.candidates, key=lambda c: _match_kind(c) != "label")
 
         # The budget bounds provider work. Candidates decided from the claims that
         # were already fetched (no class or no country) cost nothing and are always

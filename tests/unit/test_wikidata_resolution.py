@@ -206,6 +206,50 @@ def test_a_plausible_namesake_is_examined_even_when_many_unrelated_ones_come_fir
     )
 
 
+def test_the_lookup_budget_follows_the_search_order_not_the_entity_ids() -> None:
+    # The source returns the well-known summit first. Twelve streets with the
+    # same name have IDs that sort before it as text, and each needs lookups.
+    # Ordered by ID, a budget of two went to two streets and the summit was
+    # never examined.
+    streets = {
+        f"Q1{i:02}": _entity(f"Q1{i:02}", types=("Q79007",), countries=("Q837",)) for i in range(12)
+    }
+    transport = _transport(
+        [_search_hit("Q583"), *(_search_hit(qid) for qid in streets)],
+        entities={
+            "Q583": _entity("Q583"),
+            **streets,
+            "Q79007": {"id": "Q79007", "claims": {}},
+        },
+    )
+    outcome = WikidataMountainResolutionService(transport, max_verify_candidates=2).resolve(
+        inputs={"name": "Mount Everest", "country": "Nepal"},
+        policy=_policy(verified_only=True),
+    )
+    by_id = {c.reference.entity_id: c for c in outcome.report.candidate_set.candidates}
+    assert by_id["Q583"].verification == "verified"
+    assert outcome.operation.value == EntityRef(source="wikidata", entity_id="Q583")
+    # The budget is unchanged: one street examined and ruled out, eleven left unexamined.
+    assert by_id["Q100"].reason_codes == ("no_mountain_class_path",)
+    assert sum(c.reason_codes == ("search_match_only",) for c in by_id.values()) == 11
+    assert not outcome.report.candidate_set.candidate_scan_complete
+
+
+def test_alias_matches_still_wait_behind_label_matches() -> None:
+    transport = _transport(
+        [_search_hit("Q9010", "Sagarmatha", alias=True), _search_hit("Q513")],
+        entities={"Q9010": _entity("Q9010")},
+    )
+    outcome = WikidataMountainResolutionService(transport, max_verify_candidates=1).resolve(
+        inputs={"name": "Mount Everest", "country": "Nepal"},
+        policy=_policy(verified_only=True),
+    )
+    by_id = {c.reference.entity_id: c for c in outcome.report.candidate_set.candidates}
+    # The alias came first from the source, but the exact label is examined first.
+    assert by_id["Q513"].verification == "verified"
+    assert by_id["Q9010"].reason_codes == ("search_match_only",)
+
+
 @pytest.mark.parametrize("verified_only", [False, True])
 @pytest.mark.parametrize("positive_count", [1, 2])
 def test_candidates_decided_from_fetched_claims_never_use_the_lookup_budget(
