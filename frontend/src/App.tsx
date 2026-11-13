@@ -45,7 +45,11 @@ function Studio() {
         d.dataset?.worksheets.find((ws) => ws.name === d.sheet)?.columns,
         !!d.busy,
         d.sample,
-        { limits, implicitConsent: mode === "basic" },
+        {
+            limits,
+            implicitConsent: mode === "basic",
+            tableKey: `${d.dataset?.dataset_id ?? ""}:${d.sheet}`,
+        },
     );
     useEffect(() => {
         savePreference("theme", theme);
