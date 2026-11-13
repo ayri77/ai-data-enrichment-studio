@@ -485,7 +485,7 @@
     "can.cityCoordinates": "find the coordinates of a city",
     "can.cityDistance": "calculate the distance between two cities",
     "can.mountainElevation": "find a mountain and its elevation",
-    "can.needs": "The table needs names and their countries. Write countries in English or as a two-letter code (Germany, DE).",
+    "can.needs": "The table needs names and their countries. A country can be written in any language or as a two-letter code (Germany, Німеччина, DE).",
     "can.limit": "One run fills up to {{max}} rows.",
     "ws.need.workbook": "Upload a workbook or pick an example.",
     "ws.invalidateWarningBasic": "Changing the file, the task or the column clears the plan and the result.",

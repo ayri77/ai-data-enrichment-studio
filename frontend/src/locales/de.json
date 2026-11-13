@@ -485,7 +485,7 @@
     "can.cityCoordinates": "die Koordinaten einer Stadt finden",
     "can.cityDistance": "die Entfernung zwischen zwei Städten berechnen",
     "can.mountainElevation": "einen Berg und seine Höhe finden",
-    "can.needs": "Die Tabelle braucht Namen und ihre Länder. Länder bitte auf Englisch oder als zweibuchstabigen Code schreiben (Germany, DE).",
+    "can.needs": "Die Tabelle braucht Namen und ihre Länder. Ein Land kann in jeder Sprache oder als zweibuchstabiger Code stehen (Deutschland, Germany, DE).",
     "can.limit": "Ein Lauf füllt bis zu {{max}} Zeilen.",
     "ws.need.workbook": "Arbeitsmappe hochladen oder ein Beispiel wählen.",
     "ws.invalidateWarningBasic": "Eine Änderung an Datei, Aufgabe oder Spalte verwirft Plan und Ergebnis.",
