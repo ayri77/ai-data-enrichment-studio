@@ -52,6 +52,20 @@ SAMPLES = (
         ),
         outputs=(("height", "C"),),
     ),
+    # The mountains table with some heights already filled in: the empty ones
+    # are looked up, the others are kept and not looked up. The plan is the one
+    # of "mountains" (same headers, same output column).
+    Sample(
+        sample_id="mountains_gaps",
+        workbook="samples/mountains_gaps.xlsx",
+        plan="demo/mountains_api_plan.json",
+        instruction=(
+            "Find the elevation in metres of each mountain in Mountain, using Country to "
+            "disambiguate. Fill the missing values in height and keep the values that are "
+            "already there. Leave unresolved or ambiguous results empty; do not invent values."
+        ),
+        outputs=(("height", "C"),),
+    ),
     # A plan that branches and fills three columns. The instruction is the one
     # a live planning run turned into exactly the prepared plan (2026-11-13).
     Sample(

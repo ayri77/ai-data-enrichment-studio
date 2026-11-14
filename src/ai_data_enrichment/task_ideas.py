@@ -66,7 +66,8 @@ _SYSTEM = (
     _INTRODUCTION + "Propose tasks the tool can actually do with exactly this table: each must be "
     "achievable with the listed capabilities from columns the table has. Write each task "
     "as one or two plain sentences addressed to the tool, naming the columns to read by "
-    "their exact headers and the column to fill; prefer filling a column that is empty. "
+    "their exact headers and the column to fill; prefer filling a column that is empty or "
+    "only partly filled (its empty cells are filled, cells that already have a value are kept). "
     "Do not propose anything the capabilities cannot do. If nothing fits the table, "
     f"return an empty list. Return at most {MAX_TASK_IDEAS} tasks and nothing else. " + _CLOSING
 )

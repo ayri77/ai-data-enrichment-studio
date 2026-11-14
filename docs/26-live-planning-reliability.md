@@ -296,7 +296,14 @@ uv run --env-file .env python -m scripts.experiment_planner --case capitals --mo
 uv run --env-file .env python -m scripts.experiment_planner --case mountains --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets height
 ```
 
-and the same two with `--reasoning-effort none`. Acceptance, the same bar the default
+and the same two with `--reasoning-effort none`.
+
+The "fill the gaps" example (`mountains_gaps`: the Mountains table with four heights already filled in, asked to fill the missing ones and keep the others) is a separate case. It has not been measured. It uses the same plan as Mountains, so the question is whether the planner accepts the wording and returns that plan:
+
+```
+uv run --env-file .env python -m scripts.experiment_planner --case mountains_gaps --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets height
+```
+ Acceptance, the same bar the default
 model met: 10 of 10 valid plans on both tasks, no request over 30 s, no `incomplete`
 responses.
 

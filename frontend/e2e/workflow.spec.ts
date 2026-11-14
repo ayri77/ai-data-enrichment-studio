@@ -955,6 +955,65 @@ test("example: one click fills the task; the prepared plan runs without an AI re
     ).toBeVisible();
 });
 
+test("example: rows that already have their value are kept and not looked up", async ({
+    page,
+}, testInfo) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Start with my table" }).click();
+    await page
+        .getByRole("button", {
+            name: "Mountains: fill only the missing heights",
+        })
+        .click();
+    await expect(page.getByLabel("Enrichment instruction")).toHaveValue(
+        /keep the values that are already there/,
+    );
+    await expect(page.getByLabel("Which column to fill?")).toHaveValue("C");
+    // Four of the ten heights are in the table already; keeping them is the default.
+    const notice = page.getByTestId("existing-outputs");
+    await expect(notice).toContainText(
+        "“height”: 4 of 10 rows already have a value (rows 2, 3, 5, 11).",
+    );
+    await expect(notice).toContainText("not looked up again");
+    await page
+        .getByRole("button", { name: "Use it instead of asking the AI" })
+        .click();
+    await page
+        .getByRole("button", { name: "Submit and validate plan" })
+        .click();
+    await page.getByRole("button", { name: "Approve and run" }).click();
+    // The sentences count the six rows that needed filling; four were not looked up.
+    const status = page.getByTestId("job-status");
+    await expect(status).toHaveText(
+        /Rows filled: \d+ of 6\.|All rows are filled: 6 of 6\.|None of the 6 rows could be filled\./,
+        { timeout: 30_000 },
+    );
+    await expect(
+        page.getByText(
+            "Rows that already had their values and were not looked up: 4.",
+        ),
+    ).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("gaps-execution.png") });
+    await page.getByRole("button", { name: "Results", exact: true }).click();
+    // The four rows show their kept value and say so; they are counted apart.
+    const skipped = page.locator(
+        '[data-testid="row-outcome"][data-skipped="true"]',
+    );
+    await expect(skipped).toHaveCount(4);
+    await expect(skipped.first()).toContainText("8,848.86");
+    await expect(skipped.first()).toContainText(
+        "Already had a value; not looked up",
+    );
+    await expect(page.getByTestId("result-stats")).toContainText(
+        "4 not looked up",
+    );
+    await expect(
+        page.getByRole("button", { name: "Not looked up (4)" }),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "All (10)" })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("gaps-results.png") });
+});
+
 test("example: a plan that branches fills three columns, in words and as a graph", async ({
     page,
 }, testInfo) => {

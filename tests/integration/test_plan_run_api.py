@@ -1826,14 +1826,38 @@ def occupied_mountains(client, existing_outputs=None):
     return report, cells, {row["row"]: row for row in report["rows"]}
 
 
-def test_an_existing_value_is_kept_and_the_report_says_for_which_rows(client):
+def test_an_existing_value_is_kept_and_the_report_says_which_rows_were_not_looked_up(client):
     report, cells, rows = occupied_mountains(client)
     assert cells["C2"] == 1.0 and cells["C3"] == "=1+1"
     assert report["preserved_cells"] == ["C2", "C3"] and report["replaced_cells"] == {}
-    # The row was looked up, yet its cell holds what it held: the report says so.
-    assert rows[2]["kept_outputs"] == ["height"] and rows[2]["replaced_outputs"] == {}
-    assert rows[3]["kept_outputs"] == ["height"]
+    # Everest and K2 had a value in their only target cell: they were not looked up,
+    # so they are not among the rows the run executed, and the report lists them apart.
+    assert 2 not in rows and 3 not in rows
     assert rows[4]["kept_outputs"] == [] and rows[4]["replaced_outputs"] == {}
+    assert report["rows_skipped"] == 2
+    assert report["skipped_rows"] == [
+        {
+            "record_id": "Sheet1!2",
+            "row": 2,
+            "inputs": {"Mountain": "Mount Everest", "Country": "Nepal/China"},
+            "reason": "already_filled",
+            "kept_outputs": ["height"],
+            "kept_values": {"height": 1.0},
+        },
+        {
+            "record_id": "Sheet1!3",
+            "row": 3,
+            "inputs": {"Mountain": "K2", "Country": "Pakistan/China"},
+            "reason": "already_filled",
+            "kept_outputs": ["height"],
+            "kept_values": {"height": "=1+1"},
+        },
+    ]
+    # Counts, outcome and progress cover the executed rows only.
+    assert report["execution"]["metrics"]["total_rows"] == len(report["rows"]) == 8
+    assert {r["record_id"] for r in report["execution"]["records"]}.isdisjoint(
+        {"Sheet1!2", "Sheet1!3"}
+    )
 
 
 def test_an_existing_value_is_replaced_only_by_a_new_one_and_stays_on_record(client):
@@ -1847,6 +1871,100 @@ def test_an_existing_value_is_replaced_only_by_a_new_one_and_stays_on_record(cli
     assert report["preserved_cells"] == ["C3"]
     assert rows[3]["kept_outputs"] == ["height"] and rows[3]["replaced_outputs"] == {}
     assert report["source_unchanged"] is True
+
+
+def filled_workbook(name, **cells):
+    book = load_workbook(f"samples/{name}.xlsx")
+    for cell, value in cells.items():
+        book["Sheet1"][cell] = value
+    buffer = BytesIO()
+    book.save(buffer)
+    book.close()
+    return buffer.getvalue()
+
+
+def test_when_every_row_already_has_its_value_nothing_is_looked_up_and_the_job_completes(client):
+    heights = {f"C{row}": 1000.0 + row for row in range(2, 12)}
+    plan = approve(
+        client, draft(client, "mountains", content=filled_workbook("mountains", **heights))
+    )
+    job = wait(client, start(client, plan))
+    # Not "needs_review": the rows that were never looked up cannot have failed.
+    assert job["status"] == "completed", job
+    assert job["rows_skipped"] == 10 and job["progress"] is None
+    assert job["metrics"]["total_rows"] == 0 and job["metrics"]["logical_operations"] == 0
+    report = client.get(job["artifacts"]["report"]).json()
+    assert report["rows"] == [] and report["execution"]["records"] == []
+    # No source was asked, and nothing was counted against a request budget.
+    for counters in report["execution"]["provider_requests"].values():
+        assert counters["transport_attempts"] == 0 and counters["operations_started"] == 0
+    assert [row["row"] for row in report["skipped_rows"]] == list(range(2, 12))
+    assert {row["reason"] for row in report["skipped_rows"]} == {"already_filled"}
+    assert report["skipped_rows"][0]["kept_values"] == {"height": 1002.0}
+    output = load_workbook(BytesIO(client.get(job["artifacts"]["result"]).content))
+    try:
+        assert [output["Sheet1"][f"C{row}"].value for row in range(2, 12)] == [
+            1000.0 + row for row in range(2, 12)
+        ]
+    finally:
+        output.close()
+
+
+def test_replacing_looks_every_row_up_even_when_all_have_a_value(client):
+    heights = {f"C{row}": 1000.0 + row for row in range(2, 12)}
+    book = filled_workbook("mountains", **heights)
+    dataset_id = upload(client, "mountains", book)
+    body = {**request_body(dataset_id, "mountains"), "existing_outputs": "replace"}
+    plan = approve(client, client.post("/api/plans", json=body).json())
+    job = wait(client, start(client, plan))
+    assert job["rows_skipped"] == 0 and job["metrics"]["total_rows"] == 10
+    report = client.get(job["artifacts"]["report"]).json()
+    assert report["skipped_rows"] == [] and len(report["rows"]) == 10
+
+
+def test_only_the_rows_that_have_their_value_are_left_out_of_the_run(client):
+    book = filled_workbook("mountains", C2=1.0, C3=2.0)
+    job = wait(client, start(client, approve(client, draft(client, "mountains", content=book))))
+    report = client.get(job["artifacts"]["report"]).json()
+    assert {row["row"] for row in report["skipped_rows"]} == {2, 3}
+    executed = {row["row"] for row in report["rows"]}
+    assert executed == set(range(4, 12))
+    assert job["metrics"]["total_rows"] == 8 and job["rows_skipped"] == 2
+
+
+def test_a_resume_skips_the_same_rows_and_review_never_offers_one(client):
+    book = filled_workbook("capitals", E3=1.0, E4="=1+1")
+    plan = approve(client, draft(client, "capitals", content=book))
+    first = wait(client, start(client, plan))
+    assert first["status"] == "needs_review" and first["rows_skipped"] == 2
+    review = client.get(f"/api/jobs/{first['job_id']}/review").json()
+    offered = {
+        link["row"]
+        for item in [*review["items"], *review["informational"]]
+        for link in item.get("affected", [])
+    }
+    assert offered and offered.isdisjoint({3, 4})
+    kyiv = review["items"][0]
+    decision = {"operation_id": kyiv["operation_id"], "source": "open-meteo", "entity_id": "703448"}
+    response = client.post(f"/api/jobs/{first['job_id']}/resume", json={"decisions": [decision]})
+    assert response.status_code == 202, response.text
+    second = wait(client, response.json())
+    assert second["rows_skipped"] == 2
+    again = client.get(second["artifacts"]["report"]).json()
+    earlier = client.get(first["artifacts"]["report"]).json()
+    assert again["skipped_rows"] == earlier["skipped_rows"]
+    assert {row["row"] for row in again["rows"]}.isdisjoint({3, 4})
+    follow_up = client.get(f"/api/jobs/{second['job_id']}/review").json()
+    assert {
+        link["row"]
+        for item in [*follow_up["items"], *follow_up["informational"]]
+        for link in item.get("affected", [])
+    }.isdisjoint({3, 4})
+    output = load_workbook(BytesIO(client.get(second["artifacts"]["result"]).content))
+    try:
+        assert output["Sheet1"]["E3"].value == 1.0 and output["Sheet1"]["E4"].value == "=1+1"
+    finally:
+        output.close()
 
 
 def test_the_choice_about_existing_values_is_part_of_the_plan_and_survives_a_resume(client):
