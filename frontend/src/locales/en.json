@@ -584,6 +584,7 @@
     "task.proposed": "Tasks proposed by the AI. Choose one to put it into the field; you can then edit it:",
     "task.proposedOne": "A task proposed by the AI for the chosen columns. Choose it to put it into the field; you can then edit it:",
     "task.none": "The AI found no task to propose for this table. Describe the task yourself.",
+    "task.noneForColumns": "The AI proposed no task that fills all the chosen columns. Describe the task yourself, or choose fewer columns and ask again.",
     "activity.ideas": "Asking the AI for a task",
     "activity.ideasDetail": "Column names, types and five sample rows are sent. Nothing is planned or written yet.",
     "error.task_ideas_failed": "The AI did not return usable tasks. Try again, or describe the task yourself.",
