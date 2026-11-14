@@ -624,6 +624,7 @@
     "exec.outcome.searchable": "Namen, nach denen Sie in der Prüfung unter einem anderen Namen suchen können: {{count}}.",
     "exec.step.title": "Was jeder Schritt ergeben hat",
     "exec.step.hint": "„Nicht erreicht“ heißt: Ein Schritt, den dieser braucht, ergab für die Zeile keinen Wert.",
+    "exec.step.live": "Zwischenstand: Es zählen nur die Zeilen, die bis jetzt fertig sind.",
     "exec.step.filled": "Zeilen mit Wert: {{filled}} von {{total}}",
     "exec.step.chosen": "nach Ihrer Auswahl: {{n}}",
     "exec.step.failed": "ohne Wert: {{n}}",

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- While a run goes on, the picture and the list of steps on Execution (and the
+  nodes of the Advanced graph) show what each step has done over the rows
+  finished so far. The job's `progress` gains `steps`, counts of `filled`,
+  `failed` and `skipped` per step; it is the row counter split by step, not an
+  event stream (#102 stays open).
 - Internal: the built-in capabilities are declared once in
   `capabilities/bindings.py` (source, kind of trust, reuse, and for a name
   lookup its name input and approved parameters); the executor assembly, the

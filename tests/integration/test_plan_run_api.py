@@ -1123,6 +1123,43 @@ def test_an_unusable_mountain_cell_costs_its_row_not_the_run(client):
     assert "result" in job["artifacts"]
 
 
+def step_counts_from(report: dict) -> dict[str, dict[str, int]]:
+    """What the audit of a run says each step did, counted the way a reader of it would."""
+    counts: dict[str, dict[str, int]] = {}
+    for record in report["execution"]["records"]:
+        for step in record["row_result"]["steps"]:
+            kinds = counts.setdefault(step["step_id"], {"filled": 0, "failed": 0, "skipped": 0})
+            result = step["result"]
+            if result["status"] == "success":
+                kinds["filled"] += 1
+            elif result["error_code"] == "DEPENDENCY_FAILED":
+                kinds["skipped"] += 1
+            else:
+                kinds["failed"] += 1
+    return counts
+
+
+def test_the_progress_of_a_finished_run_counts_each_step_like_its_audit(client):
+    job, report, codes = run_table(
+        client,
+        "capitals",
+        CAPITALS_HEADER,
+        KNOWN_PAIR,
+        ("London", "Atlantis", "Rome", "Italy"),
+        ("   ", "Italy", "Rome", "Italy"),
+    )
+    expected = step_counts_from(report)
+    # The plan has a step that needs others, and two rows left it unreached.
+    assert expected["distance"] == {"filled": 1, "failed": 0, "skipped": 2}
+    assert expected["from_city"] == {"filled": 1, "failed": 2, "skipped": 0}
+    assert expected["to_city"] == {"filled": 3, "failed": 0, "skipped": 0}
+    assert job["progress"] == {"rows_done": 3, "rows_total": 3, "steps": expected}
+    # Counts only: no value, name, record id or error text travels with them.
+    serialized = json.dumps(job["progress"])
+    for text in ("London", "Atlantis", "Rome", "UNRECOGNIZED", "record", "message"):
+        assert text not in serialized
+
+
 class PacedTransport(APITransportFixture):
     """The offline answers, each a little late, so a run can be watched."""
 
@@ -1159,9 +1196,22 @@ def test_a_run_reports_how_many_rows_are_finished():
         assert done == sorted(done)
         # Seen on the way, not only at the end.
         assert any(0 < value < total for value in done), done
-        assert current["progress"] == {"rows_done": total, "rows_total": total}
         report = client.get(current["artifacts"]["report"]).json()
+        assert current["progress"] == {
+            "rows_done": total,
+            "rows_total": total,
+            "steps": step_counts_from(report),
+        }
         assert report["progress"] == current["progress"]
+        # What each step had done grows with the rows and only holds counts.
+        for earlier, later in zip(seen, seen[1:], strict=False):
+            for step_id, counts in earlier.get("steps", {}).items():
+                assert all(later["steps"][step_id][kind] >= n for kind, n in counts.items())
+        assert all(
+            sum(counts.values()) == step["rows_done"]
+            for step in seen
+            for counts in step.get("steps", {}).values()
+        )
 
 
 def test_a_stopped_run_says_how_far_it_got():

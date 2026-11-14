@@ -1,6 +1,11 @@
 import { expect, it } from "vitest";
 import type { AuditReport, EnrichmentPlan, Job, Review } from "./api";
-import { remainingSeconds, runOutcome, stepOutcomes } from "./runModel";
+import {
+    liveStepOutcomes,
+    remainingSeconds,
+    runOutcome,
+    stepOutcomes,
+} from "./runModel";
 
 const job: Job = {
     job_id: "job",
@@ -276,4 +281,118 @@ it("has no step outcomes without the audit of this very run", () => {
     expect(stepOutcomes(job, report(true, false), plan).get("d")).toMatchObject(
         { total: 2, filled: 1, failed: 1 },
     );
+});
+
+it("turns the counts of a running job into step outcomes over the rows finished so far", () => {
+    const two: EnrichmentPlan = {
+        ...plan,
+        steps: [
+            { id: "d", capability: "x", inputs: {}, parameters: {} },
+            { id: "e", capability: "x", inputs: {}, parameters: {} },
+        ],
+    };
+    const running: Job = {
+        ...job,
+        status: "running",
+        progress: {
+            rows_done: 4,
+            rows_total: 10,
+            steps: {
+                d: { filled: 2, failed: 1, skipped: 1 },
+                e: { filled: 4, failed: 0, skipped: 0 },
+                gone: { filled: 1, failed: 1, skipped: 2 },
+            },
+        },
+    };
+    const live = liveStepOutcomes(running, two);
+    // The plan's steps, in its order; what the audit alone knows stays empty.
+    expect([...live.keys()]).toEqual(["d", "e"]);
+    expect(live.get("d")).toEqual({
+        total: 4,
+        filled: 2,
+        failed: 1,
+        skipped: 1,
+        chosen: 0,
+        codes: [],
+        sources: [],
+    });
+    expect(live.get("e")).toMatchObject({ total: 4, filled: 4 });
+});
+
+it("has no live step outcomes before a row is finished or without counts", () => {
+    const counts = { d: { filled: 0, failed: 0, skipped: 0 } };
+    const progress = (rows_done: number, steps?: typeof counts) => ({
+        ...job,
+        status: "running" as const,
+        progress: { rows_done, rows_total: 10, steps },
+    });
+    expect(liveStepOutcomes(progress(0, counts), plan).size).toBe(0);
+    expect(liveStepOutcomes(progress(3, {} as typeof counts), plan).size).toBe(
+        0,
+    );
+    expect(liveStepOutcomes(progress(3), plan).size).toBe(0);
+    expect(liveStepOutcomes({ ...job, progress: null }, plan).size).toBe(0);
+    expect(liveStepOutcomes(null, plan).size).toBe(0);
+    expect(liveStepOutcomes(progress(3, counts), null).size).toBe(0);
+});
+
+it("agrees with the audit on filled, failed and skipped for a finished run", () => {
+    const two: EnrichmentPlan = {
+        ...plan,
+        steps: [
+            { id: "d", capability: "x", inputs: {}, parameters: {} },
+            { id: "e", capability: "x", inputs: {}, parameters: {} },
+        ],
+    };
+    const result = (status: string, error_code: string | null) => ({
+        status,
+        value: status === "success" ? 1 : null,
+        error_code,
+        message: "",
+        evidence: [],
+    });
+    const rows = [
+        [result("success", null), result("success", null)],
+        [
+            result("failure", "NOT_FOUND"),
+            result("failure", "DEPENDENCY_FAILED"),
+        ],
+        [result("failure", null), result("failure", "DEPENDENCY_FAILED")],
+    ];
+    const audit = {
+        ...job,
+        rows: rows.map((_, i) => ({ record_id: `r${i}`, status: "x" })),
+        execution: {
+            provider_requests: {},
+            records: rows.map((steps, i) => ({
+                record_id: `r${i}`,
+                row_result: {
+                    steps: steps.map((r, at) => ({
+                        step_id: two.steps[at].id,
+                        result: r,
+                    })),
+                },
+            })),
+        },
+    } as unknown as AuditReport;
+    const finished: Job = {
+        ...job,
+        progress: {
+            rows_done: 3,
+            rows_total: 3,
+            steps: {
+                d: { filled: 1, failed: 2, skipped: 0 },
+                e: { filled: 1, failed: 0, skipped: 2 },
+            },
+        },
+    };
+    const live = liveStepOutcomes(finished, two);
+    const audited = stepOutcomes(finished, audit, two);
+    for (const id of ["d", "e"])
+        expect(live.get(id)).toMatchObject({
+            total: audited.get(id)!.total,
+            filled: audited.get(id)!.filled,
+            failed: audited.get(id)!.failed,
+            skipped: audited.get(id)!.skipped,
+        });
 });
