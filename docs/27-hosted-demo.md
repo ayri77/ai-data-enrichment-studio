@@ -70,7 +70,12 @@ either.
   page asks for that code each time it is loaded and keeps it in memory only.
   It lists every label, used or not, the events by kind and the latest 300
   events. The code opens `GET /api/usage` and nothing else; a visitor's code
-  does not open it; without the variable the route answers 404.
+  does not open it; without the variable the route answers 404
+  `usage_disabled` and the page says that no admin code is set.
+- **Locally.** The local launcher reads the same variable: with
+  `ENRICHMENT_ADMIN_CODE` in `.env` and `--env-file .env`, `/#usage` works on
+  `127.0.0.1` too, and everything counts under the label `local`. Access codes
+  are read by the hosted entry point only.
 - **What survives a restart.** The summary is kept in memory, so a restart, a
   deploy or the free instance going to sleep clears it. Each event is also one
   line on standard output, `usage {"at": …, "who": "guest03", "kind":

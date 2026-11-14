@@ -79,6 +79,16 @@ def visitor_codes(text: str) -> dict[str, str]:
     return codes
 
 
+def admin_code() -> str | None:
+    """The code that opens the usage summary, or None when there is to be none."""
+    admin = os.getenv("ENRICHMENT_ADMIN_CODE", "")
+    if admin and not _usable(admin, MIN_ADMIN_CODE_LENGTH):
+        raise RuntimeError(
+            "Set ENRICHMENT_ADMIN_CODE to at least 12 ASCII characters without spaces."
+        )
+    return admin or None
+
+
 def create_hosted_app() -> FastAPI:
     codes = visitor_codes(os.getenv("ENRICHMENT_ACCESS_CODES", ""))
     shared = os.getenv("ENRICHMENT_ACCESS_CODE", "")
@@ -93,11 +103,7 @@ def create_hosted_app() -> FastAPI:
             "Set ENRICHMENT_ACCESS_CODES (label:code entries) or ENRICHMENT_ACCESS_CODE "
             "(at least 8 ASCII characters without spaces)."
         )
-    admin = os.getenv("ENRICHMENT_ADMIN_CODE", "")
-    if admin and not _usable(admin, MIN_ADMIN_CODE_LENGTH):
-        raise RuntimeError(
-            "Set ENRICHMENT_ADMIN_CODE to at least 12 ASCII characters without spaces."
-        )
+    admin = admin_code()
     if admin and (admin == shared or admin in codes.values()):
         raise RuntimeError("ENRICHMENT_ADMIN_CODE must differ from every access code.")
     static_dir = Path(os.getenv("ENRICHMENT_STATIC_DIR", "frontend/dist"))
@@ -107,7 +113,7 @@ def create_hosted_app() -> FastAPI:
     return create_app(
         access_code=shared or None,
         access_codes=codes,
-        admin_code=admin or None,
+        admin_code=admin,
         usage_lines=True,
         static_dir=static_dir,
     )

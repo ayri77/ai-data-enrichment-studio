@@ -365,8 +365,21 @@ unresolved, ambiguous or missing results empty, or not to invent values, needs n
 parameter or capability and is never a reason to abstain. Validation is unchanged: this
 tells the planner a fact about execution and accepts no plan that was refused before.
 
-**Not verified.** The measurement has to be repeated with the changed guidance, on all
-three tasks: it changes what the planner is told for every request.
+**After the change** (owner, 2026-11-14, the same model, effort and six capabilities):
+
+| Task | Valid plans | Abstained | Median request | Slowest request | Over 30 s |
+| --- | --- | --- | --- | --- | --- |
+| Capitals | 10 of 10 | 0 | 4.25 s | 5.73 s | 0 |
+| Mountains | 10 of 10 | 0 | 1.86 s | 2.91 s | 0 |
+| Capitals with roads, three columns | 10 of 10 | 0 | 5.53 s | 10.63 s | 0 |
+
+All thirty plans came on the first answer. Thirty requests without an abstention after
+three in thirty before are consistent with the change having worked; they do not put a
+number on how rare an abstention now is.
+
+**Not measured:** the set of five capabilities that an installation without a routing
+key offers. A hosted demo should therefore either be given the routing key, so that it
+offers the measured six, or be measured without the key first.
 
 ### Where models are described
 

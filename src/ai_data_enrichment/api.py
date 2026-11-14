@@ -217,6 +217,7 @@ def create_app(
                 provider.remove_key()
 
     app = FastAPI(title="Data Enrichment Workspace", lifespan=lifespan)
+    app.state.usage = usage
     app.add_middleware(PlanBodyLimit)
     app.include_router(plan_run.router)
     app.include_router(
@@ -311,7 +312,7 @@ def create_app(
     async def usage_summary(request: Request):
         """What was used since this process started; for the holder of the admin code."""
         if admin_code is None:
-            raise WorkspaceError("not_found", "Not found.", 404)
+            raise WorkspaceError("usage_disabled", "No admin code is set on this server.", 404)
         offered = request.headers.get("x-admin-code", "")
         if not compare_digest(offered.encode(), admin_code.encode()):
             # Guessing is slowed and limited together with the visitor codes.

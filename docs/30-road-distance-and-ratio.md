@@ -216,19 +216,29 @@ would all be refused.
 
    First result with six capabilities (2026-11-14): Capitals 10 of 10, Mountains
    8 of 10, Capitals with roads 9 of 10. The three failures are abstentions over
-   "leave unresolved results empty"; the guidance was corrected and the
-   measurement has to be repeated
-   ([live planning reliability](26-live-planning-reliability.md)).
+   "leave unresolved results empty"; the guidance was corrected
+   ([live planning reliability](26-live-planning-reliability.md)). Repeated the
+   same day with the correction: 10 of 10 on all three. The set without a
+   routing key (five capabilities) is still not measured.
 4. **Suggest a task with several columns.** First live try (2026-11-14, three
    columns, Ukrainian): the model returned a task for the first column only.
    The rule had been added to the prompt of the open question, where "name the
    column to fill" outweighed it. The case now has a prompt of its own, and the
-   server returns a task only if it names every chosen header. Not yet tried
-   again on a live model.
+   server returns a task only if it names every chosen header. Second try:
+   nothing was shown for three columns, while one column worked. The reply
+   itself is not kept, so the cause is an inference: a task that covers three
+   columns and names the columns it reads is longer than the 400 characters
+   allowed for a one-column proposal, and was dropped. The bound for several
+   columns is now 1,200, the prompt no longer lets an unclear header be a
+   reason for an empty answer, and the usage summary counts for every such
+   request how many tasks the model proposed, how many were too long and how
+   many left a column out — so the next "nothing" explains itself.
 
 ## Recommendation
 
-- Keep the key off the hosted demo until the measurement is recorded here.
+- The measurement is recorded: with the routing key the hosted demo offers the
+  measured set of six capabilities. Without the key it would offer five, which
+  were not measured.
 - The search radius around a point stays at the service's default: the live run
   gave no reason to change it.
 - Express both capabilities through the binding of

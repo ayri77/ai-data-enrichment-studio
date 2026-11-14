@@ -17,6 +17,7 @@ fill one of them would all lead to a refusal.
 
 import json
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
@@ -26,6 +27,9 @@ from ai_data_enrichment.planning.llm_planner import PlanCompletionClient
 MAX_TASK_IDEAS = 3
 # An instruction may be far longer; a proposal is a sentence or two.
 MAX_IDEA_LENGTH = 400
+# One task for several columns says what goes into each of them and from
+# which columns: it does not fit the bound of a one-column proposal.
+MAX_CHOSEN_IDEA_LENGTH = 1200
 
 
 def ideas_schema(limit: int) -> dict[str, Any]:
@@ -76,10 +80,14 @@ _SYSTEM_CHOSEN = (
     "that fills every column of fill_columns. For each of these columns say, naming it "
     "by its exact header, which value goes into it. Choose for each column a value the "
     "listed capabilities can produce from this table, guided by its header, and a "
-    "different value for each column. Name the columns to read by their exact headers. "
-    "The task must mention every header of fill_columns; a task that fills only some of "
-    "them is wrong. If the capabilities cannot fill all of these columns from this "
-    "table, return an empty list. Return that one task and nothing else. " + _CLOSING
+    "different value for each column. A header that does not say what it should hold "
+    "still gets one: the most plausible of the values the capabilities can produce from "
+    "this table that no other chosen column has. Name the columns to read by their "
+    "exact headers. The task must mention every header of fill_columns; a task that "
+    "fills only some of them is wrong. Return an empty list only if the capabilities "
+    "cannot produce as many different values from this table as there are chosen "
+    "columns. Keep the task under 900 characters. Return that one task and nothing "
+    "else. " + _CLOSING
 )
 
 
@@ -115,12 +123,23 @@ def idea_messages(
     ]
 
 
-def parse_ideas(text: str, *, limit: int = MAX_TASK_IDEAS) -> tuple[str, ...]:
-    """Keep what can go into the instruction field: distinct lines of plain text.
+@dataclass(frozen=True)
+class Proposal:
+    """The tasks to show, and what became of the model's reply, as numbers.
 
-    The reply is untrusted. Its shape is checked; an entry that is not text, is
-    empty, too long or not printable is dropped rather than repaired.
+    The numbers say why nothing is shown without keeping any of the text: a
+    reply without tasks, tasks that were too long, or (with several chosen
+    columns) tasks that left one of the columns out.
     """
+
+    tasks: tuple[str, ...]
+    proposed: int = 0
+    too_long: int = 0
+    incomplete: int = 0
+
+
+def _sift(text: str, max_length: int) -> tuple[list[str], int, int]:
+    """Usable tasks of a reply, how many it held and how many were too long."""
     try:
         tasks = json.loads(text)["tasks"]
     except (ValueError, KeyError, TypeError) as exc:
@@ -128,29 +147,40 @@ def parse_ideas(text: str, *, limit: int = MAX_TASK_IDEAS) -> tuple[str, ...]:
     if not isinstance(tasks, list):
         raise TaskIdeaError("The tasks are not a list.")
     kept: list[str] = []
+    proposed = too_long = 0
     for entry in tasks:
         if not isinstance(entry, str):
             continue
         task = " ".join(entry.split())
-        if (
-            not task
-            or len(task) > MAX_IDEA_LENGTH
-            or not task.isprintable()
-            or task.casefold() in {other.casefold() for other in kept}
-        ):
+        if not task:
             continue
-        kept.append(task)
-    return tuple(kept[:limit])
+        proposed += 1
+        if len(task) > max_length:
+            too_long += 1
+        elif task.isprintable() and task.casefold() not in {o.casefold() for o in kept}:
+            kept.append(task)
+    return kept, proposed, too_long
 
 
-def suggest_tasks(
+def parse_ideas(
+    text: str, *, limit: int = MAX_TASK_IDEAS, max_length: int = MAX_IDEA_LENGTH
+) -> tuple[str, ...]:
+    """Keep what can go into the instruction field: distinct lines of plain text.
+
+    The reply is untrusted. Its shape is checked; an entry that is not text, is
+    empty, too long or not printable is dropped rather than repaired.
+    """
+    return tuple(_sift(text, max_length)[0][:limit])
+
+
+def propose_tasks(
     client: PlanCompletionClient,
     *,
     profile: DatasetProfile,
     registry: CapabilityRegistry,
     language: str,
     fill_columns: Sequence[str] = (),
-) -> tuple[str, ...]:
+) -> Proposal:
     """Ask once; a model failure or an unusable reply is an error, not an empty list.
 
     With several columns to fill, the first task that names every one of them
@@ -166,9 +196,25 @@ def suggest_tasks(
         )
     except Exception as exc:
         raise TaskIdeaError("The model did not answer.") from exc
+    usable, proposed, too_long = _sift(text, MAX_CHOSEN_IDEA_LENGTH if chosen else MAX_IDEA_LENGTH)
     if not chosen:
-        return parse_ideas(text)
-    return tuple(task for task in parse_ideas(text) if names_all(task, fill_columns))[:1]
+        return Proposal(tuple(usable[:MAX_TASK_IDEAS]), proposed, too_long)
+    complete = [task for task in usable if names_all(task, fill_columns)]
+    return Proposal(tuple(complete[:1]), proposed, too_long, len(usable) - len(complete))
+
+
+def suggest_tasks(
+    client: PlanCompletionClient,
+    *,
+    profile: DatasetProfile,
+    registry: CapabilityRegistry,
+    language: str,
+    fill_columns: Sequence[str] = (),
+) -> tuple[str, ...]:
+    """The tasks of ``propose_tasks`` alone."""
+    return propose_tasks(
+        client, profile=profile, registry=registry, language=language, fill_columns=fill_columns
+    ).tasks
 
 
 def names_all(task: str, headers: Sequence[str]) -> bool:

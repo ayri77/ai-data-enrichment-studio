@@ -330,6 +330,8 @@ def test_the_usage_summary_opens_with_the_admin_code_and_with_nothing_else(site:
 def test_without_an_admin_code_there_is_no_usage_summary(site: Path) -> None:
     with TestClient(create_app(access_codes=VISITORS, static_dir=site)) as client:
         assert usage(client).status_code == 404
+        # Said as what it is, so that the owner knows what to set.
+        assert usage(client).json()["error"]["code"] == "usage_disabled"
         assert client.get("/api/usage", headers=code_of("guest01")).status_code == 404
     # One code given the old way is a visitor called "shared".
     with TestClient(create_app(access_code=CODE, admin_code=ADMIN, static_dir=site)) as client:
@@ -403,3 +405,30 @@ def test_the_hosted_app_starts_only_with_codes_that_cannot_be_confused(
             "guest02",
             "shared",
         ]
+
+
+def test_the_local_launcher_offers_the_usage_summary_with_an_admin_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ai_data_enrichment import local_server
+
+    started: dict = {}
+    monkeypatch.setattr(local_server.uvicorn, "run", lambda app, **options: started.update(app=app))
+    monkeypatch.setattr("sys.argv", ["local_server"])
+
+    monkeypatch.delenv("ENRICHMENT_ADMIN_CODE", raising=False)
+    local_server.main()
+    with TestClient(started["app"]) as client:
+        assert usage(client).json()["error"]["code"] == "usage_disabled"
+
+    monkeypatch.setenv("ENRICHMENT_ADMIN_CODE", ADMIN)
+    local_server.main()
+    with TestClient(started["app"]) as client:
+        # No access code locally; what is used counts as "local".
+        assert client.get("/api/access").json() == {"required": False, "granted": True}
+        assert [v["who"] for v in usage(client).json()["visitors"]] == ["local"]
+        assert usage(client, "wrong-admin-code").status_code == 401
+
+    monkeypatch.setenv("ENRICHMENT_ADMIN_CODE", "short")
+    with pytest.raises(SystemExit):
+        local_server.main()

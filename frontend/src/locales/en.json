@@ -439,7 +439,7 @@
     "error.access_throttled": "Too many attempts. Wait a minute and try again.",
     "access.counted": "Use of this demo is counted per access code: visits, runs, and requests to the AI and to the sources. Table contents, file names and task texts are not recorded.",
     "error.admin_required": "That admin code is not correct.",
-    "error.not_found": "This server has nothing at this address.",
+    "error.usage_disabled": "The usage summary is switched off on this server: no admin code is set. Set ENRICHMENT_ADMIN_CODE and restart the server.",
     "usage.title": "Usage",
     "usage.hint": "Who used this demo and for what. Enter the admin code.",
     "usage.code": "Admin code",

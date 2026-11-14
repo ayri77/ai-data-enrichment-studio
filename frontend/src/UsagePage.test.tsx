@@ -120,7 +120,7 @@ it("opens with the admin code and shows what each visitor used", async () => {
 it.each([
     ["admin_required", "That admin code is not correct."],
     ["access_throttled", "Too many attempts. Wait a minute and try again."],
-    ["not_found", "This server has nothing at this address."],
+    ["usage_disabled", "The usage summary is switched off on this server"],
     ["something_else", "The server cannot be reached."],
 ])("says why the summary did not open: %s", async (code, text) => {
     vi.mocked(api.usage).mockRejectedValue(new WorkspaceApiError(code, "x"));

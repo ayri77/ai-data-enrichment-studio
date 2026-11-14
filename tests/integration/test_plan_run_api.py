@@ -1823,6 +1823,18 @@ def test_the_model_proposes_tasks_for_a_table_in_the_language_asked_for(ideas):
     assert again.json()["tasks"] == [task] and len(model.calls) == 3
     for bad in ([""], ["x" * 201], ["c"] * 21):
         assert task_ideas(client, dataset_id, fill_columns=bad).status_code == 422
+    # What became of each reply is counted, as numbers.
+    asked = [
+        event
+        for event in reversed(client.app.state.usage.summary()["recent"])
+        if event["kind"] == "task_ideas"
+    ]
+    assert [(e["language"], e["columns"], e["proposed"], e["shown"]) for e in asked] == [
+        ("uk", 0, 1, 1),
+        ("de", 0, 1, 1),
+        ("uk", 2, 2, 1),
+    ]
+    assert all(e["too_long"] == 0 and e["incomplete"] in (0, 1) for e in asked)
     # A proposal is text only: nothing was planned or started.
     mountains = upload(client, "mountains")
     assert "elevation" in task_ideas(client, mountains, "mountains").json()["tasks"][0]
