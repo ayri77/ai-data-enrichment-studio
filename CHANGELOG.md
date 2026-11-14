@@ -2,7 +2,12 @@
 
 ## Unreleased
 
-Nothing yet.
+- Internal: the built-in capabilities are declared once in
+  `capabilities/bindings.py` (source, kind of trust, reuse, and for a name
+  lookup its name input and approved parameters); the executor assembly, the
+  run worker and the resolution, other-name and resume code read it instead of
+  comparing capability ids. No change in behaviour, in what the planner is
+  shown or in any response.
 
 ## 0.2.0 — beta (2026-11-14)
 

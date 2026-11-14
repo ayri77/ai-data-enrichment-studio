@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, cast
 
+from ai_data_enrichment.capabilities.bindings import binding_for, find_binding, name_resolution_for
 from ai_data_enrichment.domain.enrichment_plan import PlanStep
 from ai_data_enrichment.execution.models import OperationResult, RuntimeValue
 from ai_data_enrichment.resolution.job import ParameterizedResolutionService, ResolutionService
@@ -22,12 +23,6 @@ from ai_data_enrichment.resolution.models import (
 )
 
 OtherNameCapability = Literal["geocode", "resolve_entity"]
-# The input that carries the name, the source that resolves it and the step
-# parameters under which that source is audited.
-_CONTRACTS: dict[str, tuple[str, str, tuple[dict[str, str], ...]]] = {
-    "geocode": ("city", "open-meteo", ({}, {"required_role": "country_capital"})),
-    "resolve_entity": ("name", "wikidata", ({"entity_type": "mountain"},)),
-}
 
 
 @dataclass(frozen=True)
@@ -56,12 +51,13 @@ def same_name(value: str, recorded: str) -> bool:
 
 def supports_other_name(step: PlanStep) -> bool:
     """Whether a step is one of the audited lookups a name can be given for."""
-    contract = _CONTRACTS.get(step.capability)
-    return contract is not None and step.parameters in contract[2]
+    binding = find_binding(step.capability)
+    resolution = binding.name_resolution if binding else None
+    return resolution is not None and step.parameters in resolution.approved_parameters
 
 
 def name_input(capability: str) -> str:
-    return _CONTRACTS[capability][0]
+    return name_resolution_for(capability).name_input
 
 
 def searched_under(
@@ -98,7 +94,11 @@ class OtherNameResolutionService:
             raise ValueError("Both the row's name and the name to search for are required.")
         self._service = service
         self._capability = capability
-        self._input, self._provider_id, self._parameters = _CONTRACTS[capability]
+        resolution = name_resolution_for(capability)
+        self._input = resolution.name_input
+        self._provider_id = binding_for(capability).source_id
+        self._parameters = resolution.approved_parameters
+        self._takes_parameters = resolution.service_takes_parameters
         self._row_name = row_name
         self._searched_as = " ".join(searched_as.split())
         self._found: dict[tuple[tuple[str, str], ...], OtherNameOutcome] = {}
@@ -132,7 +132,7 @@ class OtherNameResolutionService:
         if found is not None:
             return found
         lookup = {**inputs, self._input: self._searched_as}
-        if self._capability == "geocode":
+        if self._takes_parameters:
             outcome = cast(ParameterizedResolutionService, self._service).resolve(
                 inputs=lookup, policy=policy, parameters=parameters
             )
@@ -169,12 +169,15 @@ def search_under(
         raise ValueError("The reviewed query has no country to search in.")
     inputs: dict[str, RuntimeValue] = {name_input(capability): query.name, "country": country}
     parameters: dict[str, str] = {}
-    if capability == "geocode":
-        area, role = context.get("administrative_area"), context.get("required_role")
-        if isinstance(area, str):
-            inputs["administrative_area"] = area
-        if isinstance(role, str):
-            parameters["required_role"] = role
+    resolution = name_resolution_for(capability)
+    for name in resolution.context_inputs:
+        value = context.get(name)
+        if isinstance(value, str):
+            inputs[name] = value
+    for name in resolution.context_parameters:
+        value = context.get(name)
+        if isinstance(value, str):
+            parameters[name] = value
     renamed = OtherNameResolutionService(
         service, capability=capability, row_name=query.name, searched_as=searched_as
     )

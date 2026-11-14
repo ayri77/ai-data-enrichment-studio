@@ -12,6 +12,7 @@ from typing import Any, Literal
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.cell import column_index_from_string
 
+from ai_data_enrichment.capabilities.bindings import BINDINGS, Trust, binding_for
 from ai_data_enrichment.capabilities.definitions import offered_capabilities
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan, required_input_columns
@@ -20,9 +21,9 @@ from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
 from ai_data_enrichment.ingestion.excel_records import read_input_batch
 from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.orchestration.excel_runner import ExcelEnrichmentRunner
-from ai_data_enrichment.orchestration.live_executor import LIVE_SOURCES, build_live_executor
+from ai_data_enrichment.orchestration.live_executor import build_live_executor
 from ai_data_enrichment.providers.http_transport import JsonTransport
-from ai_data_enrichment.providers.openrouteservice import ROUTING_PROVIDER, routing_key
+from ai_data_enrichment.providers.openrouteservice import routing_key
 from ai_data_enrichment.providers.request_policy import ProviderRequestPolicy
 from ai_data_enrichment.resolution.resume import OtherName, ResumeSelection
 from ai_data_enrichment.resolution.sqlite_cache import SQLiteResolutionCache
@@ -69,9 +70,22 @@ def offered_descriptions() -> list[dict[str, Any]]:
     further change, and one that is not offered here is not listed.
     """
     return [
-        {**spec.model_dump(mode="json"), "source": LIVE_SOURCES[spec.id]}
+        {**spec.model_dump(mode="json"), "source": binding_for(spec.id).source_id}
         for spec in builtin_registry().list_all()
     ]
+
+
+def remote_sources(registry: CapabilityRegistry) -> list[str]:
+    """The sources a run asks over the network, each once, for what is registered."""
+    sources: list[str] = []
+    for binding in BINDINGS:
+        if (
+            binding.trust is not Trust.COMPUTED
+            and (binding.always_bound or registry.get(binding.capability_id) is not None)
+            and binding.source_id not in sources
+        ):
+            sources.append(binding.source_id)
+    return sources
 
 
 def live_executor(
@@ -101,11 +115,7 @@ def live_executor(
                 max_operations_per_job=MAX_RUN_ROWS * MAX_PLAN_STEPS,
                 max_total_wait_seconds=MAX_PROVIDER_WAIT_SECONDS,
             )
-            for provider in (
-                "open-meteo",
-                "wikidata",
-                *([ROUTING_PROVIDER] if registry.get("road_distance") else []),
-            )
+            for provider in remote_sources(registry)
         },
     )
 

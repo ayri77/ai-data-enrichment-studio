@@ -12,6 +12,7 @@ Only the name, the kind of place and its country leave the workspace.
 import json
 from typing import Any
 
+from ai_data_enrichment.capabilities.bindings import name_resolution_for
 from ai_data_enrichment.planning.llm_planner import PlanCompletionClient
 from ai_data_enrichment.resolution.models import ResolutionQuery
 from ai_data_enrichment.resolution.other_name import same_name
@@ -30,11 +31,6 @@ NAMES_SCHEMA: dict[str, Any] = {
     },
     "required": ["names"],
     "additionalProperties": False,
-}
-# What each audited lookup matches a name against.
-_SOURCES = {
-    "geocode": "GeoNames; a name must equal the entry's English name",
-    "resolve_entity": "Wikidata; a name must equal an English label or alias",
 }
 _SYSTEM = (
     "You help match a place name from a spreadsheet to a geographic reference source. "
@@ -64,7 +60,7 @@ def suggestion_messages(query: ResolutionQuery, capability: str) -> list[dict[st
         "name": query.name,
         "kind": query.entity_type,
         "country": country,
-        "source": _SOURCES[capability],
+        "source": name_resolution_for(capability).match_description,
         "already_tried": [query.searched_as] if query.searched_as else [],
     }
     return [

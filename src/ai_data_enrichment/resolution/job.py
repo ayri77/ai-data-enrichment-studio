@@ -10,6 +10,7 @@ from hashlib import sha256
 from json import dumps
 from typing import Protocol, cast
 
+from ai_data_enrichment.capabilities.bindings import find_binding, name_resolution_for
 from ai_data_enrichment.domain.enrichment_plan import PlanStep
 from ai_data_enrichment.execution.contracts import CapabilityHandler
 from ai_data_enrichment.execution.job_models import JobExecutionPolicy
@@ -35,14 +36,6 @@ from ai_data_enrichment.resolution.sqlite_cache import (
 )
 
 _RESOLVER_VERSION = "audited-resolution-engine:v1"
-_APPROVED_PARAMETERS = {
-    "resolve_entity": {"entity_type": "mountain"},
-}
-
-_GEOCODE_PARAMETERS = (
-    {},
-    {"required_role": "country_capital"},
-)
 
 
 class ResolutionOutcome(Protocol):
@@ -115,6 +108,7 @@ class _ResolutionInvoker:
         self.service = service
         self.policy = policy
         self.capability_id = capability_id
+        self._takes_parameters = name_resolution_for(capability_id).service_takes_parameters
         self.latest: ResolutionCacheHit | None = None
         self.rejected: UnusableInput | None = None
 
@@ -128,7 +122,7 @@ class _ResolutionInvoker:
         self.rejected = None
 
         try:
-            if self.capability_id == "geocode":
+            if self._takes_parameters:
                 service = cast(ParameterizedResolutionService, self.service)
                 result = service.resolve(
                     inputs=inputs,
@@ -188,7 +182,8 @@ class AuditedResolutionHandler:
         persistent_cache: SQLiteResolutionCache | None,
         wrap_provider: "ProviderWrapper | None" = None,
     ) -> None:
-        if capability_id not in {*_APPROVED_PARAMETERS, "geocode"}:
+        binding = find_binding(capability_id)
+        if binding is None or binding.name_resolution is None:
             raise ValueError("Unsupported audited resolution capability.")
         if not capability_version.strip() or not provider_version.strip():
             raise ValueError("Audited resolution requires explicit capability/provider versions.")
@@ -226,12 +221,7 @@ class AuditedResolutionHandler:
     def execute(
         self, *, inputs: Mapping[str, RuntimeValue], parameters: Mapping[str, str]
     ) -> OperationResult:
-        if self.capability_id == "geocode":
-            valid = dict(parameters) in _GEOCODE_PARAMETERS
-        else:
-            valid = dict(parameters) == _APPROVED_PARAMETERS[self.capability_id]
-
-        if not valid:
+        if dict(parameters) not in name_resolution_for(self.capability_id).approved_parameters:
             raise ValueError("Unexpected parameters for audited resolution.")
 
         # The key includes capability/provider versions, policy-scoped config,
@@ -365,7 +355,8 @@ def _unreached_source_report(
     """
     if failure.status != "failure" or failure.error_code is None:
         raise ValueError("Provider blocked execution without a typed failure.")
-    label = inputs.get("city" if capability_id == "geocode" else "name")
+    resolution = name_resolution_for(capability_id)
+    label = inputs.get(resolution.name_input)
     if not isinstance(label, str) or not label.strip():
         raise ValueError("Blocked resolution has no valid lookup name.")
     country = inputs.get("country")
@@ -377,7 +368,7 @@ def _unreached_source_report(
     query = ResolutionQuery(
         # An over-long name is shown shortened; the reason says it was not used.
         name=label if len(label) <= MAX_NAME_LENGTH else label[: MAX_NAME_LENGTH - 1] + "…",
-        entity_type="city" if capability_id == "geocode" else "mountain",
+        entity_type=resolution.entity_type,
         context=context,
     )
     if rejected is not None:

@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Literal, cast
 
+from ai_data_enrichment.capabilities.bindings import BINDINGS, name_resolvers
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
 from ai_data_enrichment.execution.contracts import CapabilityHandler
 from ai_data_enrichment.execution.job_executor import JobExecutor
@@ -44,17 +45,10 @@ from ai_data_enrichment.resolution.sqlite_cache import SQLiteResolutionCache
 
 # Where the values of each capability come from in a live run: the id of the
 # source that answers for it, or "local" for a calculation done in this
-# process. The executor is assembled from this table and a client is told the
-# same, so the two cannot disagree.
+# process. Derived from the bindings, so the executor and a client are told the
+# same.
 LIVE_SOURCES: Mapping[str, str] = MappingProxyType(
-    {
-        "geocode": "open-meteo",
-        "geodesic_distance": "local",
-        "resolve_entity": "wikidata",
-        "lookup_property": "wikidata",
-        "ratio": "local",
-        "road_distance": ROUTING_PROVIDER,
-    }
+    {binding.capability_id: binding.source_id for binding in BINDINGS}
 )
 
 
@@ -91,12 +85,19 @@ def build_live_executor(
         item.approval.source for item in selections.values() if isinstance(item, ResumeSelection)
     }
     renamed = {item.capability for item in selections.values() if isinstance(item, OtherName)}
-    if approved_sources - {"wikidata", "open-meteo"}:
+    resolvers = name_resolvers()
+    if approved_sources - {item.source_id for item in resolvers}:
         raise ValueError("Resume selection uses an unsupported source.")
-    if ("wikidata" in approved_sources or "resolve_entity" in renamed) and not audit_mountains:
-        raise ValueError("Resume requires audited mountain resolution.")
-    if ("open-meteo" in approved_sources or "geocode" in renamed) and not audit_capitals:
-        raise ValueError("Resume requires audited city resolution.")
+    audited = {"resolve_entity": audit_mountains, "geocode": audit_capitals}
+    # Mountains are checked before cities, as the messages have always been.
+    for item in sorted(resolvers, key=lambda binding: binding.capability_id != "resolve_entity"):
+        resolution = item.name_resolution
+        if resolution is None:
+            continue
+        if (item.source_id in approved_sources or item.capability_id in renamed) and not audited[
+            item.capability_id
+        ]:
+            raise ValueError(f"Resume requires audited {resolution.entity_type} resolution.")
     if mountain_resolution_policy not in {"strict", "verified_only"}:
         raise ValueError("Unsupported mountain resolution policy.")
     if mountain_resolution_policy != "strict" and not audit_mountains:
@@ -144,9 +145,10 @@ def build_live_executor(
     mountain_service = WikidataMountainResolutionService(mountain_transport)
     city_service = OpenMeteoResolutionService(city_transport)
     # One service per reviewed operation: rows that share a name share a search.
+    services = {"open-meteo": city_service, "wikidata": mountain_service}
     other_names = {
         (item.operation_id, item.searched_as): OtherNameResolutionService(
-            city_service if item.capability == "geocode" else mountain_service,
+            services[LIVE_SOURCES[item.capability]],
             capability=item.capability,
             row_name=item.row_name,
             searched_as=item.searched_as,
@@ -172,11 +174,10 @@ def build_live_executor(
             handler=handler,
         )
 
-    absent = {"ratio": not with_ratio, "road_distance": not with_roads}
     selected = {
-        capability: source
-        for capability, source in LIVE_SOURCES.items()
-        if not absent.get(capability, False)
+        binding.capability_id: binding.source_id
+        for binding in BINDINGS
+        if binding.always_bound or registry.get(binding.capability_id) is not None
     }
 
     return JobExecutor(
@@ -205,10 +206,12 @@ def build_live_executor(
             # ratio are computed here and cost nothing to compute again.
             persistent_cache_ttls=(
                 {
-                    **({("resolve_entity", "wikidata"): reuse_seconds} if audit_mountains else {}),
-                    **({("geocode", "open-meteo"): reuse_seconds} if audit_capitals else {}),
-                    ("lookup_property", "wikidata"): reuse_seconds,
-                    **({("road_distance", ROUTING_PROVIDER): reuse_seconds} if with_roads else {}),
+                    (binding.capability_id, binding.source_id): reuse_seconds
+                    for binding in BINDINGS
+                    if binding.reusable
+                    and binding.capability_id in selected
+                    # A name is reused only where its resolution is audited.
+                    and (binding.name_resolution is None or audited[binding.capability_id])
                 }
                 if reuse
                 else {}
@@ -229,8 +232,9 @@ def build_live_executor(
             **({"road_distance": routing_configuration} if reuse and with_roads else {}),
         },
         resolution_services={
-            **({"resolve_entity": mountain_service} if audit_mountains else {}),
-            **({"geocode": city_service} if audit_capitals else {}),
+            item.capability_id: services[item.source_id]
+            for item in resolvers
+            if audited[item.capability_id]
         },
         resolution_policies={
             **(

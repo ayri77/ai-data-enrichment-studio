@@ -14,6 +14,8 @@ Paths in the first two lists are relative to `src/ai_data_enrichment/`.
    `domain/capability.py` — source-independent metadata, plan and
    capability contracts.
 2. `capabilities/definitions.py`, `capabilities/registry.py`,
+   `capabilities/bindings.py` (what each built-in capability is beyond its
+   contract: source, kind of trust, reuse, and what review needs for a name),
    `validation/plan_validator.py`, `validation/intent_policy.py` — the
    registered operations, static validation, and the bounded checks of a plan
    against what the instruction asked for.
