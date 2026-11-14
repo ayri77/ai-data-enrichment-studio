@@ -23,7 +23,7 @@ from ai_data_enrichment.execution.job_models import (
     prepare_input_records,
 )
 from ai_data_enrichment.execution.memoization import JobMemoization, MemoCapacity
-from ai_data_enrichment.execution.models import OperationResult
+from ai_data_enrichment.execution.models import OperationResult, RowExecutionResult
 from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
 from ai_data_enrichment.providers.registry import ProviderRegistry
 from ai_data_enrichment.providers.request_policy import ProviderRequestSession
@@ -98,6 +98,7 @@ class JobExecutor:
         job_id: str | None = None,
         previous_job_id: str | None = None,
         on_record_done: Callable[[int, int], None] | None = None,
+        on_row_result: Callable[[RowExecutionResult], None] | None = None,
     ) -> JobExecutionResult:
         """Process a bounded job sequentially, preserving row IDs and order.
 
@@ -107,6 +108,8 @@ class JobExecutor:
 
         ``on_record_done(done, total)`` is called once before the first record
         and after each finished one. It only reports; it cannot change a result.
+        ``on_row_result(row)`` gets that finished row's own result just before
+        the matching ``on_record_done`` call.
         """
         prepared = prepare_input_records(records, self._policy)
         capabilities = sorted({step.capability for step in plan.steps})
@@ -392,6 +395,8 @@ class JobExecutor:
                 )
                 statuses[classify_row_outcome(row_result)] += 1
                 results.append(RecordExecution(record_id=record.record_id, row_result=row_result))
+                if on_row_result is not None:
+                    on_row_result(row_result)
                 if on_record_done is not None:
                     on_record_done(len(results), len(prepared))
 

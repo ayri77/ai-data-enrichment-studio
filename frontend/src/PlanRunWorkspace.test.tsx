@@ -2918,7 +2918,11 @@ it("shows how many rows a running job has finished, in the bar and on Execution"
         .mockResolvedValueOnce({ ...running, progress: null })
         .mockResolvedValue({
             ...running,
-            progress: { rows_done: 4, rows_total: 10 },
+            progress: {
+                rows_done: 4,
+                rows_total: 10,
+                steps: { distance: { filled: 3, failed: 1, skipped: 0 } },
+            },
         });
     render(<App opening="dataset" />);
     await startBasic();
@@ -2937,6 +2941,18 @@ it("shows how many rows a running job has finished, in the bar and on Execution"
     expect(screen.getByRole("progressbar")).toHaveAttribute("max", "10");
     expect(screen.getByTestId("job-status")).toHaveTextContent(
         i18n.t("activity.running"),
+    );
+    // While the job still runs, each step shows what it did over those rows,
+    // and says that they are only the rows finished so far.
+    const stepBlock = await screen.findByTestId("step-outcomes");
+    expect(stepBlock).toHaveTextContent(i18n.t("exec.step.title"));
+    expect(stepBlock).toHaveTextContent(i18n.t("exec.step.live"));
+    expect(stepBlock).toHaveTextContent(
+        i18n.t("exec.step.filled", { filled: 3, total: 4 }),
+    );
+    expect(stepBlock).toHaveTextContent(i18n.t("exec.step.failed", { n: 1 }));
+    expect(stepBlock).not.toHaveTextContent(
+        i18n.t("exec.step.skipped", { n: 0 }),
     );
     // The bar carries the same count to every other step.
     await navigate("dataset");

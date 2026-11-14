@@ -2,7 +2,7 @@
 
 import json
 import logging
-from collections.abc import Callable, Mapping, MutableSequence
+from collections.abc import Callable, Mapping, MutableSequence, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass
 from hashlib import sha256
@@ -18,6 +18,7 @@ from ai_data_enrichment.capabilities.registry import CapabilityRegistry
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan, required_input_columns
 from ai_data_enrichment.execution.job_executor import JobExecutor
 from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
+from ai_data_enrichment.execution.step_tally import OUTCOME_KINDS, StepTally
 from ai_data_enrichment.ingestion.excel_records import read_input_batch
 from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.orchestration.excel_runner import ExcelEnrichmentRunner
@@ -141,6 +142,38 @@ class RunTask:
     reuse_directory: Path | None = None
 
 
+# Shared progress: finished rows, all rows, a sequence number, then three counts
+# (filled, failed, skipped) for each step of the plan in plan order.
+PROGRESS_HEADER = 3
+
+
+def progress_slots(step_count: int) -> int:
+    """How many integers the shared progress of a plan with this many steps needs."""
+    return PROGRESS_HEADER + len(OUTCOME_KINDS) * step_count
+
+
+def read_progress(
+    shared: Sequence[int], step_ids: Sequence[str]
+) -> tuple[int, int, dict[str, dict[str, int]]] | None:
+    """Finished rows, all rows and the counts per step, or None if the worker is mid-write.
+
+    The worker makes the sequence number odd while it writes and even when done,
+    so a reader never takes counts from two different moments; it just looks again.
+    """
+    before = shared[2]
+    if before % 2:
+        return None
+    done, total = shared[0], shared[1]
+    steps: dict[str, dict[str, int]] = {}
+    if done > 0:
+        for index, step_id in enumerate(step_ids):
+            start = PROGRESS_HEADER + len(OUTCOME_KINDS) * index
+            steps[step_id] = {
+                kind: shared[start + offset] for offset, kind in enumerate(OUTCOME_KINDS)
+            }
+    return None if shared[2] != before else (done, total, steps)
+
+
 def execute_workbook(
     task: RunTask,
     factory: ExecutorFactory,
@@ -156,16 +189,25 @@ def execute_workbook(
     asking again. That holds lookups only, each written whole, never a row's
     result, so a terminated run leaves nothing half-done there either.
 
-    ``progress`` is the one exception to "nothing shared": two integers,
-    finished rows and all rows, that the parent only reads to tell a person how
-    far the run is. They carry no result and are never used to decide anything.
+    ``progress`` is the one exception to "nothing shared": integers, finished
+    rows and all rows and, per step, how many finished rows it filled, failed or
+    skipped (see ``read_progress``), that the parent only reads to tell a person
+    how far the run is. They are counts, carry no result and are never used to
+    decide anything.
     """
+    tally = StepTally(step.id for step in task.plan.steps)
 
     def report(done: int, total: int) -> None:
         assert progress is not None
+        progress[2] += 1
         # Total first, so a reader never sees more finished rows than rows.
         progress[1] = total
         progress[0] = done
+        for index, counts in enumerate(tally.snapshot().values()):
+            start = PROGRESS_HEADER + len(OUTCOME_KINDS) * index
+            for offset, kind in enumerate(OUTCOME_KINDS):
+                progress[start + offset] = counts[kind]
+        progress[2] += 1
 
     try:
         if sha256(task.source_path.read_bytes()).hexdigest() != task.source_sha256:
@@ -202,6 +244,7 @@ def execute_workbook(
                 preserve_existing_outputs=True,
                 replace_existing_outputs=task.existing_outputs == "replace",
                 on_record_done=report if progress is not None else None,
+                on_row_result=tally.add if progress is not None else None,
             )
         if sha256(task.source_path.read_bytes()).hexdigest() != task.source_sha256:
             raise ValueError("Source changed")

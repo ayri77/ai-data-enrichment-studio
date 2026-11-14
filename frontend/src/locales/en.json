@@ -624,6 +624,7 @@
     "exec.outcome.searchable": "Names you can search for under another name in Review: {{count}}.",
     "exec.step.title": "What each step did",
     "exec.step.hint": "“Not reached” means that a step this one needs gave no value for the row.",
+    "exec.step.live": "Counts so far: only the rows finished up to now are included.",
     "exec.step.filled": "Rows with a value: {{filled}} of {{total}}",
     "exec.step.chosen": "by your choice: {{n}}",
     "exec.step.failed": "without a value: {{n}}",

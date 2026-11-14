@@ -41,6 +41,8 @@ from ai_data_enrichment.plan_run_worker import (
     execute_workbook,
     live_executor,
     offered_descriptions,
+    progress_slots,
+    read_progress,
 )
 from ai_data_enrichment.planning.llm_planner import (
     LLMPlanner,
@@ -985,7 +987,8 @@ class PlanRunService:
             "finished_at": None,
             "error": None,
             "metrics": None,
-            # Finished and total rows once the worker has read the table.
+            # Finished and total rows, and what each step did over the finished
+            # rows (counts only), once the worker has read the table.
             "progress": None,
             "artifacts": {},
             "execution_mode": "offline_fixture" if self.offline_executor_factory else "live",
@@ -1030,16 +1033,25 @@ class PlanRunService:
         context = multiprocessing.get_context("spawn")
         # Two counters the worker writes and this side only reads: how far the
         # run is. Results still arrive only through the worker's files.
-        counters = context.Array("i", 2, lock=False)
+        step_ids = [step.id for step in task.plan.steps]
+        counters = context.Array("i", progress_slots(len(step_ids)), lock=False)
         process = context.Process(
             target=execute_workbook,
             args=(task, self.offline_executor_factory or live_executor, counters),
         )
 
         def publish_progress() -> None:
-            done, total = counters[0], counters[1]
+            seen = read_progress(counters, step_ids)
+            if seen is None:
+                return
+            done, total, steps = seen
             if total > 0 and (job["progress"] or {}).get("rows_done") != done:
-                job["progress"] = {"rows_done": min(done, total), "rows_total": total}
+                # Counts only: per step, the finished rows it filled, failed or skipped.
+                job["progress"] = {
+                    "rows_done": min(done, total),
+                    "rows_total": total,
+                    "steps": steps,
+                }
                 public_job["progress"] = job["progress"]
 
         execution: dict = {}

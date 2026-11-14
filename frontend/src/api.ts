@@ -239,8 +239,19 @@ export interface Job {
     finished_at: string | null;
     error: { code: string; message: string } | null;
     metrics: Record<string, number> | null;
-    /** Finished and total rows, once the worker has read the table. */
-    progress?: { rows_done: number; rows_total: number } | null;
+    /**
+     * Finished and total rows, once the worker has read the table, and what
+     * each step did over the finished rows (counts only; empty before the
+     * first row is done).
+     */
+    progress?: {
+        rows_done: number;
+        rows_total: number;
+        steps?: Record<
+            string,
+            { filled: number; failed: number; skipped: number }
+        >;
+    } | null;
     artifacts: { result?: string; report?: string };
     execution_mode: "live" | "offline_fixture";
     timeout_seconds: number;

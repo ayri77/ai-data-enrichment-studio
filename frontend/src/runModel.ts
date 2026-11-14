@@ -178,3 +178,32 @@ export function stepOutcomes(
             .sort((a, b) => b.count - a.count || a.code.localeCompare(b.code));
     return outcomes;
 }
+
+/**
+ * What each step has done over the rows finished so far, read from the job's
+ * own progress while the run is going (or when it stopped before an audit
+ * existed). The same shape as `stepOutcomes`, with what only the audit knows
+ * left empty: the user's choices, the failure codes and the sources.
+ */
+export function liveStepOutcomes(
+    job: Job | null,
+    plan: EnrichmentPlan | null,
+): Map<string, StepOutcome> {
+    const outcomes = new Map<string, StepOutcome>();
+    const progress = job?.progress;
+    if (!plan || !progress?.steps || progress.rows_done < 1) return outcomes;
+    for (const step of plan.steps) {
+        const counts = progress.steps[step.id];
+        if (!counts) continue;
+        outcomes.set(step.id, {
+            total: progress.rows_done,
+            filled: counts.filled,
+            failed: counts.failed,
+            skipped: counts.skipped,
+            chosen: 0,
+            codes: [],
+            sources: [],
+        });
+    }
+    return outcomes;
+}

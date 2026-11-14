@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import date, time
 from pathlib import Path
 from types import MappingProxyType
+from typing import Any
 
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
@@ -17,6 +18,7 @@ from ai_data_enrichment.domain.enrichment_plan import (
 )
 from ai_data_enrichment.execution.job_executor import JobExecutor
 from ai_data_enrichment.execution.job_models import JobExecutionResult
+from ai_data_enrichment.execution.models import RowExecutionResult
 from ai_data_enrichment.ingestion.excel_profiler import profile_worksheet
 from ai_data_enrichment.ingestion.excel_records import read_input_batch
 from ai_data_enrichment.ingestion.table_selection import TableSelection
@@ -92,10 +94,12 @@ class ExcelEnrichmentRunner:
         preserve_existing_outputs: bool = False,
         replace_existing_outputs: bool = False,
         on_record_done: Callable[[int, int], None] | None = None,
+        on_row_result: Callable[[RowExecutionResult], None] | None = None,
     ) -> ExcelEnrichmentResult:
         """Validate, execute and publish one selected Excel table.
 
-        ``on_record_done(done, total)`` is passed to the executor unchanged.
+        ``on_record_done(done, total)`` and ``on_row_result(row)`` are passed to
+        the executor unchanged.
 
         Output cells that already hold a value are an error by default. With
         ``preserve_existing_outputs`` they are tolerated and kept. Adding
@@ -191,14 +195,19 @@ class ExcelEnrichmentRunner:
             coordinates=(cell for cell in target_coordinates if cell not in preserved),
         )
 
+        # Only passed when asked for: other executors need not know them.
+        observers: dict[str, Any] = {}
+        if on_record_done:
+            observers["on_record_done"] = on_record_done
+        if on_row_result:
+            observers["on_row_result"] = on_row_result
         # Execute the validated DAG using the configured providers.
         job_result = self._executor.execute(
             plan,
             batch.records,
             previous_job_id=previous_job_id,
             job_id=job_id,
-            # Only passed when asked for: other executors need not know it.
-            **({"on_record_done": on_record_done} if on_record_done else {}),
+            **observers,
         )
 
         # Map successful operation results to original Excel rows.

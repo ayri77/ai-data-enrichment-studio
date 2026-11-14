@@ -17,7 +17,12 @@ import { sourceNames, useOffered } from "../capabilities";
 import { Advanced, useAdvanced, useHosted } from "../mode";
 import type { Workflow, Workspace } from "../useWorkflow";
 import { columnLetter, columnNumber, parseRange } from "../range";
-import { remainingSeconds, runOutcome, stepOutcomes } from "../runModel";
+import {
+    liveStepOutcomes,
+    remainingSeconds,
+    runOutcome,
+    stepOutcomes,
+} from "../runModel";
 import { occupiedRows } from "../tableModel";
 import { normalizeColumn, type OutputTarget } from "../workflowModel";
 import { clock, useElapsed } from "./ActivityBar";
@@ -1144,7 +1149,14 @@ export function ExecutionWorkspace({
             ? runOutcome(w.job, w.report, w.plan?.plan ?? null, w.review)
             : null;
     // How many rows passed each step, once the audit of this run has arrived.
-    const steps = stepOutcomes(w.job, w.report, w.plan?.plan ?? null);
+    const audited = stepOutcomes(w.job, w.report, w.plan?.plan ?? null);
+    // Until then, the rows finished so far; the audit replaces them.
+    const live =
+        audited.size === 0
+            ? liveStepOutcomes(w.job, w.plan?.plan ?? null)
+            : null;
+    const steps = live?.size ? live : audited;
+    const counting = !!live?.size;
     return (
         <div className="stage-layout">
             <section className="workspace-panel execution-stage">
@@ -1189,6 +1201,9 @@ export function ExecutionWorkspace({
                             </p>
                         )}
                     </Advanced>
+                    {advanced && counting && (
+                        <p className="muted">{t("exec.step.live")}</p>
+                    )}
                     {advanced ? (
                         <p className="muted">
                             {w.active
@@ -1230,6 +1245,9 @@ export function ExecutionWorkspace({
                               data-testid="step-outcomes"
                           >
                               <h3>{t("exec.step.title")}</h3>
+                              {counting && (
+                                  <p className="muted">{t("exec.step.live")}</p>
+                              )}
                               {[...steps.values()].some(
                                   (step) => step.skipped > 0,
                               ) && (
