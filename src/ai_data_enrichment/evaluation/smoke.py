@@ -49,7 +49,7 @@ from ai_data_enrichment.validation.plan_validator import PlanValidator
 
 Scenario = Literal["capitals", "mountains"]
 Mode = Literal["offline", "live", "cache"]
-_AGENT = "AIDataEnrichmentStudio/0.1 (https://github.com/ayri77/ai-data-enrichment-studio)"
+_AGENT = "AIDataEnrichmentStudio/0.2 (https://github.com/ayri77/ai-data-enrichment-studio)"
 
 
 def _statement(qid: str) -> dict[str, object]:

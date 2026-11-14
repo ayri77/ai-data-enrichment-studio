@@ -22,7 +22,7 @@ def test_version_command() -> None:
     """Version command exits successfully and prints the package version."""
     result = runner.invoke(app, ["version"])
     assert result.exit_code == 0
-    assert result.stdout.strip() == "0.1.0"
+    assert result.stdout.strip() == "0.2.0"
 
 
 def test_inspect_reports_missing_file() -> None:
