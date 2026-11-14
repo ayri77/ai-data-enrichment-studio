@@ -213,6 +213,12 @@ would all be refused.
 
    The script prints the capability set it measured and stores it in
    `summary.json`. Deploy only after the two released tasks are still 10 of 10.
+
+   First result with six capabilities (2026-11-14): Capitals 10 of 10, Mountains
+   8 of 10, Capitals with roads 9 of 10. The three failures are abstentions over
+   "leave unresolved results empty"; the guidance was corrected and the
+   measurement has to be repeated
+   ([live planning reliability](26-live-planning-reliability.md)).
 4. **Suggest a task with several columns.** Not measured: whether the model
    returns one usable task for two or three chosen columns, in each interface
    language.

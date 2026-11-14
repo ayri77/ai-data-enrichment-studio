@@ -439,3 +439,13 @@ def test_llm_planner_returns_unplannable_decision(
 
     _, response_schema = client.calls[0]
     assert "status" in response_schema["properties"]
+
+
+def test_the_guidance_says_that_empty_cells_for_failed_rows_need_no_step() -> None:
+    """Asked to "leave unresolved results empty", a live model abstained: it knew that
+    failures stay failures and not that their cells stay empty (3 of 30 plans,
+    2026-11-14)."""
+    from ai_data_enrichment.planning.instructions import PLAN_CONTRACT_GUIDANCE
+
+    assert "leaves the destination cells of such a row empty" in PLAN_CONTRACT_GUIDANCE
+    assert "is never a reason to abstain" in PLAN_CONTRACT_GUIDANCE

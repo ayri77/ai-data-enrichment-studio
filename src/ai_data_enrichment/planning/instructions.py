@@ -36,6 +36,11 @@ PLAN_CONTRACT_GUIDANCE = (
     "Preserve literal entity names and their country context; a column label alone "
     "does not impose an administrative role such as country_capital. "
     "Unresolved or ambiguous row values remain execution-time failures for review, "
-    "never guessed constants in a plan. Model assumptions are unverified claims; do not "
+    "never guessed constants in a plan. Execution already leaves the destination cells "
+    "of such a row empty: a step that cannot produce a verified value writes nothing "
+    "for that row and is reported for review. A request to leave unresolved, ambiguous "
+    "or missing results empty, or not to invent values, therefore describes what always "
+    "happens: it needs no step, parameter or capability and is never a reason to "
+    "abstain. Model assumptions are unverified claims; do not "
     "assert that row geocoding is unambiguous before provider evidence is available."
 )
