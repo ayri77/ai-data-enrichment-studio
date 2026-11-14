@@ -681,5 +681,9 @@
     "cap.road_distance.text": "Die Länge einer Autoroute zwischen zwei gefundenen Orten, in Kilometern. Die Route kann eine Fähre enthalten.",
     "source.open-meteo": "Open-Meteo",
     "source.wikidata": "Wikidata",
-    "source.openrouteservice": "openrouteservice (OpenStreetMap-Daten)"
+    "source.openrouteservice": "openrouteservice (OpenStreetMap-Daten)",
+    "plan.diagram.title": "Wie die Schritte zusammenhängen",
+    "plan.diagram.hint": "Ein Pfeil führt von einem Schritt zu dem Schritt, der sein Ergebnis verwendet. Wählen Sie einen Schritt, um ihn in der Liste darunter zu finden.",
+    "plan.diagram.step": "Schritt {{number}}:",
+    "plan.diagram.writes": "→ „{{name}}“ ({{letter}})"
 }

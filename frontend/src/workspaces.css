@@ -1994,3 +1994,50 @@ button.candidate-link {
     font-size: 13px;
     color: var(--studio-muted);
 }
+
+/* Basic: the plan as a picture above the list of its steps. */
+.plan-diagram {
+    max-width: 100%;
+    margin: 8px 0 18px;
+    padding: 8px 4px 4px;
+    overflow-x: auto;
+}
+.plan-diagram .graph-canvas {
+    flex: none;
+}
+.graph-node.diagram-node {
+    gap: 6px;
+    min-height: 80px;
+    padding: 10px 12px;
+    background: var(--studio-surface0);
+    box-shadow: none;
+    cursor: pointer;
+}
+.diagram-node strong {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13px;
+    line-height: 1.35;
+}
+.diagram-node strong b {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    margin-top: -2px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--studio-selection);
+    border: 1px solid var(--studio-control-border);
+    font-size: 12px;
+    font-weight: 400;
+}
+.diagram-node .plan-step-writes {
+    font-size: 12px;
+    color: var(--studio-source);
+}
+.plan-steps li[aria-current="true"] {
+    border-color: var(--studio-accent);
+    box-shadow: 0 0 0 1px var(--studio-accent);
+}

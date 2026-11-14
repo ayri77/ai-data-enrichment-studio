@@ -33,6 +33,11 @@
   Advanced adds its contract exactly as the planning model is shown it and the
   source that answers for it. The short "what it can do" list on the first step
   and after a refused plan is the same list.
+- **Basic mode draws the plan** above its description in words: which step
+  uses the result of which, in the same words and numbers as the list, with
+  the column each step fills and, after a run, how many rows passed it. No
+  identifiers and no inspector; selecting a step points at its line in the
+  list.
 - The planning measurement of 0.1.0 was made with four capabilities. With six
   (a routing key set) it was repeated on 2026-11-14: 30 valid plans of 30 on
   three tasks after one sentence was added to the planner's guidance

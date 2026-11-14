@@ -10,6 +10,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 import App from "./App";
+import { PlanDescription } from "./components/PlanDescription";
 import { useWorkflow } from "./useWorkflow";
 import {
     api,
@@ -2730,6 +2731,13 @@ const capitals: PlanDraft = {
     },
 };
 
+it("draws no picture for a plan of one step: there is nothing to connect", () => {
+    render(<PlanDescription draft={draft} />);
+    expect(document.querySelectorAll(".plan-steps li")).toHaveLength(1);
+    expect(screen.queryByTestId("plan-diagram")).toBeNull();
+    expect(screen.queryByText(i18n.t("plan.diagram.hint"))).toBeNull();
+});
+
 it("Basic shows the plan in words instead of the graph, and one press approves and starts it", async () => {
     localStorage.removeItem("enrichment.mode");
     vi.mocked(api.createPlan).mockResolvedValue(capitals);
@@ -2753,11 +2761,32 @@ it("Basic shows the plan in words instead of the graph, and one press approves a
         "From: result of step 1 · To: result of step 2",
     );
     expect(steps[2]).toHaveTextContent("Written to column “distance” (E), km");
-    // The graph, its inspector and the step ids belong to Advanced.
+    // The same steps as a picture, in the words and numbers of the list.
+    const diagram = within(screen.getByTestId("plan-diagram"));
+    const nodes = diagram.getAllByRole("button");
+    expect(nodes).toHaveLength(3);
+    expect(nodes[0]).toHaveTextContent(
+        `1${i18n.t("plan.diagram.step", { number: 1 })}${i18n.t("plan.do.geocode")}`,
+    );
+    expect(nodes[2]).toHaveTextContent("→ “distance” (E)");
+    // Selecting a step points at its line; selecting it again lets go.
+    await userEvent.click(nodes[2]);
+    expect(nodes[2]).toHaveAttribute("aria-pressed", "true");
+    expect(steps[2]).toHaveAttribute("aria-current", "true");
+    expect(steps[0]).not.toHaveAttribute("aria-current");
+    await userEvent.click(nodes[2]);
+    expect(steps[2]).not.toHaveAttribute("aria-current");
+    // The technical graph, its inspector and the step ids belong to Advanced.
     expect(
         screen.queryByRole("region", { name: i18n.t("ws.graph") }),
     ).not.toBeInTheDocument();
+    expect(
+        screen.queryByRole("complementary", {
+            name: i18n.t("ws.nodeInspector"),
+        }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText("from_city")).not.toBeInTheDocument();
+    expect(screen.queryByText("geocode")).not.toBeInTheDocument();
     expect(screen.getByTestId("validation")).toHaveTextContent(
         i18n.t("plan.checked"),
     );

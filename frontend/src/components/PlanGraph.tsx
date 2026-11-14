@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { PlanDraft } from "../api";
 import type { StepOutcome } from "../runModel";
-import { dependencies, stepDepths } from "../workflowModel";
+import { dependencies, graphLayout } from "../workflowModel";
 import { StepRows } from "./PlanDescription";
 
 // One column of nodes: a node and the room for the arrows that leave it.
@@ -27,27 +27,12 @@ export function PlanGraph({
     if (!plan) return null;
     const step = plan.steps.find((x) => x.id === selected) ?? plan.steps[0];
     // Presentation only: server validation remains authoritative, including cycles.
-    const depths = stepDepths(plan);
-    const levels = [...new Set(depths.values())].sort((a, b) => a - b);
-    const positions = new Map(
-        plan.steps.map((s) => {
-            const level = depths.get(s.id)!;
-            const peers = plan.steps.filter((n) => depths.get(n.id) === level);
-            return [
-                s.id,
-                { x: level * COLUMN + 24, y: peers.indexOf(s) * ROW + 30 },
-            ];
-        }),
-    );
-    const width = Math.max(520, (Math.max(0, ...levels) + 1) * COLUMN + 16);
-    const height = Math.max(
-        270,
-        ...levels.map(
-            (l) =>
-                plan.steps.filter((n) => depths.get(n.id) === l).length * ROW +
-                30,
-        ),
-    );
+    const { positions, width, height } = graphLayout(plan, {
+        column: COLUMN,
+        row: ROW,
+        minWidth: 520,
+        minHeight: 270,
+    });
     return (
         <div className="graph-inspector">
             <div

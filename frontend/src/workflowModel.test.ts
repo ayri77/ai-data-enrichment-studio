@@ -1,12 +1,13 @@
 import { expect, it } from "vitest";
 import {
     dependencies,
+    graphLayout,
     issueGroups,
     normalizeColumn,
     validMappings,
     type OutputTarget,
 } from "./workflowModel";
-import type { AuditReport, Preview } from "./api";
+import type { AuditReport, EnrichmentPlan, Preview } from "./api";
 
 const preview: Preview = {
     dataset_id: "source",
@@ -105,4 +106,56 @@ it("counts affected records once per code and separates dependency consequences"
         ["AMBIGUOUS", false, 2, 3],
         ["DEPENDENCY_FAILED", true, 1, 1],
     ]);
+});
+
+it("lays a plan out by what each step waits for, and centres the shorter columns", () => {
+    const from = (id: string) => ({ kind: "step_output", step_id: id });
+    const step = (id: string, inputs: Record<string, unknown> = {}) => ({
+        id,
+        capability: "any",
+        inputs,
+        parameters: {},
+    });
+    const plan = {
+        version: "1",
+        steps: [
+            step("a"),
+            step("b"),
+            step("line", { point_a: from("a"), point_b: from("b") }),
+            step("road", { point_a: from("a"), point_b: from("b") }),
+            step("ratio", {
+                numerator: from("road"),
+                denominator: from("line"),
+            }),
+        ],
+        outputs: [],
+        assumptions: [],
+    } as unknown as EnrichmentPlan;
+    const { positions, width, height } = graphLayout(plan, {
+        column: 100,
+        row: 50,
+        left: 0,
+        top: 0,
+    });
+    // Two starts, two steps that use both, one step that joins them.
+    expect(Object.fromEntries(positions)).toEqual({
+        a: { x: 0, y: 0 },
+        b: { x: 0, y: 50 },
+        line: { x: 100, y: 0 },
+        road: { x: 100, y: 50 },
+        ratio: { x: 200, y: 25 },
+    });
+    expect([width, height]).toEqual([316, 100]);
+    // The lowest row can be given less room than a whole row, and a canvas a
+    // least size.
+    expect(
+        graphLayout(plan, { column: 100, row: 50, top: 10, last: 30 }).height,
+    ).toBe(90);
+    const least = graphLayout(plan, {
+        column: 100,
+        row: 50,
+        minWidth: 520,
+        minHeight: 270,
+    });
+    expect([least.width, least.height]).toEqual([520, 270]);
 });
