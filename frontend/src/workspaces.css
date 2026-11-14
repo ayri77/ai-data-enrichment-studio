@@ -1750,3 +1750,66 @@ button.candidate-link {
     padding: 0 20px 20px;
     min-height: 0;
 }
+
+/* The owner's usage summary of a hosted demo. */
+.access-gate .access-counted {
+    font-size: 12px;
+}
+.access-gate a,
+.usage-page a {
+    color: var(--studio-accent);
+    font-size: 12px;
+}
+.usage-page {
+    min-height: 100vh;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: var(--studio-surface0);
+    color: var(--studio-text);
+    font-size: var(--studio-font-body);
+}
+.usage-page header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+.usage-page h1 {
+    font-size: var(--studio-font-heading);
+    margin-right: auto;
+}
+.usage-page h2 {
+    font-size: 14px;
+    margin-top: 12px;
+}
+.usage-page [role="alert"] {
+    color: var(--studio-danger);
+}
+.usage-scroll {
+    overflow-x: auto;
+    border: 1px solid var(--studio-border);
+    border-radius: 6px;
+}
+.usage-page table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.usage-page th,
+.usage-page td {
+    padding: 6px 10px;
+    text-align: left;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--studio-border);
+}
+.usage-page thead th {
+    color: var(--studio-muted);
+    font-weight: 500;
+}
+.usage-page tbody tr:last-child > * {
+    border-bottom: 0;
+}
+.usage-page .usage-kinds {
+    font-size: 12px;
+}

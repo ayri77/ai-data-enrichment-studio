@@ -20,6 +20,12 @@
   it — in words in Basic, on the nodes of the graph in Advanced, with the
   failure codes and the sources of the values for the selected step. Read from
   the audit of the run; not live progress.
+- **A code per visitor and a usage summary** for a hosted demo:
+  `ENRICHMENT_ACCESS_CODES` gives every visitor a labelled code, and the holder
+  of `ENRICHMENT_ADMIN_CODE` sees at `/#usage` what each label used — visits,
+  plans, runs, rows, requests to the AI with tokens, requests to each source.
+  Numbers and fixed words only; table contents, file names and task texts are
+  never recorded.
 - The planning measurement of 0.1.0 was made with four capabilities and has to
   be repeated for the new sets
   ([road distance and ratio](docs/30-road-distance-and-ratio.md)).

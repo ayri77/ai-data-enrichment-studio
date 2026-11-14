@@ -47,6 +47,8 @@ it("asks for the code, rejects a wrong one and opens with the right one", async 
     studio();
     const input = await screen.findByLabelText("Access code");
     expect(screen.queryByText("studio")).toBeNull();
+    // Before entering, a visitor is told what is counted and what is not.
+    expect(screen.getByText(i18n.t("access.counted"))).toBeVisible();
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
 
     await userEvent.type(input, "wrong-code");

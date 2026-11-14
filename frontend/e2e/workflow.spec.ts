@@ -1041,6 +1041,51 @@ test("example: a plan that branches fills three columns, in words and as a graph
     await languagesFit(page, testInfo, "roads-results");
 });
 
+test("usage: the owner sees what was used, as numbers, after entering the admin code", async ({
+    page,
+}, testInfo) => {
+    // Something to count: the Capitals example, run from its prepared plan.
+    await page.goto("/");
+    await page
+        .getByRole("button", { name: "Capitals: distances between cities" })
+        .click();
+    await page
+        .getByRole("button", { name: "Use it instead of asking the AI" })
+        .click();
+    await page
+        .getByRole("button", { name: "Submit and validate plan" })
+        .click();
+    await page.getByRole("button", { name: "Approve and run" }).click();
+    await expect(page.getByTestId("job-status")).toHaveText(
+        /Rows filled: \d+ of 10\./,
+        { timeout: 30_000 },
+    );
+    await page.goto("/#usage");
+    await expect(page.getByTestId("usage-visitors")).toHaveCount(0);
+    await page.getByLabel("Admin code").fill("not-the-admin-code");
+    await page.getByRole("button", { name: "Show" }).click();
+    await expect(page.getByRole("alert")).toHaveText(
+        "That admin code is not correct.",
+    );
+    await page.getByLabel("Admin code").fill("fixture-admin-code");
+    await page.getByRole("button", { name: "Show" }).click();
+    // Locally there are no visitor codes: everything counts as "local".
+    const local = page
+        .getByTestId("usage-visitors")
+        .getByRole("row", { name: /^local/ });
+    await expect(local).toContainText("open-meteo");
+    const recent = page.getByTestId("usage-recent");
+    await expect(recent).toContainText("run_finished");
+    await expect(recent).toContainText("example");
+    await expect(recent).toContainText("sample=capitals");
+    // Numbers and fixed words: no city, no column, no file of the table.
+    for (const content of ["Kyiv", "London", "Capital_From", ".xlsx"])
+        await expect(page.locator("main")).not.toContainText(content);
+    await page.screenshot({ path: testInfo.outputPath("usage.png") });
+    await page.getByRole("link", { name: "To the studio" }).click();
+    await expect(page.getByLabel("Mode")).toBeVisible();
+});
+
 test("Basic: an uploaded workbook needs an instruction and nothing else", async ({
     page,
 }) => {

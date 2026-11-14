@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from collections import deque
+from collections.abc import Mapping
 from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
 from hmac import compare_digest
@@ -33,6 +34,7 @@ from ai_data_enrichment.plan_run_worker import ExecutorFactory, builtin_registry
 from ai_data_enrichment.planning.llm_planner import PlanCompletionClient
 from ai_data_enrichment.provider_settings import ProviderConfiguration, configuration_router
 from ai_data_enrichment.run_limits import MAX_TABLE_CELLS, MAX_TABLE_ROWS
+from ai_data_enrichment.usage import VISITOR, UsageLog
 from ai_data_enrichment.workspace_errors import WorkspaceError
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -42,7 +44,9 @@ MAX_COLUMNS = 100
 MAX_CELLS = MAX_TABLE_CELLS
 MAX_DATASETS = 8
 # Hosted access code: unauthenticated paths, and limits on wrong-code attempts.
-ACCESS_OPEN_PATHS = frozenset({"/api/health", "/api/access"})
+ACCESS_OPEN_PATHS = frozenset({"/api/health", "/api/access", "/api/usage"})
+# The label of the one code given as `access_code`.
+SHARED_VISITOR = "shared"
 ACCESS_MAX_FAILURES = 20
 ACCESS_WINDOW_SECONDS = 60.0
 ACCESS_FAILURE_DELAY_SECONDS = 0.4
@@ -167,18 +171,30 @@ def create_app(
     offline_plan_client: PlanCompletionClient | None = None,
     offline_executor_factory: ExecutorFactory | None = None,
     access_code: str | None = None,
+    access_codes: Mapping[str, str] | None = None,
+    admin_code: str | None = None,
+    usage_lines: bool = False,
     static_dir: Path | None = None,
 ) -> FastAPI:
     """Create an isolated workspace whose uploads are removed on shutdown.
 
-    `access_code` protects every API route of a publicly reachable deployment;
-    `static_dir` serves the built frontend from the same origin. Both are unset
-    for the local launcher.
+    `access_code` and `access_codes` protect every API route of a publicly
+    reachable deployment: the first is one code under the label "shared", the
+    second maps a label to the code of one visitor, so that what is used can be
+    counted per visitor. `admin_code` opens the usage summary and nothing else;
+    without it there is no such route. `usage_lines` also writes each counted
+    event to standard output. `static_dir` serves the built frontend from the
+    same origin. All are unset for the local launcher.
     """
     datasets: dict[str, Path] = {}
     lock = asyncio.Lock()
     settings = settings or PlanRunSettings.from_environment()
     provider = ProviderConfiguration.from_environment(settings.llm_model)
+    usage = UsageLog(emit=usage_lines)
+    codes = {
+        **({SHARED_VISITOR: access_code} if access_code is not None else {}),
+        **(access_codes or {}),
+    }
     plan_run = PlanRunService(
         datasets,
         lock,
@@ -186,6 +202,7 @@ def create_app(
         offline_plan_client,
         offline_executor_factory,
         provider,
+        usage,
     )
 
     @asynccontextmanager
@@ -226,11 +243,19 @@ def create_app(
 
     failed_attempts: deque[float] = deque()
 
+    def _visitor(request: Request) -> str | None:
+        """The label of the offered code, or None when it is none of the codes."""
+        offered = request.headers.get("x-access-code", "").encode()
+        found = None
+        # Every code is compared, whichever matches, so that the time taken
+        # says nothing about which labels exist.
+        for label, code in codes.items():
+            if compare_digest(offered, code.encode()):
+                found = label
+        return found
+
     def _granted(request: Request) -> bool:
-        if access_code is None:
-            return True
-        offered = request.headers.get("x-access-code", "")
-        return compare_digest(offered.encode(), access_code.encode())
+        return not codes or _visitor(request) is not None
 
     async def _refuse(request: Request) -> JSONResponse | None:
         """Return a refusal for a request without the access code, else None.
@@ -263,7 +288,12 @@ def create_app(
             refusal = await _refuse(request)
             if refusal is not None:
                 return refusal
-        return await call_next(request)
+        # Whatever this request counts is counted for the holder of its code.
+        marked = VISITOR.set((_visitor(request) if codes else None) or VISITOR.get())
+        try:
+            return await call_next(request)
+        finally:
+            VISITOR.reset(marked)
 
     @app.get("/api/access")
     async def access(request: Request):
@@ -271,7 +301,33 @@ def create_app(
         refusal = await _refuse(request) if request.headers.get("x-access-code") else None
         if refusal is not None and refusal.status_code == 429:
             return refusal
-        return {"required": access_code is not None, "granted": _granted(request)}
+        granted = _granted(request)
+        if granted:
+            # The studio asks this once when its page is opened.
+            usage.record("visit")
+        return {"required": bool(codes), "granted": granted}
+
+    @app.get("/api/usage")
+    async def usage_summary(request: Request):
+        """What was used since this process started; for the holder of the admin code."""
+        if admin_code is None:
+            raise WorkspaceError("not_found", "Not found.", 404)
+        offered = request.headers.get("x-admin-code", "")
+        if not compare_digest(offered.encode(), admin_code.encode()):
+            # Guessing is slowed and limited together with the visitor codes.
+            now = monotonic()
+            while failed_attempts and now - failed_attempts[0] > ACCESS_WINDOW_SECONDS:
+                failed_attempts.popleft()
+            if len(failed_attempts) >= ACCESS_MAX_FAILURES:
+                raise WorkspaceError("access_throttled", "Too many attempts. Wait.", 429)
+            if offered:
+                failed_attempts.append(now)
+                await asyncio.sleep(ACCESS_FAILURE_DELAY_SECONDS)
+            raise WorkspaceError("admin_required", "Enter the admin code.", 401)
+        return JSONResponse(
+            {**usage.summary(), "labels": sorted(codes)},
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.exception_handler(WorkspaceError)
     async def workspace_error(_request: Request, exc: WorkspaceError):
@@ -337,6 +393,13 @@ def create_app(
                         target.write(chunk)
                 metadata = await run_in_threadpool(_inspect, path)
                 datasets[dataset_id] = path
+                sheets = metadata.get("worksheets") or []
+                usage.record(
+                    "upload",
+                    kilobytes=round(size / 1024),
+                    sheets=len(sheets),
+                    rows=max((sheet.get("row_count") or 0 for sheet in sheets), default=0),
+                )
                 return {"dataset_id": dataset_id, "filename": safe_name, **metadata}
             finally:
                 if dataset_id not in datasets:
@@ -374,8 +437,10 @@ def create_app(
     async def sample_workbook(sample_id: str):
         sample = sample_catalog.find(sample_id)
         path = sample_catalog.workbook_path(sample) if sample else None
-        if path is None:
+        if sample is None or path is None:
             raise WorkspaceError("sample_not_found", "This example is not available.", 404)
+        # A known id of the catalog, never a name the visitor typed.
+        usage.record("example", sample=sample.sample_id)
         # The browser uploads these bytes through the ordinary upload route, so an
         # example passes exactly the same checks as a visitor's own workbook.
         return Response(

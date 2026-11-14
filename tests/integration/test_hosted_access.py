@@ -7,7 +7,9 @@ from fastapi.testclient import TestClient
 
 from ai_data_enrichment import api
 from ai_data_enrichment.api import create_app
-from ai_data_enrichment.hosted import create_hosted_app
+from ai_data_enrichment.evaluation.plan_run_fixtures import offline_executor
+from ai_data_enrichment.hosted import create_hosted_app, visitor_codes
+from ai_data_enrichment.plan_run import PlanRunSettings
 
 CODE = "demo-code-1234"
 WORKBOOK = Path("samples/capitals.xlsx").read_bytes()
@@ -191,3 +193,213 @@ def test_examples_are_listed_downloadable_and_pass_the_ordinary_upload_checks(
         monkeypatch.setenv("ENRICHMENT_DATA_DIR", str(tmp_path / "elsewhere"))
         assert client.get("/api/samples", headers=granted).json() == {"samples": []}
         assert client.get("/api/samples/capitals/workbook", headers=granted).status_code == 404
+
+
+ADMIN = "admin-code-for-tests"
+VISITORS = {"guest01": "first-visitor-code", "guest02": "second-visitor-code"}
+
+
+def code_of(label: str) -> dict[str, str]:
+    return {"X-Access-Code": VISITORS[label]}
+
+
+def usage(client: TestClient, code: str = ADMIN):
+    return client.get("/api/usage", headers={"X-Admin-Code": code} if code else {})
+
+
+def test_each_visitor_has_a_code_of_their_own_and_what_they_use_is_counted(site: Path) -> None:
+    app = create_app(
+        settings=PlanRunSettings(),
+        offline_executor_factory=offline_executor,
+        access_codes=VISITORS,
+        admin_code=ADMIN,
+        static_dir=site,
+    )
+    with TestClient(app) as client:
+        assert client.get("/api/access").json() == {"required": True, "granted": False}
+        assert upload(client, **{"X-Access-Code": "nobody-has-this-code"}).status_code == 401
+        for label in VISITORS:
+            assert client.get("/api/access", headers=code_of(label)).json()["granted"] is True
+
+        # The first visitor runs the Capitals example from its prepared plan.
+        first = code_of("guest01")
+        workbook = client.get("/api/samples/capitals/workbook", headers=first).content
+        dataset = client.post(
+            "/api/datasets",
+            params={"filename": "A very private file name.xlsx"},
+            content=workbook,
+            headers=first,
+        ).json()
+        plan = client.post(
+            "/api/plans",
+            headers=first,
+            json={
+                "dataset_id": dataset["dataset_id"],
+                "sheet_name": "Sheet1",
+                "range_ref": "A1:E11",
+                "instruction": "A private instruction nobody else should read",
+                "output_columns": {"distance": "E"},
+                "plan": client.get("/api/samples/capitals/plan", headers=first).json(),
+            },
+        ).json()
+        approved = client.post(
+            f"/api/plans/{plan['plan_id']}/approve",
+            headers=first,
+            json={"approved": True, "fingerprint": plan["fingerprint"]},
+        )
+        assert approved.status_code == 200, approved.text
+        job = client.post(
+            f"/api/plans/{plan['plan_id']}/runs", headers=first, json={"timeout_seconds": 60}
+        ).json()
+        for _ in range(600):
+            job = client.get(f"/api/jobs/{job['job_id']}", headers=first).json()
+            if job["status"] in {"completed", "needs_review", "failed"}:
+                break
+        assert job["status"] == "needs_review"
+        assert client.get(job["artifacts"]["result"], headers=first).status_code == 200
+        # The second visitor only uploads.
+        assert upload(client, **code_of("guest02")).status_code == 201
+
+        summary = usage(client)
+        assert summary.status_code == 200
+        assert summary.headers["cache-control"] == "no-store"
+        body = summary.json()
+        assert body["labels"] == ["guest01", "guest02"]
+        by_label = {visitor["who"]: visitor for visitor in body["visitors"]}
+        guest = by_label["guest01"]
+        assert (guest["visits"], guest["examples"], guest["uploads"]) == (1, 1, 1)
+        assert (guest["plans"], guest["runs"], guest["downloads"]) == (1, 1, 1)
+        assert guest["rows"] == 10 and 0 < guest["rows_filled"] < 10
+        # Requests that left for the source during the run, counted for the run's visitor
+        # although the run ended outside any request of theirs.
+        assert guest["source_requests"]["open-meteo"] > 0
+        assert guest["model_requests"] == 0
+        other = by_label["guest02"]
+        assert (other["visits"], other["uploads"], other["runs"]) == (1, 1, 0)
+        kinds = [event["kind"] for event in body["recent"] if event["who"] == "guest01"]
+        assert kinds[::-1] == [
+            "visit",
+            "example",
+            "upload",
+            "plan",
+            "run_started",
+            "run_finished",
+            "download",
+        ]
+        planned = next(event for event in body["recent"] if event["kind"] == "plan")
+        assert planned["source"] == "supplied" and planned["valid"] is True
+        assert planned["capabilities"] == ["geocode", "geodesic_distance"]
+        # Numbers and fixed words only: no file name, no instruction, no cell
+        # value, no code.
+        text = summary.text
+        for secret in (
+            "private",
+            "Kyiv",
+            "London",
+            "Capital_From",
+            *VISITORS.values(),
+            ADMIN,
+            dataset["dataset_id"],
+            job["job_id"],
+        ):
+            assert secret not in text, secret
+
+
+def test_the_usage_summary_opens_with_the_admin_code_and_with_nothing_else(site: Path) -> None:
+    with TestClient(create_app(access_codes=VISITORS, admin_code=ADMIN, static_dir=site)) as client:
+        assert usage(client, "").status_code == 401
+        assert usage(client, "wrong-admin-code").json()["error"]["code"] == "admin_required"
+        # A visitor's code is not the admin code, in either header.
+        visitor = VISITORS["guest01"]
+        assert usage(client, visitor).status_code == 401
+        assert client.get("/api/usage", headers={"X-Access-Code": visitor}).status_code == 401
+        # And the admin code opens nothing but the summary.
+        assert upload(client, **{"X-Access-Code": ADMIN}).status_code == 401
+        assert client.get("/api/access", headers={"X-Access-Code": ADMIN}).json() == {
+            "required": True,
+            "granted": False,
+        }
+        assert usage(client).status_code == 200
+        # Wrong admin codes are limited together with wrong visitor codes.
+        for _ in range(api.ACCESS_MAX_FAILURES):
+            usage(client, "guessing-the-admin-code")
+        assert usage(client, "guessing-the-admin-code").status_code == 429
+        assert usage(client).status_code == 200
+
+
+def test_without_an_admin_code_there_is_no_usage_summary(site: Path) -> None:
+    with TestClient(create_app(access_codes=VISITORS, static_dir=site)) as client:
+        assert usage(client).status_code == 404
+        assert client.get("/api/usage", headers=code_of("guest01")).status_code == 404
+    # One code given the old way is a visitor called "shared".
+    with TestClient(create_app(access_code=CODE, admin_code=ADMIN, static_dir=site)) as client:
+        assert upload(client, **{"X-Access-Code": CODE}).status_code == 201
+        assert [v["who"] for v in usage(client).json()["visitors"]] == ["shared"]
+    # Locally nothing is required and everything counts as "local".
+    with TestClient(create_app(admin_code=ADMIN)) as client:
+        assert client.get("/api/access").json() == {"required": False, "granted": True}
+        assert [v["who"] for v in usage(client).json()["visitors"]] == ["local"]
+
+
+def test_visitor_codes_are_read_from_one_line_and_checked() -> None:
+    text = "guest01:first-visitor-code, guest02:second-visitor-code;\n team_b:a-third:with-colon"
+    assert visitor_codes(text) == {
+        **VISITORS,
+        "team_b": "a-third:with-colon",
+    }
+    assert visitor_codes("") == {} and visitor_codes(" ,\n; ") == {}
+    for bad, problem in (
+        ("guest01", "is not label:code"),
+        ("gue st:first-visitor-code", "is not label:code"),
+        ("-guest:first-visitor-code", "label other than"),
+        ("x" * 41 + ":first-visitor-code", "label other than"),
+        ("shared:first-visitor-code", "reserved label"),
+        ("a:first-visitor-code,a:second-visitor-code", "repeats a label"),
+        ("a:short", "shorter than 8"),
+        ("a:кодовеслово", "shorter than 8"),
+        ("a:first-visitor-code,b:first-visitor-code", "repeats a code"),
+    ):
+        with pytest.raises(RuntimeError) as refused:
+            visitor_codes(bad)
+        assert problem in str(refused.value), bad
+        # The message names the position, never the entry: an entry holds a code.
+        assert "visitor-code" not in str(refused.value)
+
+
+def test_the_hosted_app_starts_only_with_codes_that_cannot_be_confused(
+    site: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ENRICHMENT_STATIC_DIR", str(site))
+    for name in ("ENRICHMENT_ACCESS_CODE", "ENRICHMENT_ACCESS_CODES", "ENRICHMENT_ADMIN_CODE"):
+        monkeypatch.delenv(name, raising=False)
+
+    def refused(**env: str) -> str:
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
+        with pytest.raises(RuntimeError) as error:
+            create_hosted_app()
+        for name in env:
+            monkeypatch.delenv(name)
+        return str(error.value)
+
+    entries = ",".join(f"{label}:{code}" for label, code in VISITORS.items())
+    assert "ENRICHMENT_ACCESS_CODES" in refused()
+    assert "at least 12" in refused(ENRICHMENT_ACCESS_CODES=entries, ENRICHMENT_ADMIN_CODE="short")
+    assert "must differ" in refused(
+        ENRICHMENT_ACCESS_CODES=entries, ENRICHMENT_ADMIN_CODE=VISITORS["guest01"] + "x"[:0]
+    )
+    assert "repeats a code" in refused(
+        ENRICHMENT_ACCESS_CODES=entries, ENRICHMENT_ACCESS_CODE=VISITORS["guest02"]
+    )
+
+    monkeypatch.setenv("ENRICHMENT_ACCESS_CODES", entries)
+    monkeypatch.setenv("ENRICHMENT_ACCESS_CODE", CODE)
+    monkeypatch.setenv("ENRICHMENT_ADMIN_CODE", ADMIN)
+    with TestClient(create_hosted_app()) as client:
+        for code in (CODE, *VISITORS.values()):
+            assert upload(client, **{"X-Access-Code": code}).status_code == 201
+        assert sorted(v["who"] for v in usage(client).json()["visitors"]) == [
+            "guest01",
+            "guest02",
+            "shared",
+        ]
