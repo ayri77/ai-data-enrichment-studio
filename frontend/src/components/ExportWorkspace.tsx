@@ -87,7 +87,11 @@ function Note({ row, w }: { row: ResultRow; w: Workflow }) {
     );
     return (
         <>
-            {row.kept.length > 0 ? (
+            {row.skipped ? (
+                <span className="result-kept" data-testid="result-skipped">
+                    {t("results.skipped")}
+                </span>
+            ) : row.kept.length > 0 ? (
                 <span className="result-kept" data-testid="result-kept">
                     {t("results.kept")}
                 </span>
@@ -247,6 +251,13 @@ function Stats({
                                 total: stats.total,
                             })}
                         </span>
+                        {stats.skipped > 0 && (
+                            <span>
+                                {t("results.stats.skipped", {
+                                    count: stats.skipped,
+                                })}
+                            </span>
+                        )}
                         {stats.min !== undefined && (
                             <>
                                 <span>
@@ -284,12 +295,13 @@ function ResultTable({ w }: { w: Workflow }) {
     const [sort, setSort] = useState<Sort>({ key: "row", descending: false });
     const [open, setOpen] = useState<string | null>(null);
     const shown = sortRows(filterRows(rows, filter), sort, locale);
-    // The two provenance filters appear only when such rows exist.
+    // The provenance filters and the one for rows that were not looked up
+    // appear only when such rows exist.
     const filters = (
-        ["all", "filled", "empty", "chosen", "automatic"] as const
+        ["all", "filled", "empty", "skipped", "chosen", "automatic"] as const
     ).filter(
         (key) =>
-            (key !== "chosen" && key !== "automatic") ||
+            (key !== "chosen" && key !== "automatic" && key !== "skipped") ||
             filterRows(rows, key).length > 0,
     );
     const onSort = (key: string) =>
@@ -378,6 +390,7 @@ function ResultTable({ w }: { w: Workflow }) {
                                 <tr
                                     data-testid="row-outcome"
                                     data-filled={row.filled}
+                                    data-skipped={row.skipped}
                                     data-chosen={row.chosen.length > 0}
                                     data-automatic={row.automatic.length > 0}
                                 >
@@ -396,7 +409,10 @@ function ResultTable({ w }: { w: Workflow }) {
                                         const value = row.outputs[column.key];
                                         // A kept cell holds its earlier value;
                                         // what was found is not in the file.
-                                        if (row.kept.includes(column.key))
+                                        if (
+                                            !row.skipped &&
+                                            row.kept.includes(column.key)
+                                        )
                                             return (
                                                 <td
                                                     key={column.key}
@@ -442,34 +458,37 @@ function ResultTable({ w }: { w: Workflow }) {
                                     </td>
                                     {advanced && (
                                         <td>
-                                            <button
-                                                type="button"
-                                                className="row-toggle"
-                                                aria-expanded={
-                                                    open === row.recordId
-                                                }
-                                                aria-label={t(
-                                                    "results.detailsFor",
-                                                    {
-                                                        row:
-                                                            row.row ??
-                                                            row.recordId,
-                                                    },
-                                                )}
-                                                onClick={() =>
-                                                    setOpen((old) =>
-                                                        old === row.recordId
-                                                            ? null
-                                                            : row.recordId,
-                                                    )
-                                                }
-                                            >
-                                                {open === row.recordId ? (
-                                                    <ChevronDown aria-hidden="true" />
-                                                ) : (
-                                                    <ChevronRight aria-hidden="true" />
-                                                )}
-                                            </button>
+                                            {/* No step ran for a row that was not looked up. */}
+                                            {!row.skipped && (
+                                                <button
+                                                    type="button"
+                                                    className="row-toggle"
+                                                    aria-expanded={
+                                                        open === row.recordId
+                                                    }
+                                                    aria-label={t(
+                                                        "results.detailsFor",
+                                                        {
+                                                            row:
+                                                                row.row ??
+                                                                row.recordId,
+                                                        },
+                                                    )}
+                                                    onClick={() =>
+                                                        setOpen((old) =>
+                                                            old === row.recordId
+                                                                ? null
+                                                                : row.recordId,
+                                                        )
+                                                    }
+                                                >
+                                                    {open === row.recordId ? (
+                                                        <ChevronDown aria-hidden="true" />
+                                                    ) : (
+                                                        <ChevronRight aria-hidden="true" />
+                                                    )}
+                                                </button>
+                                            )}
                                         </td>
                                     )}
                                 </tr>

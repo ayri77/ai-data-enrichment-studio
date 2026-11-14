@@ -63,8 +63,19 @@ export function runOutcome(
         default:
             return null;
     }
-    const rows = report?.job_id === job.job_id ? resultRows(report, plan) : [];
+    // Rows that were not looked up (every chosen cell already had a value) are
+    // neither filled nor failed: the sentences count the rows that needed filling.
+    const rows = (
+        report?.job_id === job.job_id ? resultRows(report, plan) : []
+    ).filter((row) => !row.skipped);
+    const skipped = job.rows_skipped ?? 0;
+    const alreadyFilled = skipped
+        ? [{ key: "skipped", values: { count: skipped } }]
+        : [];
     const total = rows.length || (job.metrics?.total_rows ?? 0);
+    // Nothing to fill: the whole selection already had its values.
+    if (total === 0 && skipped > 0)
+        return { key: "allSkipped", values: { count: skipped }, more: [] };
     const filled = rows.length
         ? rows.filter((row) => row.filled).length
         : (job.metrics?.successful_rows ?? 0);
@@ -79,8 +90,8 @@ export function runOutcome(
     return {
         key,
         values: { filled, total },
-        more:
-            filled >= total || job.status !== "needs_review" || !settled
+        more: [
+            ...(filled >= total || job.status !== "needs_review" || !settled
                 ? []
                 : [
                       settled.items.length > 0
@@ -97,13 +108,15 @@ export function runOutcome(
                                 },
                             ]
                           : []),
-                  ],
+                  ]),
+            ...alreadyFilled,
+        ],
     };
 }
 
 /** What one step of the plan did over the rows of a finished run. */
 export interface StepOutcome {
-    /** Rows the run took. */
+    /** Rows the run looked up (not the ones that already had their values). */
     total: number;
     /** Rows for which the step returned a value. */
     filled: number;
@@ -131,7 +144,14 @@ export function stepOutcomes(
 ): Map<string, StepOutcome> {
     const outcomes = new Map<string, StepOutcome>();
     const records = report?.execution?.records;
-    if (!job || !plan || !records || report.job_id !== job.job_id)
+    // A run that looked up no row has no step to report on.
+    if (
+        !job ||
+        !plan ||
+        !report ||
+        !records?.length ||
+        report.job_id !== job.job_id
+    )
         return outcomes;
     const chosen = new Map(
         (report.rows ?? []).map((row) => [

@@ -21,11 +21,20 @@ MOUNTAINS_INSTRUCTION = (
     "disambiguate. Write verified values into height. Leave unresolved or ambiguous "
     "results empty; do not invent values."
 )
+# The partly filled table is measured with the instruction a visitor gets, too.
+_GAPS = sample_catalog.find("mountains_gaps")
+assert _GAPS is not None
+MOUNTAINS_GAPS_INSTRUCTION = _GAPS.instruction
 # The three-column example is measured with the instruction a visitor gets.
 _ROADS = sample_catalog.find("capitals_roads")
 assert _ROADS is not None
 CAPITALS_ROADS_INSTRUCTION = _ROADS.instruction
-RANGES = {"capitals": "A1:E11", "mountains": "A1:C11", "capitals_roads": "A1:G11"}
+RANGES = {
+    "capitals": "A1:E11",
+    "mountains": "A1:C11",
+    "mountains_gaps": "A1:C11",
+    "capitals_roads": "A1:G11",
+}
 
 
 def workbook_profile(name: str) -> DatasetProfile:

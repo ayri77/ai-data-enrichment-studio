@@ -285,6 +285,28 @@ def execute_workbook(
                 }
                 for record in batch.records
             },
+            # Rows left out of the run because every chosen cell already held a
+            # value: no step ran and no source was asked for them.
+            "skipped_rows": [
+                {
+                    "record_id": record.record_id,
+                    "row": batch.row_by_record_id[record.record_id],
+                    "inputs": record.model_dump(mode="json")["values"],
+                    "reason": "already_filled",
+                    "kept_outputs": [
+                        target
+                        for target, cell in cells(batch.row_by_record_id[record.record_id])
+                        if cell in result.skipped_records[record.record_id]
+                    ],
+                    "kept_values": {
+                        target: result.skipped_records[record.record_id][cell]
+                        for target, cell in cells(batch.row_by_record_id[record.record_id])
+                        if cell in result.skipped_records[record.record_id]
+                    },
+                }
+                for record in batch.records
+                if record.record_id in result.skipped_records
+            ],
             "source_unchanged": True,
             "preserved_cells": result.preserved_cells,
             "replaced_cells": dict(result.replaced_cells),
