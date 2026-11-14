@@ -323,6 +323,51 @@ practice, since the script does not record token usage; the two other requests t
 application sends to the model (other names for a place, tasks for a table), which have
 not been measured on any model; instructions other than the two standard ones.
 
+### Six capabilities (2026-11-14): abstentions over "leave empty"
+
+After `ratio` and `road_distance` were added
+([road distance and ratio](30-road-distance-and-ratio.md)), the owner repeated the
+measurement with a routing key, so the planner was offered six capabilities
+(`gpt-6-luna`, effort `low`, commit `25e0ee7`).
+
+**Evidence.**
+
+| Task | Valid plans | Abstained | Median request | Slowest request | Over 30 s |
+| --- | --- | --- | --- | --- | --- |
+| Capitals | 10 of 10 | 0 | 4.56 s | 5.60 s | 0 |
+| Mountains | 8 of 10 | 2 | 3.24 s | 5.41 s | 0 |
+| Capitals with roads, three columns | 9 of 10 | 1 | 5.63 s | 8.46 s | 0 |
+
+The three failures are abstentions on the first answer (`unsupported`), not invalid
+plans, and all three give the same reason (`summary.json` of the two runs): the
+instruction ends with "Leave unresolved or ambiguous results empty; do not invent
+values", and the model found no capability "to convert those failures into empty
+height values". One of them quotes the guidance itself: failures "remain execution-time
+failures for review, so the requested empty-result behavior is unsupported".
+
+**Inference.**
+
+- The cause is a gap in what the planner is told, not a missing capability. The guidance
+  said that unresolved values stay failures for review; it did not say that their cells
+  stay empty. Execution has always done exactly that: a step without a verified value
+  writes nothing for the row.
+- Whether the two new capabilities made this more frequent is not shown. The sentence
+  that was misread is older than they are, the Mountains task uses neither of them, and
+  2 of 10 against the 0 of 10 measured the day before with four capabilities is within
+  what ten trials can differ by chance. The released four-capability set may have the
+  same weakness at a lower rate.
+- A visitor who meets it sees a refusal with that explanation and can ask again; nothing
+  wrong is written.
+
+**Change.** `PLAN_CONTRACT_GUIDANCE` (`planning/instructions.py`) now states that
+execution leaves the destination cells of such a row empty, and that a request to leave
+unresolved, ambiguous or missing results empty, or not to invent values, needs no step,
+parameter or capability and is never a reason to abstain. Validation is unchanged: this
+tells the planner a fact about execution and accepts no plan that was refused before.
+
+**Not verified.** The measurement has to be repeated with the changed guidance, on all
+three tasks: it changes what the planner is told for every request.
+
 ### Where models are described
 
 `src/ai_data_enrichment/planning/model_catalog.py` is the one place. Each `ModelSpec` has
