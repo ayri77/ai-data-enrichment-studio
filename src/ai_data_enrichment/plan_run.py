@@ -82,6 +82,7 @@ from ai_data_enrichment.run_limits import (
 )
 from ai_data_enrichment.spellings import SuggestionError, suggest_names
 from ai_data_enrichment.task_ideas import TaskIdeaError, suggest_tasks
+from ai_data_enrichment.usage import UsageLog
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy, PlanValidator
 from ai_data_enrichment.workspace_errors import WorkspaceError
 
@@ -225,6 +226,21 @@ class SuggestionRequest(BaseModel):
     allow_network: bool = False
 
 
+ModelPurpose = Literal["plan", "task_ideas", "other_names"]
+
+
+class _CountedClient:
+    """Pass requests to a model client and count them."""
+
+    def __init__(self, client: PlanCompletionClient) -> None:
+        self._client = client
+        self.requests = 0
+
+    def complete(self, *, messages: list[dict[str, str]], response_schema: dict) -> str:
+        self.requests += 1
+        return self._client.complete(messages=messages, response_schema=response_schema)
+
+
 class PlanRunService:
     """In-memory identities with temporary on-disk artifacts; one active run."""
 
@@ -236,9 +252,12 @@ class PlanRunService:
         offline_plan_client: PlanCompletionClient | None,
         offline_executor_factory: ExecutorFactory | None,
         provider: ProviderConfiguration,
+        usage: UsageLog | None = None,
     ) -> None:
         self.datasets, self.lock, self.settings = datasets, lock, settings
         self.provider = provider
+        # Counted events of this workspace: kinds and numbers, never content.
+        self.usage = usage or UsageLog()
         self.offline_plan_client = offline_plan_client
         self.offline_executor_factory = offline_executor_factory
         self.plans: dict[str, dict] = {}
@@ -342,10 +361,23 @@ class PlanRunService:
             raise WorkspaceError("missing_api_key", "Add an API key in Provider Settings.")
 
     @contextmanager
-    def model_client(self, *, answer_tokens: int) -> Iterator[PlanCompletionClient]:
-        """The configured model for one request; call model_gate first."""
+    def model_client(
+        self, *, answer_tokens: int, purpose: ModelPurpose
+    ) -> Iterator[PlanCompletionClient]:
+        """The configured model for one request; call model_gate first.
+
+        What the request was for, how many times the model was asked and the
+        tokens the provider reported are counted when the client is released,
+        whether or not an answer could be used.
+        """
         if self.offline_plan_client is not None:
-            yield self.offline_plan_client
+            counted = _CountedClient(self.offline_plan_client)
+            try:
+                yield counted
+            finally:
+                self.usage.record(
+                    "model", purpose=purpose, model="offline", requests=counted.requests
+                )
             return
         api = OpenAI(
             api_key=self.provider.api_key(),
@@ -353,13 +385,23 @@ class PlanRunService:
             timeout=30.0,
             max_retries=0,
         )
+        client = catalog_client(
+            api=api, model_id=self.provider.model or "", answer_tokens=answer_tokens
+        )
+        counted = _CountedClient(client)
         try:
-            yield catalog_client(
-                api=api, model_id=self.provider.model or "", answer_tokens=answer_tokens
-            )
+            yield counted
         finally:
             with suppress(Exception):
                 api.close()
+            self.usage.record(
+                "model",
+                purpose=purpose,
+                model=self.provider.model or "",
+                requests=counted.requests,
+                input_tokens=client.input_tokens,
+                output_tokens=client.output_tokens,
+            )
 
     def get_plan(self, plan_id: str) -> dict:
         if plan_id not in self.plans:
@@ -446,7 +488,7 @@ class PlanRunService:
         if plan is None:
             self.model_gate(body.allow_network)
             try:
-                with self.model_client(answer_tokens=4096) as client:
+                with self.model_client(answer_tokens=4096, purpose="plan") as client:
                     generated = LLMPlanner(client=client, registry=builtin_registry()).generate(
                         instruction=body.instruction,
                         dataset_profile=profile,
@@ -461,6 +503,7 @@ class PlanRunService:
                 codes = sorted(
                     {code for attempt in exc.attempts for code in attempt.diagnostic_codes}
                 )
+                self.usage.record("plan_failed", attempts=len(exc.attempts))
                 raise WorkspaceError(
                     "planning_failed",
                     f"Planning failed after {len(exc.attempts)} completion attempts: "
@@ -469,6 +512,7 @@ class PlanRunService:
                     502,
                 ) from None
             except Exception as exc:
+                self.usage.record("plan_failed", attempts=0)
                 raise WorkspaceError(
                     "planning_failed", "The model could not return a usable planning response.", 502
                 ) from exc
@@ -490,6 +534,17 @@ class PlanRunService:
         )
         draft["validation"] = self.validate(draft)
         self.plans[draft["plan_id"]] = draft
+        self.usage.record(
+            "plan",
+            # Asked from the model, or brought along (an example or a saved plan).
+            source="model" if body.plan is None else "supplied",
+            status=decision,
+            valid=bool(draft["validation"]["valid"]),
+            attempts=len(planning_attempts),
+            steps=len(plan.steps) if plan else 0,
+            outputs=len(body.output_columns),
+            capabilities=sorted({step.capability for step in plan.steps}) if plan else [],
+        )
         return draft
 
     def _routes(self) -> None:
@@ -639,6 +694,7 @@ class PlanRunService:
                 if self.search_counts.get(job_id, 0) >= MAX_REVIEW_SEARCHES:
                     raise WorkspaceError("search_limit", "This run has had too many searches.", 429)
                 self.search_counts[job_id] = self.search_counts.get(job_id, 0) + 1
+                self.usage.record("name_search")
                 self.searching = True
             try:
                 found = await run_in_threadpool(
@@ -815,6 +871,10 @@ class PlanRunService:
                 raise WorkspaceError("artifact_not_ready", "This artifact is not available.", 409)
             directory = self.datasets[job["dataset_id"]].parent / job_id
             name = "result.xlsx" if artifact == "result" else "report.json"
+            # The interface reads the report by itself after a run; only the
+            # filled table is something a visitor takes away.
+            if artifact == "result":
+                self.usage.record("download")
             return FileResponse(directory / name, filename=f"{job_id}-{name}")
 
     def task_ideas_once(self, path: Path, body: TaskIdeasRequest) -> tuple[str, ...]:
@@ -829,7 +889,7 @@ class PlanRunService:
             raise WorkspaceError(
                 "invalid_selection", "Select a valid table within the size the server reads."
             ) from exc
-        with self.model_client(answer_tokens=1024) as client:
+        with self.model_client(answer_tokens=1024, purpose="task_ideas") as client:
             return suggest_tasks(
                 client,
                 profile=profile,
@@ -840,7 +900,7 @@ class PlanRunService:
 
     def suggest_once(self, query: ResolutionQuery, capability: str) -> tuple[str, ...]:
         """Ask the model once for other names; nothing is searched here."""
-        with self.model_client(answer_tokens=1024) as client:
+        with self.model_client(answer_tokens=1024, purpose="other_names") as client:
             return suggest_names(client, query=query, capability=capability)
 
     def search_once(
@@ -938,6 +998,11 @@ class PlanRunService:
         self.selections[job_id] = dict(resume_selections or {})
         self.directories[job_id] = directory
         self.cancel_events[job_id] = asyncio.Event()
+        self.usage.record(
+            "run_started", resume=previous_job_id is not None, mode=job["execution_mode"]
+        )
+        # The task inherits the visitor of this request, so the end of the run
+        # is counted for the same visitor.
         self.tasks[job_id] = asyncio.create_task(self.supervise(task, draft, job))
         return dict(job)
 
@@ -960,10 +1025,10 @@ class PlanRunService:
                 public_job["progress"] = job["progress"]
 
         execution: dict = {}
+        started = monotonic()
         try:
             job.update(status="running", started_at=timestamp())
             public_job.update(status="running", started_at=job["started_at"])
-            started = monotonic()
             process.start()
             while process.is_alive():
                 if self.cancel_events[task.job_id].is_set():
@@ -1081,6 +1146,23 @@ class PlanRunService:
             )
             (task.directory / "execution.json").unlink(missing_ok=True)
             public_job.update(job)
+            finished = execution.get("execution") or {}
+            metrics = job["metrics"] or {}
+            self.usage.record(
+                "run_finished",
+                status=job["status"],
+                resume=task.previous_job_id is not None,
+                rows=metrics.get("total_rows", 0),
+                rows_filled=metrics.get("successful_rows", 0),
+                seconds=round(monotonic() - started, 1),
+                # Requests that left for each source, repeats included.
+                source_requests={
+                    str(source): int(stats.get("transport_attempts", 0))
+                    for source, stats in (finished.get("provider_requests") or {}).items()
+                    if stats.get("transport_attempts")
+                },
+                taken_over=(finished.get("metrics") or {}).get("persistent_cache_hits", 0),
+            )
 
     async def close(self) -> None:
         for event in self.cancel_events.values():

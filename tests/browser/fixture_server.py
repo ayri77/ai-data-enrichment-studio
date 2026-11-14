@@ -42,4 +42,11 @@ class SamplePlanClient:
 # Road distances are offered only with a routing key. The injected transport
 # answers every request itself, so this value never leaves the process.
 os.environ.setdefault("OPENROUTESERVICE_API_KEY", "offline-fixture")
-app = create_app(offline_plan_client=SamplePlanClient(), offline_executor_factory=offline_executor)
+# The usage summary opens with this code in the browser scenarios; it guards
+# nothing but counters of this test process.
+USAGE_CODE = "fixture-admin-code"
+app = create_app(
+    offline_plan_client=SamplePlanClient(),
+    offline_executor_factory=offline_executor,
+    admin_code=USAGE_CODE,
+)

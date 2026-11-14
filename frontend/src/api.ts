@@ -70,6 +70,40 @@ export interface AccessState {
     /** True when no code is needed or the one sent with the request is right. */
     granted: boolean;
 }
+/** What one visitor of a hosted demo used, as the server counted it. */
+export interface VisitorUsage {
+    /** The label of the visitor's access code. */
+    who: string;
+    first_seen: string | null;
+    last_seen: string | null;
+    visits: number;
+    uploads: number;
+    examples: number;
+    plans: number;
+    plans_failed: number;
+    runs: number;
+    rows: number;
+    rows_filled: number;
+    downloads: number;
+    model_requests: number;
+    input_tokens: number;
+    output_tokens: number;
+    /** Requests that left for each source during the visitor's runs. */
+    source_requests: Record<string, number>;
+}
+/** Counted events since the server started: numbers and fixed words only. */
+export interface UsageSummary {
+    started_at: string;
+    now: string;
+    events: Record<string, number>;
+    visitors: VisitorUsage[];
+    recent: ({ at: string; who: string; kind: string } & Record<
+        string,
+        unknown
+    >)[];
+    /** Every label a code exists for, used or not. */
+    labels: string[];
+}
 function call(input: string, init?: RequestInit) {
     if (!accessCode)
         return init === undefined ? fetch(input) : fetch(input, init);
@@ -348,6 +382,14 @@ export const api = {
     limits: () => response<RunLimits>(call("/api/limits")),
     access: () =>
         response<AccessState>(call("/api/access", { cache: "no-store" })),
+    /** The usage summary; opened by the admin code, not by a visitor's. */
+    usage: (adminCode: string) =>
+        response<UsageSummary>(
+            fetch("/api/usage", {
+                cache: "no-store",
+                headers: { "X-Admin-Code": adminCode },
+            }),
+        ),
     samples: () => response<{ samples: Sample[] }>(call("/api/samples")),
     sampleWorkbook: async (id: string) =>
         (await checked(call(`/api/samples/${id}/workbook`))).blob(),

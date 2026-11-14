@@ -118,6 +118,10 @@ model key held on the server. See [hosted demo](docs/27-hosted-demo.md) for the
 Docker image, the Render blueprint (`render.yaml`) and the limits of a hosted
 instance.
 
+For a demo with several visitors, each can get a code of their own, and the
+owner sees per code what was used — as numbers, never table contents
+([hosted demo](docs/27-hosted-demo.md), "Usage summary").
+
 ## How it is built
 
 ```mermaid

@@ -12,8 +12,15 @@ services:
     healthCheckPath: /api/health
     autoDeploy: false
     envVars:
-      # Shared code every visitor must enter. At least 8 characters, no spaces.
+      # One code per visitor: label:code entries separated by commas. Print
+      # them with `python -m scripts.make_access_codes` (docs/27-hosted-demo.md).
+      - key: ENRICHMENT_ACCESS_CODES
+        sync: false
+      # One more code, counted as "shared". At least 8 characters, no spaces.
       - key: ENRICHMENT_ACCESS_CODE
+        sync: false
+      # Opens the usage summary at /#usage and nothing else. At least 12 characters.
+      - key: ENRICHMENT_ADMIN_CODE
         sync: false
       # Used only on the server for planning; never sent to the browser.
       - key: OPENAI_API_KEY

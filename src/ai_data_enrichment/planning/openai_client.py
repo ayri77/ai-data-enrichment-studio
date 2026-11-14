@@ -36,6 +36,10 @@ class OpenAIPlanClient:
         self._model = model
         self._max_output_tokens = max_output_tokens
         self._reasoning_effort = reasoning_effort
+        # Tokens the provider reported for the requests of this client, hidden
+        # reasoning included; counted even when the answer was not usable.
+        self.input_tokens = 0
+        self.output_tokens = 0
 
     def complete(
         self,
@@ -65,6 +69,12 @@ class OpenAIPlanClient:
                 else {}
             ),
         )
+
+        usage = getattr(response, "usage", None)
+        for name in ("input_tokens", "output_tokens"):
+            reported = getattr(usage, name, None)
+            if isinstance(reported, int) and not isinstance(reported, bool) and reported > 0:
+                setattr(self, name, getattr(self, name) + reported)
 
         # Truncated/incomplete responses are failures, not partially usable plans.
         if response.status != "completed":

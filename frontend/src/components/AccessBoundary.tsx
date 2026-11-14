@@ -80,6 +80,7 @@ function AccessGate({ onUnlock }: { onUnlock: () => void }) {
                 <Button type="submit" disabled={!code.trim() || busy}>
                     {t("access.submit")}
                 </Button>
+                <p className="access-counted">{t("access.counted")}</p>
                 <label className="access-language">
                     {t("language")}
                     <select
