@@ -1813,3 +1813,184 @@ button.candidate-link {
 .usage-page .usage-kinds {
     font-size: 12px;
 }
+
+/* The overview: what the system is and the server's list of what it can do. */
+.overview {
+    display: flex;
+    flex-direction: column;
+}
+.overview-content {
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
+    padding: 24px;
+    flex: 1;
+}
+.overview-content h2 {
+    margin-bottom: 4px;
+}
+.overview-lead {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 760px;
+}
+.overview-claim {
+    font-size: 20px;
+    line-height: 1.35;
+    color: var(--studio-text);
+}
+.overview-content > section > .muted {
+    font-size: 12px;
+    max-width: 760px;
+}
+/* The four steps of the work, side by side where there is room. */
+.workspace-body .overview-how {
+    list-style: none;
+    counter-reset: how;
+    margin: 12px 0 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px;
+}
+.overview-how li {
+    counter-increment: how;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 14px;
+    border: 1px solid var(--studio-border);
+    border-radius: 7px;
+    background: var(--studio-surface0);
+    font-size: 13px;
+}
+.overview-how strong {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 14px;
+}
+.overview-how strong::before {
+    content: counter(how);
+    flex: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--studio-selection);
+    border: 1px solid var(--studio-control-border);
+    font-size: 12px;
+    font-weight: 400;
+}
+.overview-how span {
+    color: var(--studio-muted);
+}
+.workspace-body .capability-list {
+    list-style: none;
+    margin: 12px 0 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 10px;
+}
+.capability-list > li {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    padding: 12px 14px;
+    border: 1px solid var(--studio-border);
+    border-radius: 7px;
+    background: var(--studio-surface0);
+    font-size: 13px;
+}
+.capability-list strong {
+    font-size: 14px;
+}
+.capability-list > li > span {
+    color: var(--studio-muted);
+}
+.capability-list .capability-source {
+    margin-top: auto;
+    padding-top: 6px;
+    font-size: 12px;
+    color: var(--studio-source);
+}
+/* With contracts shown a card needs the width of the page. */
+[data-mode="advanced"] .capability-list {
+    grid-template-columns: minmax(0, 1fr);
+}
+.capability-contract {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+    padding-top: 10px;
+    border-top: 1px solid var(--studio-border);
+    font-size: 12px;
+    overflow-x: auto;
+}
+.capability-contract table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+.capability-contract caption {
+    text-align: left;
+    color: var(--studio-muted);
+    padding-bottom: 2px;
+}
+.capability-contract th,
+.capability-contract td {
+    text-align: left;
+    vertical-align: top;
+    font-weight: 400;
+    padding: 4px 10px 4px 0;
+    border-top: 1px solid var(--studio-border);
+    overflow-wrap: anywhere;
+}
+.capability-contract th {
+    width: 170px;
+    color: var(--studio-text);
+}
+.capability-contract td:nth-child(2) {
+    width: 230px;
+}
+.overview-samples {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+}
+.overview-samples .ui-button {
+    justify-content: flex-start;
+    height: auto;
+    min-height: 32px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+    text-align: left;
+    white-space: normal;
+}
+.overview-know-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+}
+.overview-know-title svg {
+    width: 16px;
+    height: 16px;
+    color: var(--studio-muted);
+}
+.workspace-body .overview-know {
+    margin: 0;
+    padding-left: 18px;
+    list-style: disc;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--studio-muted);
+}

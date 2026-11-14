@@ -1,6 +1,6 @@
 # Five-workspace Data Enrichment Studio
 
-The application has five freely navigable workspaces — Dataset, Plan, Execution, Review, Results — over the FastAPI Plan/Run routes and the Python execution pipeline. It began as the UI foundation of [#112](https://github.com/ayri77/ai-data-enrichment-studio/issues/112); this document describes the interface as it is at the MVP. The walk-through below is written for **Advanced** mode, which shows everything; [Basic](#basic-and-advanced-modes) leaves out what a first run does not need.
+The application has an [overview page](#overview-page) and five freely navigable workspaces — Dataset, Plan, Execution, Review, Results — over the FastAPI Plan/Run routes and the Python execution pipeline. It began as the UI foundation of [#112](https://github.com/ayri77/ai-data-enrichment-studio/issues/112); this document describes the interface as it is at the MVP. The walk-through below is written for **Advanced** mode, which shows everything; [Basic](#basic-and-advanced-modes) leaves out what a first run does not need.
 
 ## Run and demonstrate
 
@@ -16,6 +16,19 @@ Start the API and the interface as the [README](../README.md#run-it-locally) des
 Timeout lives in the **Advanced policy and limits** disclosure on Dataset; changing it does not invalidate the plan. A policy change invalidates approval and requires a newly validated/approved plan. **Retry same approved plan** starts a distinct job with the unchanged approved binding; it never implies reviewed resume. Status/report retry only recovers polling. Editing source selection, instruction, mapping, supplied plan, consent or policy clears the current downstream binding/results. The last eight job/report/plan snapshots remain in session-only Diagnostics history and cannot silently become the current result.
 
 The shared controller stays mounted above workspace bodies. This persistence covers navigation, language and theme changes within the current browser session. Browser reload still loses the UI session and does not cancel a backend job. There is no new durable storage or job recovery API.
+
+## Overview page
+
+The application opens on **Overview**, the first entry of the navigation and not a step of the work: opening it at any time leaves the table, the plan and a running job as they are (`App.tsx`: `overview` beside the controller's `workspace`; `components/OverviewWorkspace.tsx`). It says in a few sentences what the system is, shows the four steps of the work, and lists what a plan may be built from. Beside it: **Start with my table**, the bundled examples (one click loads an example and opens Dataset), and what to keep in mind — the row limit of one run, that an unconfirmed value is left empty, that the source file is not changed, that nothing beyond the list is done, and what is sent to the AI provider and to the sources. On a hosted demo two more lines say that the server is shared (one run at a time) and what is counted.
+
+**The list is the server's.** `GET /api/capabilities` returns every capability registered on this installation — the same registry the planner is shown and the validator checks against (`plan_run_worker.offered_descriptions`) — with its contract and the id of its source (`LIVE_SOURCES` in `orchestration/live_executor.py`, the table the executor is assembled from). A capability added to the registry is therefore listed without a change to the interface, and one that is not offered here (a road distance without its key) is not listed.
+
+- **Basic** shows each capability as a title, one or two sentences and its source in words. The wording is the interface's own (`cap.<id>.title`, `cap.<id>.text`, `source.<id>` in the three locale files). A capability without wording is still listed: under its id made readable ("currency_rate" → "Currency rate"), with the server's English description and the source id.
+- **Advanced** adds the contract exactly as the planning model is shown it: id, version and source id, the description, every input and parameter with its type or accepted values and whether it is required, and the output with its fields. Nothing is reworded, so what is read there is what a plan is validated against.
+- The short list on the empty Dataset step and after a refused plan (`components/CanDo.tsx`) is generated from the same answer; until it arrives, and on a server that does not give it, the ids from `GET /api/limits` are used.
+- The line next to **Build plan** in Basic that says where the names are looked up takes the source names from the same list, so it names the routing service where a road distance is offered.
+
+Limits. The list says what a plan may be built *from*, not which tasks will succeed: whether a task can be planned is still decided by the planner and the validator. The plain wording of the six capabilities is written by hand and can drift from a contract that changes; the Advanced view cannot. Translating the descriptions of future capabilities needs either wording added to the locale files or wording that arrives with the capability ([plug-in design](29-capability-extension-design.md), point 7).
 
 ## Layout and accessibility
 

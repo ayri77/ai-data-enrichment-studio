@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import "./i18n";
 import { AccessBoundary } from "./components/AccessBoundary";
 import { ActivityBar } from "./components/ActivityBar";
-import { StudioShell } from "./components/StudioShell";
+import { StudioShell, type Page } from "./components/StudioShell";
 import { DatasetWorkspace } from "./components/DatasetWorkspace";
 import {
     Diagnostics,
@@ -12,23 +12,28 @@ import {
     PlanWorkspace,
 } from "./components/WorkspaceViews";
 import { ExportWorkspace } from "./components/ExportWorkspace";
+import { OverviewWorkspace } from "./components/OverviewWorkspace";
 import { ReviewWorkspace } from "./components/ReviewWorkspace";
 import { Button } from "./components/ui/button";
+import { CapabilitiesContext, useCapabilities } from "./capabilities";
 import { Advanced, ModeContext } from "./mode";
 import { initialMode, initialTheme, savePreference } from "./preferences";
 import { useDataset } from "./useDataset";
 import { useLimits } from "./useLimits";
 import { useWorkflow, type Workspace } from "./useWorkflow";
 
-export default function App() {
+type Opening = "overview" | "dataset";
+
+/** Opens on the overview; `opening` lets a caller begin at the first step. */
+export default function App({ opening = "overview" }: { opening?: Opening }) {
     return (
         <AccessBoundary>
-            <Studio />
+            <Studio opening={opening} />
         </AccessBoundary>
     );
 }
 
-function Studio() {
+function Studio({ opening }: { opening: Opening }) {
     const { t, i18n } = useTranslation();
     const [theme, setTheme] = useState(initialTheme);
     const [mode, setMode] = useState(initialMode);
@@ -37,6 +42,9 @@ function Studio() {
     >(null);
     const heading = useRef<HTMLHeadingElement>(null);
     const limits = useLimits();
+    const capabilities = useCapabilities();
+    // The overview stands beside the steps: opening it leaves the work as it is.
+    const [overview, setOverview] = useState(opening === "overview");
     const d = useDataset({
         auto: mode === "basic",
         maxTableRows: limits.maxTableRows,
@@ -64,13 +72,18 @@ function Studio() {
         savePreference("mode", mode);
         document.documentElement.dataset.mode = mode;
     }, [mode]);
+    const page: Page = overview ? "overview" : w.workspace;
+    const open = (next: Page) => {
+        setOverview(next === "overview");
+        if (next !== "overview") w.navigate(next);
+    };
     useEffect(() => {
         document.documentElement.lang = i18n.resolvedLanguage ?? "en";
-        document.title = `${t(w.workspace)} · AI Data Enrichment Studio`;
-    }, [i18n.resolvedLanguage, w.workspace, t]);
+        document.title = `${t(page)} · AI Data Enrichment Studio`;
+    }, [i18n.resolvedLanguage, page, t]);
     useEffect(() => {
         heading.current?.focus();
-    }, [w.workspace]);
+    }, [page]);
     const completed: Workspace[] = [];
     if (d.preview) completed.push("dataset");
     if (w.plan?.status === "approved") completed.push("plan");
@@ -92,12 +105,12 @@ function Studio() {
             "review",
             "export",
         ] as const)
-            if (id !== w.workspace) unavailable[id] = t("activity.wait");
+            if (id !== page) unavailable[id] = t("activity.wait");
     // Removing the workbook resets the task with it; the first step then shows
     // the examples again.
     const startOver = () => {
         d.remove();
-        w.navigate("dataset");
+        open("dataset");
     };
     useEffect(() => {
         // Switching to Basic on a step it does not offer leads back to the run.
@@ -105,90 +118,110 @@ function Studio() {
     }, [stranded]);
     return (
         <ModeContext.Provider value={mode}>
-            <StudioShell
-                theme={theme}
-                onThemeChange={setTheme}
-                mode={mode}
-                onModeChange={setMode}
-                unavailable={unavailable}
-                workspace={w.workspace}
-                onNavigate={w.navigate}
-                completed={completed}
-            >
-                <div className="workspace-heading">
-                    <div>
-                        <h1 ref={heading} tabIndex={-1}>
-                            {t(w.workspace)}
-                        </h1>
-                        <p>
-                            {t(
-                                mode === "basic" && w.workspace === "plan"
-                                    ? "ws.planHintBasic"
-                                    : `ws.${w.workspace}Hint`,
+            <CapabilitiesContext.Provider value={capabilities}>
+                <StudioShell
+                    theme={theme}
+                    onThemeChange={setTheme}
+                    mode={mode}
+                    onModeChange={setMode}
+                    unavailable={unavailable}
+                    workspace={page}
+                    onNavigate={open}
+                    completed={completed}
+                >
+                    <div className="workspace-heading">
+                        <div>
+                            <h1 ref={heading} tabIndex={-1}>
+                                {t(page)}
+                            </h1>
+                            <p>
+                                {t(
+                                    mode === "basic" && page === "plan"
+                                        ? "ws.planHintBasic"
+                                        : `ws.${page}Hint`,
+                                )}
+                            </p>
+                        </div>
+                        <div className="workspace-tools">
+                            <Advanced>
+                                <Button
+                                    variant="outline"
+                                    onClick={() => setDiagnostics("settings")}
+                                >
+                                    <SlidersHorizontal aria-hidden="true" />
+                                    {t("ws.providerSettings")}
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    onClick={() => setDiagnostics("details")}
+                                >
+                                    {t("ws.diagnostics")}
+                                </Button>
+                            </Advanced>
+                        </div>
+                    </div>
+                    {(w.error || w.pollError) && (
+                        <div
+                            role="alert"
+                            className="error-banner"
+                            data-error-code={w.error || w.pollError}
+                        >
+                            {t(`error.${w.error || w.pollError}`, {
+                                defaultValue: t("error.request_failed"),
+                            })}
+                            {w.pollError && (
+                                <Button variant="outline" onClick={w.retryPoll}>
+                                    {t("workflow.retry")}
+                                </Button>
                             )}
-                        </p>
-                    </div>
-                    <div className="workspace-tools">
-                        <Advanced>
-                            <Button
-                                variant="outline"
-                                onClick={() => setDiagnostics("settings")}
-                            >
-                                <SlidersHorizontal aria-hidden="true" />
-                                {t("ws.providerSettings")}
-                            </Button>
-                            <Button
-                                variant="outline"
-                                onClick={() => setDiagnostics("details")}
-                            >
-                                {t("ws.diagnostics")}
-                            </Button>
-                        </Advanced>
-                    </div>
-                </div>
-                {(w.error || w.pollError) && (
+                        </div>
+                    )}
+                    <ActivityBar w={w} d={d} />
                     <div
-                        role="alert"
-                        className="error-banner"
-                        data-error-code={w.error || w.pollError}
+                        className="workspace-body"
+                        aria-busy={w.busy || !!d.busy}
                     >
-                        {t(`error.${w.error || w.pollError}`, {
-                            defaultValue: t("error.request_failed"),
-                        })}
-                        {w.pollError && (
-                            <Button variant="outline" onClick={w.retryPoll}>
-                                {t("workflow.retry")}
-                            </Button>
+                        {page === "overview" && (
+                            <OverviewWorkspace
+                                maxRows={limits.maxRows}
+                                capabilities={limits.capabilities}
+                                samples={d.dataset ? [] : d.samples}
+                                busy={w.busy || !!d.busy}
+                                onStart={() => open("dataset")}
+                                onSample={(sample) => {
+                                    open("dataset");
+                                    void d.loadSample(sample);
+                                }}
+                            />
+                        )}
+                        {page === "dataset" && (
+                            <DatasetWorkspace
+                                d={d}
+                                workflow={w}
+                                onOpenSettings={() =>
+                                    setDiagnostics("settings")
+                                }
+                            />
+                        )}
+                        {page === "plan" && <PlanWorkspace w={w} />}
+                        {page === "execution" && (
+                            <ExecutionWorkspace w={w} onStartOver={startOver} />
+                        )}
+                        {page === "review" && <ReviewWorkspace w={w} />}
+                        {page === "export" && (
+                            <ExportWorkspace w={w} onStartOver={startOver} />
                         )}
                     </div>
-                )}
-                <ActivityBar w={w} d={d} />
-                <div className="workspace-body" aria-busy={w.busy || !!d.busy}>
-                    {w.workspace === "dataset" && (
-                        <DatasetWorkspace
-                            d={d}
-                            workflow={w}
-                            onOpenSettings={() => setDiagnostics("settings")}
+                    {diagnostics && (
+                        <Diagnostics
+                            w={w}
+                            preview={d.preview}
+                            section={diagnostics}
+                            onClose={() => setDiagnostics(null)}
                         />
                     )}
-                    {w.workspace === "plan" && <PlanWorkspace w={w} />}
-                    {w.workspace === "execution" && (
-                        <ExecutionWorkspace w={w} onStartOver={startOver} />
-                    )}
-                    {w.workspace === "review" && <ReviewWorkspace w={w} />}
-                    {w.workspace === "export" && (
-                        <ExportWorkspace w={w} onStartOver={startOver} />
-                    )}
-                </div>
-                {diagnostics && (
-                    <Diagnostics
-                        w={w}
-                        preview={d.preview}
-                        section={diagnostics}
-                        onClose={() => setDiagnostics(null)}
-                    />
-                )}
-            </StudioShell>
+                </StudioShell>
+            </CapabilitiesContext.Provider>
         </ModeContext.Provider>
     );
 }

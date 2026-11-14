@@ -20,7 +20,7 @@ from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
 from ai_data_enrichment.ingestion.excel_records import read_input_batch
 from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.orchestration.excel_runner import ExcelEnrichmentRunner
-from ai_data_enrichment.orchestration.live_executor import build_live_executor
+from ai_data_enrichment.orchestration.live_executor import LIVE_SOURCES, build_live_executor
 from ai_data_enrichment.providers.http_transport import JsonTransport
 from ai_data_enrichment.providers.openrouteservice import ROUTING_PROVIDER, routing_key
 from ai_data_enrichment.providers.request_policy import ProviderRequestPolicy
@@ -58,6 +58,20 @@ def builtin_registry() -> CapabilityRegistry:
     for capability in offered_capabilities(road_distance=routing_key() is not None):
         registry.register(capability)
     return registry
+
+
+def offered_descriptions() -> list[dict[str, Any]]:
+    """What this installation offers, as a client is told about it.
+
+    Each entry is the capability's own contract (the one the planner is shown)
+    with the id of the source its values come from in a live run. The list
+    follows the registry, so a capability added to it is listed without any
+    further change, and one that is not offered here is not listed.
+    """
+    return [
+        {**spec.model_dump(mode="json"), "source": LIVE_SOURCES[spec.id]}
+        for spec in builtin_registry().list_all()
+    ]
 
 
 def live_executor(

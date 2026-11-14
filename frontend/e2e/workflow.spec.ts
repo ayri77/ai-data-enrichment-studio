@@ -112,6 +112,8 @@ for (const name of ["capitals", "mountains"]) {
         });
         await advanced(page);
         await page.goto("/");
+        // The page opens on the overview; the work begins one click later.
+        await page.getByRole("button", { name: "Start with my table" }).click();
         await page
             .getByLabel("Upload Excel workbook")
             .setInputFiles(sourcePath);
@@ -387,6 +389,8 @@ book.save(sys.argv[1])
 
     await advanced(page);
     await page.goto("/");
+    // The page opens on the overview; the work begins one click later.
+    await page.getByRole("button", { name: "Start with my table" }).click();
     await page.getByLabel("Upload Excel workbook").setInputFiles(source);
     await page.getByRole("button", { name: "Preview selection" }).click();
     // The whole table is there to look through …
@@ -446,6 +450,8 @@ test("dataset: the whole table can be looked through, filtered and sorted", asyn
 }, testInfo) => {
     await advanced(page);
     await page.goto("/");
+    // The page opens on the overview; the work begins one click later.
+    await page.getByRole("button", { name: "Start with my table" }).click();
     await page
         .getByLabel("Upload Excel workbook")
         .setInputFiles(resolve("../samples/capitals.xlsx"));
@@ -493,6 +499,8 @@ book.save(sys.argv[1])
 
     await advanced(page);
     await page.goto("/");
+    // The page opens on the overview; the work begins one click later.
+    await page.getByRole("button", { name: "Start with my table" }).click();
     await page.getByLabel("Upload Excel workbook").setInputFiles(source);
     await page.getByRole("button", { name: "Preview selection" }).click();
     await page
@@ -551,6 +559,8 @@ test("capitals: a name the source does not know is found under another name", as
 }, testInfo) => {
     await advanced(page);
     await page.goto("/");
+    // The page opens on the overview; the work begins one click later.
+    await page.getByRole("button", { name: "Start with my table" }).click();
     await page
         .getByLabel("Upload Excel workbook")
         .setInputFiles(resolve("../samples/capitals.xlsx"));
@@ -722,6 +732,8 @@ test("capitals: a chosen candidate resumes as a new audited job and fills the ro
 }, testInfo) => {
     await advanced(page);
     await page.goto("/");
+    // The page opens on the overview; the work begins one click later.
+    await page.getByRole("button", { name: "Start with my table" }).click();
     await page
         .getByLabel("Upload Excel workbook")
         .setInputFiles(resolve("../samples/capitals.xlsx"));
@@ -856,6 +868,8 @@ test("example: one click fills the task; the prepared plan runs without an AI re
             planning.push(r.postData() ?? "");
     });
     await page.goto("/");
+    // The page opens on the overview; the work begins one click later.
+    await page.getByRole("button", { name: "Start with my table" }).click();
     await expect(page.getByLabel("Mode")).toHaveValue("basic");
     await expect(page.getByRole("button", { name: "Diagnostics" })).toHaveCount(
         0,
@@ -893,8 +907,8 @@ test("example: one click fills the task; the prepared plan runs without an AI re
     );
     await expect(activity.getByRole("timer")).toHaveText("0:01");
     const steps = page.getByRole("navigation").getByRole("button");
-    await expect(steps.nth(2)).toBeDisabled();
-    await expect(steps.nth(2)).toHaveAttribute(
+    await expect(steps.nth(3)).toBeDisabled();
+    await expect(steps.nth(3)).toHaveAttribute(
         "title",
         "Wait for the current operation to finish.",
     );
@@ -945,6 +959,8 @@ test("example: a plan that branches fills three columns, in words and as a graph
     page,
 }, testInfo) => {
     await page.goto("/");
+    // The page opens on the overview; the work begins one click later.
+    await page.getByRole("button", { name: "Start with my table" }).click();
     await expect(page.getByLabel("Mode")).toHaveValue("basic");
     // Offered because this server has a routing source.
     await expect(
@@ -1046,6 +1062,8 @@ test("usage: the owner sees what was used, as numbers, after entering the admin 
 }, testInfo) => {
     // Something to count: the Capitals example, run from its prepared plan.
     await page.goto("/");
+    // The page opens on the overview; the work begins one click later.
+    await page.getByRole("button", { name: "Start with my table" }).click();
     await page
         .getByRole("button", { name: "Capitals: distances between cities" })
         .click();
@@ -1095,9 +1113,13 @@ test("Basic: an uploaded workbook needs an instruction and nothing else", async 
             planning.push(r.postData() ?? "");
     });
     await page.goto("/");
+    // The page opens on the overview; the work begins one click later.
+    await page.getByRole("button", { name: "Start with my table" }).click();
     // What can be asked for is stated before any file is chosen.
     await expect(
-        page.getByText("calculate the distance between two cities"),
+        page.getByText(
+            "Calculate the straight-line distance between two places",
+        ),
     ).toBeVisible();
     await page
         .getByLabel("Upload Excel workbook")
@@ -1140,6 +1162,8 @@ test("Basic: the AI proposes a task for the table, in the language of the interf
             asked.push(JSON.parse(r.postData() ?? "{}"));
     });
     await page.goto("/");
+    // The page opens on the overview; the work begins one click later.
+    await page.getByRole("button", { name: "Start with my table" }).click();
     await page
         .getByLabel("Upload Excel workbook")
         .setInputFiles(resolve("../samples/capitals.xlsx"));
@@ -1182,6 +1206,8 @@ test("invalid saved plan cannot be approved; source selection clears its draft",
 }) => {
     await advanced(page);
     await page.goto("/");
+    // The page opens on the overview; the work begins one click later.
+    await page.getByRole("button", { name: "Start with my table" }).click();
     await page
         .getByLabel("Upload Excel workbook")
         .setInputFiles(resolve("../samples/capitals.xlsx"));
@@ -1233,6 +1259,8 @@ test("new column outside selection: collision protection, offline validation, re
 }, testInfo) => {
     await advanced(page);
     await page.goto("/");
+    // The page opens on the overview; the work begins one click later.
+    await page.getByRole("button", { name: "Start with my table" }).click();
     await page
         .getByLabel("Upload Excel workbook")
         .setInputFiles(resolve("../samples/capitals.xlsx"));
@@ -1377,4 +1405,93 @@ assert result['F2'].value is None
     await expect(
         page.getByRole("button", { name: "Download enriched XLSX" }),
     ).toBeInViewport();
+});
+
+test("overview: the page a visitor opens says what the system is and lists what the server offers", async ({
+    page,
+}, testInfo) => {
+    const listed = page.waitForResponse((r) =>
+        r.url().endsWith("/api/capabilities"),
+    );
+    await page.goto("/");
+    await expect(
+        page.getByRole("heading", { level: 1, name: "Overview" }),
+    ).toBeVisible();
+    // The list on the page is the server's own, in its order.
+    const offered: { id: string; source: string }[] = (
+        await (await listed).json()
+    ).capabilities;
+    expect(offered.map((item) => item.id)).toEqual([
+        "geocode",
+        "resolve_entity",
+        "lookup_property",
+        "geodesic_distance",
+        "ratio",
+        "road_distance",
+    ]);
+    const cards = page.getByTestId("capability-list").locator("> li");
+    await expect(cards).toHaveCount(offered.length);
+    expect(
+        await cards.evaluateAll((items) =>
+            items.map((item) => item.getAttribute("data-capability")),
+        ),
+    ).toEqual(offered.map((item) => item.id));
+    const roads = page.locator('[data-capability="road_distance"]');
+    await expect(roads).toContainText("Calculate the driving distance by road");
+    await expect(roads).toContainText(
+        "Source: openrouteservice (OpenStreetMap data)",
+    );
+    await expect(page.locator('[data-capability="ratio"]')).toContainText(
+        "Calculated here, without an outside source.",
+    );
+    // Basic keeps to plain words: no contract, no identifiers.
+    await expect(page.getByTestId("capability-contract")).toHaveCount(0);
+    await expect(page.getByText("One run fills up to 20 rows.")).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("overview.png") });
+    await languagesFit(page, testInfo, "overview");
+
+    // Advanced adds each contract as the planning model is shown it.
+    await page
+        .locator(".studio-preferences select")
+        .nth(2)
+        .selectOption("advanced");
+    await expect(page.getByTestId("capability-contract")).toHaveCount(
+        offered.length,
+    );
+    await expect(roads).toContainText(
+        "road_distance · v1.0 · openrouteservice",
+    );
+    await expect(
+        roads.getByRole("rowheader", { name: "point_a" }),
+    ).toBeVisible();
+    await expect(roads).toContainText("km · required");
+    await roads.scrollIntoViewIfNeeded();
+    await page.screenshot({
+        path: testInfo.outputPath("overview-advanced.png"),
+    });
+    await page
+        .locator(".studio-preferences select")
+        .nth(2)
+        .selectOption("basic");
+
+    // A narrow screen still fits the page.
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(
+        await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(390);
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    // An example opens straight from here, on the first step.
+    await page
+        .getByRole("button", { name: "Capitals: distances between cities" })
+        .click();
+    await expect(
+        page.getByRole("heading", { level: 1, name: "Dataset" }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Enrichment instruction")).not.toHaveValue("");
+    // And the overview stays one click away without losing the table.
+    await navigate(page, "Overview");
+    await expect(page.getByTestId("capability-list")).toBeVisible();
+    await navigate(page, "Dataset");
+    await expect(page.getByLabel("Enrichment instruction")).not.toHaveValue("");
 });

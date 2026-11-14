@@ -32,7 +32,7 @@ from ai_data_enrichment.evaluation.plan_run_fixtures import (
     offline_executor,
 )
 from ai_data_enrichment.plan_run import TERMINAL, PlanRunSettings
-from ai_data_enrichment.plan_run_worker import MountainPolicy, live_executor
+from ai_data_enrichment.plan_run_worker import MountainPolicy, builtin_registry, live_executor
 from ai_data_enrichment.providers.http_transport import UrllibJsonTransport
 from ai_data_enrichment.providers.wikidata import WIKIDATA_API_URL
 from ai_data_enrichment.run_limits import (
@@ -965,6 +965,42 @@ def test_limits_state_what_one_run_accepts(client, monkeypatch):
         json={"timeout_seconds": limits["max_timeout_seconds"] + 1},
     )
     assert over.status_code == 422
+
+
+def test_capabilities_are_listed_with_their_contract_and_source(client, monkeypatch):
+    monkeypatch.delenv("OPENROUTESERVICE_API_KEY", raising=False)
+    listed = client.get("/api/capabilities").json()["capabilities"]
+    # The same set a plan may use, in the order the planner is shown it.
+    assert [item["id"] for item in listed] == [
+        "geocode",
+        "resolve_entity",
+        "lookup_property",
+        "geodesic_distance",
+        "ratio",
+    ]
+    assert sorted(item["id"] for item in listed) == client.get("/api/limits").json()["capabilities"]
+    by_id = {item["id"]: item for item in listed}
+    # Where the values come from: a named source, or a calculation done here.
+    assert {key: item["source"] for key, item in by_id.items()} == {
+        "geocode": "open-meteo",
+        "resolve_entity": "wikidata",
+        "lookup_property": "wikidata",
+        "geodesic_distance": "local",
+        "ratio": "local",
+    }
+    # The contract is the capability's own, not a second description of it.
+    spec = builtin_registry().get("geocode")
+    assert spec is not None
+    assert {key: by_id["geocode"][key] for key in spec.model_dump(mode="json")} == spec.model_dump(
+        mode="json"
+    )
+    assert by_id["lookup_property"]["parameters"]["property"]["allowed_values"] == ["elevation"]
+    assert by_id["ratio"]["output"]["type"] == "Number"
+    # A road distance is listed only where its source is configured.
+    monkeypatch.setenv("OPENROUTESERVICE_API_KEY", "key-for-the-offline-fixture")
+    roads = client.get("/api/capabilities").json()["capabilities"][-1]
+    assert (roads["id"], roads["source"]) == ("road_distance", "openrouteservice")
+    assert "key-for-the-offline-fixture" not in client.get("/api/capabilities").text
 
 
 def table(header, *rows):

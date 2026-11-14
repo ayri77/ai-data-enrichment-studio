@@ -1,9 +1,19 @@
 import type { ReactNode } from "react";
-import { Database, Download, GitBranch, Play, ShieldCheck } from "lucide-react";
+import {
+    Database,
+    Download,
+    GitBranch,
+    Info,
+    Play,
+    ShieldCheck,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Workspace } from "../useWorkflow";
 import { Advanced, useHosted } from "../mode";
 import type { Mode, Theme } from "../preferences";
+
+/** What the navigation opens: the overview, or one step of the work. */
+export type Page = Workspace | "overview";
 
 export function StudioShell({
     theme,
@@ -23,13 +33,14 @@ export function StudioShell({
     /** Steps that cannot be opened now, each with the reason shown as a tooltip. */
     unavailable: Partial<Record<Workspace, string>>;
     children: ReactNode;
-    workspace: Workspace;
-    onNavigate: (workspace: Workspace) => void;
+    workspace: Page;
+    onNavigate: (page: Page) => void;
     completed: Workspace[];
 }) {
     const { t, i18n } = useTranslation();
     const hosted = useHosted();
-    const workspaces = [
+    const workspaces: { id: Page; icon: typeof Info }[] = [
+        { id: "overview", icon: Info },
         { id: "dataset", icon: Database },
         { id: "plan", icon: GitBranch },
         { id: "execution", icon: Play },
@@ -92,28 +103,31 @@ export function StudioShell({
                 </div>
             </header>
             <nav className="studio-documents" aria-label={t("workspaceNav")}>
-                {workspaces.map(({ id, icon: Icon }) => (
-                    <button
-                        key={id}
-                        aria-label={t(id)}
-                        aria-description={
-                            completed.includes(id as Workspace)
-                                ? t("ws.complete")
-                                : undefined
-                        }
-                        type="button"
-                        disabled={id in unavailable}
-                        title={unavailable[id as Workspace]}
-                        onClick={() => onNavigate(id as Workspace)}
-                        aria-current={id === workspace ? "page" : undefined}
-                    >
-                        <Icon aria-hidden="true" />
-                        {t(id)}
-                        {completed.includes(id as Workspace) && (
-                            <small aria-label={t("ws.complete")}>✓</small>
-                        )}
-                    </button>
-                ))}
+                {workspaces.map(({ id, icon: Icon }) => {
+                    const done = id !== "overview" && completed.includes(id);
+                    return (
+                        <button
+                            key={id}
+                            aria-label={t(id)}
+                            aria-description={
+                                done ? t("ws.complete") : undefined
+                            }
+                            type="button"
+                            disabled={id in unavailable}
+                            title={
+                                id === "overview" ? undefined : unavailable[id]
+                            }
+                            onClick={() => onNavigate(id)}
+                            aria-current={id === workspace ? "page" : undefined}
+                        >
+                            <Icon aria-hidden="true" />
+                            {t(id)}
+                            {done && (
+                                <small aria-label={t("ws.complete")}>✓</small>
+                            )}
+                        </button>
+                    );
+                })}
             </nav>
             <Advanced>
                 <div className="studio-connection">

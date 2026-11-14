@@ -74,6 +74,7 @@ provide the dataset ID and actual worksheet/range; the range includes headers.
 
 | Action | Route | Behavior |
 | --- | --- | --- |
+| What a plan may use | `GET /api/capabilities` | Every capability registered on this installation, in the order the planner is shown them: its contract (`id`, `version`, `description`, `inputs`, `parameters`, `output`) and `source` — the id of the source its values come from, or `local` for a calculation. `GET /api/limits` carries the same ids with the bounds of one run |
 | Task ideas from the model | `POST /api/task-ideas` | 200; up to three tasks that could be asked for with the selected table, in the language asked for; plans and writes nothing |
 | Create draft | `POST /api/plans` | 201; generate with `LLMPlanner`, or validate a supplied `plan` |
 | Read draft | `GET /api/plans/{plan_id}` | Plan JSON, binding, fingerprint, decision and validation |

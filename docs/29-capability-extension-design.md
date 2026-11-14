@@ -104,6 +104,17 @@ registered capabilities with their descriptions; the interface keeps its own
 translated wording where it has one and falls back to the description. The
 "can do" list is generated.
 
+*Done on 2026-11-14, before Step 1* (`GET /api/capabilities`,
+`plan_run_worker.offered_descriptions`; the overview page and `CanDo` in the
+interface). Each entry is the capability's own `CapabilitySpec` and the id of
+its source. The source comes from one table, `LIVE_SOURCES` in
+`orchestration/live_executor.py`, which the executor assembly now also reads —
+the first piece of point 2 ("Binding") that is stated once. What Step 1 still
+has to move is unchanged: handlers, budgets, review rules and reuse are spread
+over the same files as before. Two things the list cannot say yet, because no
+declaration holds them: the *kind of trust* of a capability (point 4), which
+the page words by hand for the six known ones, and the wording of failures.
+
 **Step 3 — prove it with one new capability**, added only through a binding,
 and repeat the planning measurement with it. The choice of capability decides
 how much of the contract is exercised: a computed one tests little, one that
