@@ -584,6 +584,7 @@
     "task.proposed": "Von der KI vorgeschlagene Aufgaben. Wählen Sie eine aus – sie wird ins Feld übernommen und lässt sich dort bearbeiten:",
     "task.proposedOne": "Von der KI für die gewählten Spalten vorgeschlagene Aufgabe. Wählen Sie sie aus – sie wird ins Feld übernommen und lässt sich dort bearbeiten:",
     "task.none": "Die KI hat für diese Tabelle keine Aufgabe gefunden, die sie vorschlagen kann. Beschreiben Sie die Aufgabe selbst.",
+    "task.noneForColumns": "Die KI hat keine Aufgabe vorgeschlagen, die alle gewählten Spalten füllt. Beschreiben Sie die Aufgabe selbst oder wählen Sie weniger Spalten und fragen Sie erneut.",
     "activity.ideas": "Die KI wird nach einer Aufgabe gefragt",
     "activity.ideasDetail": "Gesendet werden Spaltennamen, Typen und fünf Beispielzeilen. Noch wird nichts geplant oder eingetragen.",
     "error.task_ideas_failed": "Die KI hat keine brauchbaren Aufgaben geliefert. Versuchen Sie es erneut oder beschreiben Sie die Aufgabe selbst.",

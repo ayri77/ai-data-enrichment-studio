@@ -1643,6 +1643,14 @@ it("an example that fills three columns arrives with all three chosen", async ()
     expect(screen.getByLabelText("Enrichment instruction")).toHaveValue(
         "Three values for each pair",
     );
+    // Asked for a task now, the AI is told all three columns.
+    vi.mocked(api.suggestTasks).mockResolvedValue({ tasks: ["One task"] });
+    await userEvent.click(button("task.suggest"));
+    expect(api.suggestTasks).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+            fill_columns: ["distance", "road", "detour"],
+        }),
+    );
     await userEvent.click(button("ws.buildPlan"));
     await waitFor(() =>
         expect(api.createPlan).toHaveBeenLastCalledWith(
@@ -1693,6 +1701,12 @@ it("asks the AI for one task that fills all chosen columns, and again when they 
     );
     expect(screen.queryByTestId("task-ideas")).toBeNull();
     expect(button("task.suggest")).toBeEnabled();
+    // No task that fills them all is said as such, not as "nothing for this table".
+    vi.mocked(api.suggestTasks).mockResolvedValue({ tasks: [] });
+    await userEvent.click(button("task.suggest"));
+    expect(await screen.findByTestId("task-ideas")).toHaveTextContent(
+        i18n.t("task.noneForColumns"),
+    );
 });
 
 it("asks the AI for a task in the interface language and puts the chosen one into the field", async () => {
