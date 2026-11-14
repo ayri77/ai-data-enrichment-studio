@@ -52,7 +52,11 @@ export function UsagePage() {
         try {
             setSummary(await api.usage(code.trim()));
         } catch (failure) {
-            const known = ["admin_required", "access_throttled", "not_found"];
+            const known = [
+                "admin_required",
+                "access_throttled",
+                "usage_disabled",
+            ];
             setError(
                 failure instanceof WorkspaceApiError &&
                     known.includes(failure.code)

@@ -439,7 +439,7 @@
     "error.access_throttled": "Zu viele Versuche. Warten Sie eine Minute und versuchen Sie es erneut.",
     "access.counted": "Die Nutzung dieser Demo wird je Zugangscode gezählt: Besuche, Läufe sowie Anfragen an die KI und an die Quellen. Tabelleninhalte, Dateinamen und Aufgabentexte werden nicht aufgezeichnet.",
     "error.admin_required": "Dieser Admin-Code ist nicht richtig.",
-    "error.not_found": "Unter dieser Adresse hat dieser Server nichts.",
+    "error.usage_disabled": "Die Nutzungsübersicht ist auf diesem Server ausgeschaltet: Es ist kein Admin-Code gesetzt. Setzen Sie ENRICHMENT_ADMIN_CODE und starten Sie den Server neu.",
     "usage.title": "Nutzung",
     "usage.hint": "Wer diese Demo wofür genutzt hat. Geben Sie den Admin-Code ein.",
     "usage.code": "Admin-Code",

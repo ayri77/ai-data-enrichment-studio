@@ -8,10 +8,14 @@ from ai_data_enrichment.domain.dataset_profile import ColumnProfile, DatasetProf
 from ai_data_enrichment.plan_run_worker import builtin_registry
 from ai_data_enrichment.task_ideas import (
     IDEAS_SCHEMA,
+    MAX_CHOSEN_IDEA_LENGTH,
+    MAX_IDEA_LENGTH,
     MAX_TASK_IDEAS,
+    Proposal,
     TaskIdeaError,
     idea_messages,
     parse_ideas,
+    propose_tasks,
     suggest_tasks,
 )
 
@@ -168,3 +172,59 @@ def test_one_chosen_column_or_none_asks_the_open_question(chosen) -> None:
         client, profile=PROFILE, registry=builtin_registry(), language="uk", fill_columns=chosen
     )
     assert len(tasks) == MAX_TASK_IDEAS
+
+
+def test_one_task_for_three_columns_may_be_longer_than_a_one_column_proposal() -> None:
+    """A task that says what goes into each of three columns and from which columns it
+    is read does not fit 400 characters; with that bound a complete task was dropped
+    and the interface said that none was proposed (seen live, 2026-11-14)."""
+    chosen = ["distance", "road", "detour"]
+    long_task = (
+        "Для кожної пари міст із колонок «Capital_From» (країна «Country_From») і "
+        "«Capital_To» (країна «Country_To») запишіть у колонку «distance» відстань по "
+        "прямій у кілометрах, у колонку «road» — відстань автомобільними дорогами в "
+        "кілометрах, а в колонку «detour» — у скільки разів відстань дорогами більша за "
+        "відстань по прямій. Якщо місто не вдалося визначити однозначно, залиште всі три "
+        "клітинки цього рядка порожніми й нічого не вигадуйте."
+    )
+    assert MAX_IDEA_LENGTH < len(long_task) < MAX_CHOSEN_IDEA_LENGTH
+    proposal = propose_tasks(
+        Client({"tasks": [long_task]}),
+        profile=PROFILE,
+        registry=builtin_registry(),
+        language="uk",
+        fill_columns=chosen,
+    )
+    assert proposal == Proposal((long_task,), proposed=1)
+    # The open question keeps its short bound.
+    open_question = propose_tasks(
+        Client({"tasks": [long_task, "Short one."]}),
+        profile=PROFILE,
+        registry=builtin_registry(),
+        language="uk",
+    )
+    assert open_question == Proposal(("Short one.",), proposed=2, too_long=1)
+
+
+def test_what_became_of_the_reply_is_counted_without_keeping_its_text() -> None:
+    chosen = ["Висота", "Нова колонка"]
+
+    def outcome(tasks: list[object]) -> Proposal:
+        return propose_tasks(
+            Client({"tasks": tasks}),
+            profile=PROFILE,
+            registry=builtin_registry(),
+            language="uk",
+            fill_columns=chosen,
+        )
+
+    assert outcome([]) == Proposal(())
+    assert outcome(["Заповни «Висота»."]) == Proposal((), proposed=1, incomplete=1)
+    assert outcome(["x" * (MAX_CHOSEN_IDEA_LENGTH + 1)]) == Proposal((), proposed=1, too_long=1)
+    assert outcome([7, "", "  "]) == Proposal(())
+
+
+def test_an_unclear_header_is_no_reason_to_propose_nothing() -> None:
+    system, _ = idea_messages(PROFILE, builtin_registry(), "uk", ["a", "b"])
+    assert "A header that does not say what it should hold still gets one" in system["content"]
+    assert "Keep the task under 900 characters" in system["content"]

@@ -81,7 +81,7 @@ from ai_data_enrichment.run_limits import (
     MAX_TIMEOUT_SECONDS,
 )
 from ai_data_enrichment.spellings import SuggestionError, suggest_names
-from ai_data_enrichment.task_ideas import TaskIdeaError, suggest_tasks
+from ai_data_enrichment.task_ideas import TaskIdeaError, propose_tasks
 from ai_data_enrichment.usage import UsageLog
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy, PlanValidator
 from ai_data_enrichment.workspace_errors import WorkspaceError
@@ -890,13 +890,24 @@ class PlanRunService:
                 "invalid_selection", "Select a valid table within the size the server reads."
             ) from exc
         with self.model_client(answer_tokens=1024, purpose="task_ideas") as client:
-            return suggest_tasks(
+            proposal = propose_tasks(
                 client,
                 profile=profile,
                 registry=builtin_registry(),
                 language=body.language,
                 fill_columns=body.fill_columns,
             )
+        # Why nothing is shown, when nothing is: as numbers, without the text.
+        self.usage.record(
+            "task_ideas",
+            language=body.language,
+            columns=len(body.fill_columns) if len(body.fill_columns) > 1 else 0,
+            proposed=proposal.proposed,
+            too_long=proposal.too_long,
+            incomplete=proposal.incomplete,
+            shown=len(proposal.tasks),
+        )
+        return proposal.tasks
 
     def suggest_once(self, query: ResolutionQuery, capability: str) -> tuple[str, ...]:
         """Ask the model once for other names; nothing is searched here."""
