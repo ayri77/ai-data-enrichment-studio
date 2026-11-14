@@ -12,11 +12,12 @@ table; after you approve it, ordinary Python code looks the values up in open
 sources and writes them into a copy of your file. A value the sources cannot
 confirm is left empty and explained, not invented.
 
-> **Status: MVP.** Both sample tasks run end to end in the browser. The scope is
-> deliberately small — see [What it can do](#what-it-can-do) and
-> [Limits](#limits).
+> **Status: beta (0.2.0).** The sample tasks run end to end in the browser. The
+> scope is deliberately small — see [What it can do](#what-it-can-do) and
+> [Limits](#limits). What changed since the first release:
+> [changelog](CHANGELOG.md).
 
-![Dataset: the table, the task and the column to fill](docs/screenshots/release/dataset.png)
+![Overview: what the system is and what a plan may be built from](docs/screenshots/release/overview.png)
 
 ## Why
 
@@ -41,31 +42,39 @@ came from.
 
 A plan can combine these and fill several columns at once, for example the
 straight-line distance, the distance by road and how many times longer the road
-is.
+is (the ratio of two calculated values is an operation of its own).
+
+The application itself lists what a plan may be built from: the overview page
+reads the list from the server, so it is always the list of this installation.
 
 The table needs the names and their countries. A country may be written in any
 language or as a two-letter code.
 
 ## How a run goes
 
-The interface has five workspaces, passed in order.
+The application opens on an overview and has five workspaces, passed in order.
 
 1. **Dataset.** Upload an `.xlsx` workbook or pick an example. The table is found
    on the sheet and shown whole, with a text filter and sorting. Describe the
-   task — or let the AI propose one — and choose the column to fill and how many
-   rows to take.
-2. **Plan.** The plan is shown as numbered steps in plain words. Nothing runs
-   until you approve it; approval applies to exactly this plan and this table.
+   task — or let the AI propose one — and choose the columns to fill and how
+   many rows to take.
 
-   ![Plan: the steps in plain words](docs/screenshots/release/plan.png)
+   ![Dataset: the table, the task and the columns to fill](docs/screenshots/release/dataset.png)
+2. **Plan.** The plan is shown as a picture of how its steps connect and as
+   numbered steps in plain words. Nothing runs until you approve it; approval
+   applies to exactly this plan and this table.
+
+   ![Plan: the steps as a picture and in plain words](docs/screenshots/release/plan.png)
 3. **Execution.** The run reports its progress in rows and ends with a one-line
-   summary.
+   summary and, for every step of the plan, how many rows got a value.
+
+   ![Execution: what each step did](docs/screenshots/release/execution.png)
 4. **Review.** Where a name has several matches, you choose one; candidates come
    with country, coordinates, population or elevation and a map. A name the
    source does not know can be searched under another name, typed by you or
    proposed by the AI. Each choice is verified against the source again.
 
-   ![Review: choosing between matches](docs/screenshots/release/review.png)
+   ![Review: choosing between matches, in Advanced mode](docs/screenshots/release/review.png)
 5. **Results.** Every row says whether it was filled and why not. Download the
    filled workbook — a separate copy; your file is never changed — and a JSON
    audit that records how each value was obtained, including your choices.
@@ -113,8 +122,8 @@ Details: [provider settings](docs/25-provider-settings.md).
 
 ## Hosted demo
 
-The same application runs as one process behind a shared access code, with the
-model key held on the server. See [hosted demo](docs/27-hosted-demo.md) for the
+The same application runs as one process behind an access code, with the model
+key held on the server. See [hosted demo](docs/27-hosted-demo.md) for the
 Docker image, the Render blueprint (`render.yaml`) and the limits of a hosted
 instance.
 
@@ -170,7 +179,9 @@ Vite. Start reading the code with the
   one process and are gone after a restart. One run at a time.
 - **One model provider** (OpenAI). Planning was measured on two models,
   `gpt-6-luna` (the default) and `gpt-4.1-mini`: 10 of 10 valid plans on each
-  sample task ([live planning reliability](docs/26-live-planning-reliability.md)).
+  sample task with the four operations of the first release. With the six of
+  0.2.0 (a routing key set) only `gpt-6-luna` was measured: 30 of 30 on three
+  tasks ([live planning reliability](docs/26-live-planning-reliability.md)).
   Instructions were measured in English only.
 - **Accuracy is not measured at scale.** The two 10-row samples were run against
   live sources ([record of 2026-11-09](docs/18-academic-live-acceptance.md)).
@@ -202,12 +213,13 @@ branch, a pull request and CI.
 | [Plan/Run API](docs/22-m5-plan-run-api.md) | Routes, bounds, review and resume, the audit report |
 | [Provider settings](docs/25-provider-settings.md) | Model and key for a local process |
 | [Live planning reliability](docs/26-live-planning-reliability.md) | How planning was measured, the model catalogue, how to repeat the measurement |
-| [Hosted demo](docs/27-hosted-demo.md) | Docker image, Render, access code, limits |
+| [Hosted demo](docs/27-hosted-demo.md) | Docker image, Render, access codes, usage summary, limits |
 | [Command-line and developer tools](docs/28-cli-and-developer-tools.md) | The `enrichment` CLI, benchmarks, experiment scripts, developer demos |
 | [Requirements](docs/01-requirements.md) · [Architecture](docs/02-architecture.md) · [Domain model](docs/03-domain-model.md) | The design the project started from |
 | [Resolution foundation](docs/08-resolution-foundation.md) · [Resolution report](docs/10-resolution-report-contract.md) | How an entity is found, verified and audited |
 | [Implementation reading guide](docs/14-implementation-reading-guide.md) | Reading order for the modules and the invariants they keep |
 | [Product roadmap](docs/20-product-roadmap-ui-agent.md) | What is planned after the MVP |
+| [Changelog](CHANGELOG.md) | What each release added, what was measured and what was not verified |
 | [Adding a capability](docs/29-capability-extension-design.md) | Design note: where a capability is declared today and a proposed contract for adding one |
 | [Road distance and ratio](docs/30-road-distance-and-ratio.md) | Two capabilities added after 0.1.0: the routing source, its key and limits, what is not yet verified |
 

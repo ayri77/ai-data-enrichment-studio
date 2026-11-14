@@ -110,7 +110,7 @@ def build_live_executor(
 
     agent = {
         "User-Agent": (
-            "AIDataEnrichmentStudio/0.1 (https://github.com/ayri77/ai-data-enrichment-studio)"
+            "AIDataEnrichmentStudio/0.2 (https://github.com/ayri77/ai-data-enrichment-studio)"
         )
     }
     session = ProviderRequestSession(request_policies) if request_policies else None
