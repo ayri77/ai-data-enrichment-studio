@@ -102,20 +102,61 @@ def test_a_model_failure_is_an_error() -> None:
         )
 
 
-def test_several_chosen_columns_are_stated_and_one_task_is_kept() -> None:
+def test_several_chosen_columns_get_a_prompt_of_their_own_and_one_task() -> None:
     registry = builtin_registry()
     chosen = ["Висота", "Нова колонка"]
     system, user = idea_messages(PROFILE, registry, "uk", chosen)
     # The chosen headers travel as data; a header the table lacks is a new column.
     assert json.loads(user["content"])["fill_columns"] == chosen
-    assert "exactly one task" in system["content"]
-    client = Client({"tasks": ["Fill both columns.", "Fill only the height."]})
+    # Not the open question with a rule added: that rule lost against "name the
+    # column to fill" on a live model.
+    assert "Write exactly one task" in system["content"]
+    assert "prefer filling a column that is empty" not in system["content"]
+    assert f"at most {MAX_TASK_IDEAS} tasks" not in system["content"]
+    both = "Запиши у «Висота» висоту гори, а у «Нова колонка» відношення."
+    client = Client({"tasks": [both, "Заповни «Висота» висотою гори."]})
     tasks = suggest_tasks(
         client, profile=PROFILE, registry=registry, language="uk", fill_columns=chosen
     )
-    # Alternatives would each leave a chosen column out; only the first is kept.
-    assert tasks == ("Fill both columns.",)
-    assert json.loads(client.calls[0][0][1]["content"])["fill_columns"] == chosen
+    assert tasks == (both,)
+    messages, schema = client.calls[0]
+    assert json.loads(messages[1]["content"])["fill_columns"] == chosen
+    assert schema["properties"]["tasks"]["maxItems"] == 1
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        # What a live model returned: a task for the first chosen column only.
+        ["Заповни «Висота» висотою гори."],
+        ["Заповни «Нова колонка» відношенням.", "Заповни «Висота» висотою гори."],
+        # The header is written otherwise than in the table.
+        ["Запиши у «висота» висоту, а у «Нова колонка» відношення."],
+        [],
+    ],
+)
+def test_a_task_that_leaves_a_chosen_column_out_is_not_proposed(answer) -> None:
+    tasks = suggest_tasks(
+        Client({"tasks": answer}),
+        profile=PROFILE,
+        registry=builtin_registry(),
+        language="uk",
+        fill_columns=["Висота", "Нова колонка"],
+    )
+    # A plan from it would be refused for the column it does not fill.
+    assert tasks == ()
+
+
+def test_a_later_task_that_names_every_chosen_column_is_the_one_kept() -> None:
+    both = "У «Нова колонка» — відношення, у «Висота» — висота гори."
+    tasks = suggest_tasks(
+        Client({"tasks": ["Заповни «Висота» висотою гори.", both, both + " Ще раз."]}),
+        profile=PROFILE,
+        registry=builtin_registry(),
+        language="uk",
+        fill_columns=["Висота", "Нова колонка"],
+    )
+    assert tasks == (both,)
 
 
 @pytest.mark.parametrize("chosen", [[], ["Висота"]])

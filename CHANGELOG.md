@@ -13,7 +13,8 @@
 - **Basic mode fills several columns:** each is chosen with the same plain
   question, and new columns are placed after the sheet's last one.
 - **Suggest a task** proposes one task that fills all chosen columns when
-  several are chosen, instead of up to three alternatives.
+  several are chosen, instead of up to three alternatives. A task that leaves a
+  chosen column out is not shown.
 - **What each step did:** after a run, Execution shows for every step of the
   plan how many rows got a value, how many did not and how many never reached
   it — in words in Basic, on the nodes of the graph in Advanced, with the

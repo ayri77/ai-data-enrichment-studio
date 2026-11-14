@@ -219,9 +219,12 @@ would all be refused.
    "leave unresolved results empty"; the guidance was corrected and the
    measurement has to be repeated
    ([live planning reliability](26-live-planning-reliability.md)).
-4. **Suggest a task with several columns.** Not measured: whether the model
-   returns one usable task for two or three chosen columns, in each interface
-   language.
+4. **Suggest a task with several columns.** First live try (2026-11-14, three
+   columns, Ukrainian): the model returned a task for the first column only.
+   The rule had been added to the prompt of the open question, where "name the
+   column to fill" outweighed it. The case now has a prompt of its own, and the
+   server returns a task only if it names every chosen header. Not yet tried
+   again on a live model.
 
 ## Recommendation
 

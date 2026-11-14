@@ -231,7 +231,7 @@ function TaskIdeas({ w }: { w: Workflow }) {
     if (!ideas.length)
         return (
             <p className="muted" data-testid="task-ideas">
-                {t("task.none")}
+                {t(w.taskColumns > 0 ? "task.noneForColumns" : "task.none")}
             </p>
         );
     return (

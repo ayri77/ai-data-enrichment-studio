@@ -94,8 +94,10 @@ provide the dataset ID and actual worksheet/range; the range includes headers.
 language model what could be asked for with the selected table
 (`task_ideas.py`) and answers `{"tasks": […]}` with at most three tasks. An
 optional `"fill_columns": […]` names the headers of the columns chosen to be
-filled; with two or more of them the model is asked for exactly one task that
-fills them all and at most one is returned. The
+filled; with two or more of them the model is asked, with a prompt of its own,
+for exactly one task that fills them all. The first task that names every
+chosen header as written is returned and nothing else; a task that leaves one
+out is not returned at all, so the answer can be an empty list. The
 model request carries what a planning request already carries — column names,
 inferred types, the number of empty cells per column and the five sample rows of
 the profile — together with the capability descriptions of the registry and the
