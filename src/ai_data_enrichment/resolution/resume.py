@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from ai_data_enrichment.capabilities.bindings import find_binding
 from ai_data_enrichment.domain.enrichment_plan import (
     EnrichmentPlan,
     PlanStep,
@@ -200,14 +201,13 @@ def build_resume_selections(
 
 def _resumable(step: PlanStep, approval: ResolutionApproval) -> bool:
     """An approval must use the source that resolves this exact step contract."""
-    if step.capability == "resolve_entity":
-        return approval.source == "wikidata" and step.parameters == {"entity_type": "mountain"}
-    if step.capability == "geocode":
-        return approval.source == "open-meteo" and step.parameters in (
-            {},
-            {"required_role": "country_capital"},
-        )
-    return False
+    binding = find_binding(step.capability)
+    if binding is None or binding.name_resolution is None:
+        return False
+    return (
+        approval.source == binding.source_id
+        and step.parameters in binding.name_resolution.approved_parameters
+    )
 
 
 def load_resume_selections(

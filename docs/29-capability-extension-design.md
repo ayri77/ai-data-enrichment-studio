@@ -44,6 +44,9 @@ What is already general:
 - Review and Results read the audit; the interface has a fallback for a
   capability it has no words for.
 
+*The table describes the state before Step 1; see the note under Step 1 for
+where these facts are declared now.*
+
 ## Inference
 
 - A capability that only **computes** from typed inputs (like
@@ -98,6 +101,35 @@ built-in capabilities in it. `live_executor.py` builds the executor from the
 registry; the name-based branches in `resolution/job.py`, `other_name.py`,
 `resume.py`, `spellings.py` and `plan_run_worker.py` read the binding instead.
 No behaviour changes; the existing tests are the proof.
+
+*Done on 2026-11-14.* The binding is `CapabilityBinding` in
+`capabilities/bindings.py`, one entry per capability in `BINDINGS`: source id,
+kind of trust (`Trust`: computed, record, resolved name, service), whether a
+confirmed value is reusable, whether it is always bound or only where the
+registry holds it, whether it needs a key, and for a name lookup a
+`NameResolution` (name input, entity type, approved parameters, context inputs
+and parameters, whether its service takes parameters, how the source matches a
+name). `LIVE_SOURCES` is now derived from it. Read from it now:
+`live_executor.build_live_executor` (selected sources, reuse entries, the
+resolution services, the resume checks), `plan_run_worker.offered_descriptions`
+and the sources a run asks, `resolution/job.py` (approved parameters, name
+input, entity type, whether the service takes parameters),
+`resolution/other_name.py`, `resolution/resume.py` (`_resumable`) and
+`spellings.py`. The specs in `definitions.py` and what the planner is shown are
+unchanged.
+
+Still NOT declared there: the handlers (built in `live_executor.py`, keyed by
+id), configuration ids, capability and provider versions, the resolution
+policies (`mountain_*`, `capital_strict`) and the `audit_mountains` /
+`audit_capitals` / `mountain_resolution_policy` parameters of
+`build_live_executor`, which `plan_run_worker.live_executor` and `cli.py` still
+set by comparing ids; the re-verification classes of a chosen entity
+(`providers/open_meteo_approved.py`, `providers/wikidata_approved.py`, which
+check their own capability and source); the capital role in
+`validation/intent_policy.py` and `planning/instructions.py`; the evaluation
+code; the interface wording; and the offer of `road_distance` itself
+(`builtin_registry` and `offered_capabilities` still take the routing key as a
+flag).
 
 **Step 2 — wording and "what it can do" from the server.** A route lists the
 registered capabilities with their descriptions; the interface keeps its own
