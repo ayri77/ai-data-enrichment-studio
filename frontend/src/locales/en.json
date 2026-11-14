@@ -681,5 +681,9 @@
     "cap.road_distance.text": "The length of a car route between two found places, in kilometres. The route may include a ferry.",
     "source.open-meteo": "Open-Meteo",
     "source.wikidata": "Wikidata",
-    "source.openrouteservice": "openrouteservice (OpenStreetMap data)"
+    "source.openrouteservice": "openrouteservice (OpenStreetMap data)",
+    "plan.diagram.title": "How the steps connect",
+    "plan.diagram.hint": "An arrow leads from a step to the step that uses its result. Select a step to find it in the list below.",
+    "plan.diagram.step": "Step {{number}}:",
+    "plan.diagram.writes": "→ “{{name}}” ({{letter}})"
 }

@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { CircleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { PlanDraft } from "../api";
 import { describePlan, type PlanRef } from "../planModel";
 import type { StepOutcome } from "../runModel";
 import { CanDo } from "./CanDo";
+import { PlanDiagram } from "./PlanDiagram";
 
 /** How many rows passed one step, as a bar and in words. */
 export function StepRows({ outcome }: { outcome: StepOutcome }) {
@@ -58,7 +60,9 @@ export function StepRows({ outcome }: { outcome: StepOutcome }) {
 
 // The plan in words: what is done for each row and where the result goes.
 // With the outcomes of a finished run, each step also says how many rows
-// passed it.
+// passed it. A plan of several steps is drawn above the list as well, because
+// the list cannot show that steps branch and join; a step selected in the
+// picture is pointed at in the list.
 export function PlanDescription({
     draft,
     outcomes,
@@ -68,6 +72,14 @@ export function PlanDescription({
 }) {
     const { t } = useTranslation();
     const lines = describePlan(draft);
+    const [selected, setSelected] = useState("");
+    const select = (id: string) => {
+        setSelected(id);
+        if (id)
+            document
+                .querySelector(`.plan-steps [data-step="${CSS.escape(id)}"]`)
+                ?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    };
     const reference = (ref: PlanRef) =>
         ref.kind === "column"
             ? t("plan.ref.column", { name: ref.name })
@@ -78,10 +90,25 @@ export function PlanDescription({
                 : "?";
     return (
         <div className="plan-description">
+            {lines.length > 1 && (
+                <>
+                    <p className="muted">{t("plan.diagram.hint")}</p>
+                    <PlanDiagram
+                        draft={draft}
+                        outcomes={outcomes}
+                        selected={selected}
+                        onSelect={select}
+                    />
+                </>
+            )}
             <p className="muted">{t("plan.perRow")}</p>
             <ol className="plan-steps">
                 {lines.map((line) => (
-                    <li key={line.id} data-step={line.id}>
+                    <li
+                        key={line.id}
+                        data-step={line.id}
+                        aria-current={selected === line.id ? "true" : undefined}
+                    >
                         <strong>
                             {t(`plan.do.${line.action}`, line.values)}
                         </strong>

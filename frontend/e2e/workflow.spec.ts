@@ -998,8 +998,44 @@ test("example: a plan that branches fills three columns, in words and as a graph
     await expect(page.locator(".plan-steps li").nth(3)).toContainText(
         "openrouteservice routing service",
     );
-    await languagesFit(page, testInfo, "roads-plan");
+    // Basic draws the same plan above the list, in the list's own words and
+    // numbers: two cities in the first column, the two distances in the
+    // second, their ratio in the third.
+    const diagram = page.getByTestId("plan-diagram");
+    const node = (id: string) => diagram.locator(`[data-step="${id}"]`);
+    await expect(diagram.getByRole("button")).toHaveCount(5);
+    await expect(node("road")).toContainText(
+        "Calculate the driving distance by road in km",
+    );
+    await expect(node("road")).toContainText("→ “road” (F)");
+    await expect(node("detour")).toContainText("5");
+    const box = async (id: string) => (await node(id).boundingBox())!;
+    expect((await box("from_city")).x).toBe((await box("to_city")).x);
+    expect((await box("distance")).x).toBeGreaterThan(
+        (await box("from_city")).x,
+    );
+    expect((await box("road")).x).toBe((await box("distance")).x);
+    expect((await box("detour")).x).toBeGreaterThan((await box("road")).x);
+    // The joining step stands between the two it joins.
+    expect((await box("detour")).y).toBeGreaterThan((await box("distance")).y);
+    expect((await box("detour")).y).toBeLessThan((await box("road")).y);
+    // Nothing technical: no capability ids, no inspector.
+    await expect(diagram).not.toContainText("road_distance");
+    await expect(
+        page.getByRole("complementary", { name: "Node inspector" }),
+    ).toHaveCount(0);
+    // Selecting a step points at its line in the list.
+    await node("road").click();
+    await expect(page.locator(".plan-steps li").nth(3)).toHaveAttribute(
+        "aria-current",
+        "true",
+    );
     await page.screenshot({ path: testInfo.outputPath("roads-plan.png") });
+    await node("road").click();
+    await expect(
+        page.locator('.plan-steps li[aria-current="true"]'),
+    ).toHaveCount(0);
+    await languagesFit(page, testInfo, "roads-plan");
     // The same plan as a graph: two branches from the two cities meet again.
     await page.getByLabel("Mode").selectOption("advanced");
     await expect(
@@ -1022,6 +1058,14 @@ test("example: a plan that branches fills three columns, in words and as a graph
         /driving distance by road.*Rows with a value: 1 of 10 · not reached: 9/,
         /how many times.*Rows with a value: 1 of 10 · not reached: 9/,
     ]);
+    // The picture carries the same counts.
+    const ran = page.getByTestId("step-outcomes").getByTestId("plan-diagram");
+    await expect(ran.locator('[data-step="from_city"]')).toContainText(
+        "Rows: 3 of 10",
+    );
+    await expect(ran.locator('[data-step="detour"]')).toContainText(
+        "Rows: 1 of 10",
+    );
     await languagesFit(page, testInfo, "roads-execution");
     await page.screenshot({ path: testInfo.outputPath("roads-steps.png") });
     // The same counts on the graph, with the reasons for the selected step.

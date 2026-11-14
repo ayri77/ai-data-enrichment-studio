@@ -80,6 +80,57 @@ export function stepDepths(plan: EnrichmentPlan) {
     plan.steps.forEach((s) => depths.set(s.id, depth(s.id)));
     return depths;
 }
+/** Where the nodes of a plan stand when it is drawn as a graph. */
+export interface GraphLayout {
+    positions: Map<string, { x: number; y: number }>;
+    width: number;
+    height: number;
+}
+// Steps that wait for nothing stand in the first column, and every other step
+// one column after the last step it waits for. A column with fewer steps than
+// the tallest one is centred, so a plan that branches and joins reads as a
+// diamond, not as a staircase. Presentation only.
+export function graphLayout(
+    plan: EnrichmentPlan,
+    size: {
+        column: number;
+        row: number;
+        left?: number;
+        top?: number;
+        /** Room for the lowest node; a whole row where it is not given. */
+        last?: number;
+        minWidth?: number;
+        minHeight?: number;
+    },
+): GraphLayout {
+    const { column, row, left = 24, top = 30 } = size;
+    const depths = stepDepths(plan);
+    const levels = new Map<number, string[]>();
+    for (const step of plan.steps) {
+        const level = depths.get(step.id)!;
+        levels.set(level, [...(levels.get(level) ?? []), step.id]);
+    }
+    const tallest = Math.max(1, ...[...levels.values()].map((x) => x.length));
+    const positions = new Map<string, { x: number; y: number }>();
+    for (const [level, ids] of levels)
+        ids.forEach((id, index) =>
+            positions.set(id, {
+                x: level * column + left,
+                y: index * row + top + ((tallest - ids.length) * row) / 2,
+            }),
+        );
+    return {
+        positions,
+        width: Math.max(
+            size.minWidth ?? 0,
+            (Math.max(0, ...levels.keys()) + 1) * column + 16,
+        ),
+        height: Math.max(
+            size.minHeight ?? 0,
+            (tallest - 1) * row + (size.last ?? row) + top,
+        ),
+    };
+}
 export function issueGroups(report: AuditReport | null) {
     const groups = new Map<
         string,

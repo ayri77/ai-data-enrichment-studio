@@ -681,5 +681,9 @@
     "cap.road_distance.text": "Довжина автомобільного маршруту між двома знайденими місцями, у кілометрах. Маршрут може містити пором.",
     "source.open-meteo": "Open-Meteo",
     "source.wikidata": "Wikidata",
-    "source.openrouteservice": "openrouteservice (дані OpenStreetMap)"
+    "source.openrouteservice": "openrouteservice (дані OpenStreetMap)",
+    "plan.diagram.title": "Як пов’язані кроки",
+    "plan.diagram.hint": "Стрілка веде від кроку до кроку, який використовує його результат. Виберіть крок, щоб знайти його в переліку нижче.",
+    "plan.diagram.step": "Крок {{number}}:",
+    "plan.diagram.writes": "→ «{{name}}» ({{letter}})"
 }
