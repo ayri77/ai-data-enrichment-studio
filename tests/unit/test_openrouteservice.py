@@ -11,12 +11,13 @@ from ai_data_enrichment.capabilities.definitions import (
 )
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
 from ai_data_enrichment.execution.models import GeoPoint, Quantity
-from ai_data_enrichment.orchestration.live_executor import build_live_executor
+from ai_data_enrichment.orchestration.live_executor import LIVE_SOURCES, build_live_executor
 from ai_data_enrichment.plan_run_worker import builtin_registry
 from ai_data_enrichment.providers.http_transport import JsonTransportError
 from ai_data_enrichment.providers.openrouteservice import (
     DIRECTIONS_URL,
     ROUTING_KEY_VARIABLE,
+    ROUTING_PROVIDER,
     OpenRouteServiceDistanceHandler,
     routing_key,
 )
@@ -230,3 +231,11 @@ def test_an_injected_transport_must_be_able_to_send_a_route_request() -> None:
 
     with pytest.raises(ValueError, match="JSON body"):
         build_live_executor(offered(road_distance=True), transport=GetOnly())
+
+
+def test_every_offered_capability_names_where_its_values_come_from() -> None:
+    # A capability without a source could be planned but not run, and a client
+    # could not say where its values come from.
+    offered = {spec.id for spec in offered_capabilities(road_distance=True)}
+    assert offered == set(LIVE_SOURCES)
+    assert LIVE_SOURCES["road_distance"] == ROUTING_PROVIDER

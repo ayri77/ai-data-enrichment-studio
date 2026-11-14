@@ -5,6 +5,8 @@ test("column inspector is an Advanced tool; neither mode overflows the document"
     page,
 }) => {
     await page.goto("/");
+    // The page opens on the overview; the work begins one click later.
+    await page.getByRole("button", { name: "Start with my table" }).click();
     await page
         .getByLabel("Upload Excel workbook")
         .setInputFiles(resolve("../samples/capitals.xlsx"));

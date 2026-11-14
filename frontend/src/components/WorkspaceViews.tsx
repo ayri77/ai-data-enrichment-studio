@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { isTerminal, type Preview } from "../api";
+import { sourceNames, useOffered } from "../capabilities";
 import { Advanced, useAdvanced, useHosted } from "../mode";
 import type { Workflow, Workspace } from "../useWorkflow";
 import { columnLetter, columnNumber, parseRange } from "../range";
@@ -398,6 +399,7 @@ export function DatasetConfiguration({
 }) {
     const { t } = useTranslation();
     const advanced = useAdvanced();
+    const offered = useOffered();
     const first = preview
         ? (parseRange(preview.range_ref).bounds?.firstColumn ?? 1)
         : 1;
@@ -417,7 +419,12 @@ export function DatasetConfiguration({
                   ...(w.savedPlan.trim() || w.planningReadiness !== "ready"
                       ? []
                       : [t("ws.sends.ai")]),
-                  t("ws.sends.sources"),
+                  t("ws.sends.sources", {
+                      sources: (offered
+                          ? sourceNames(t, offered)
+                          : ["Open-Meteo", "Wikidata"]
+                      ).join(", "),
+                  }),
               ];
     return (
         <section className="configuration workspace-panel">

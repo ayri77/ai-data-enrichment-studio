@@ -15,6 +15,7 @@ vi.mock("./api", async (original) => ({
     ...(await original<typeof import("./api")>()),
     api: {
         limits: vi.fn(),
+        capabilities: vi.fn(),
         access: vi.fn(),
         samples: vi.fn(),
         sampleWorkbook: vi.fn(),
@@ -98,8 +99,8 @@ async function advanced(value: string) {
 }
 
 describe("Dataset UI Foundation", () => {
-    it("starts empty, exposes preferences and five available workspaces", () => {
-        render(<App />);
+    it("starts empty, exposes preferences, the overview and five workspaces", () => {
+        render(<App opening="dataset" />);
         expect(screen.getByLabelText("Worksheet")).toBeDisabled();
         expect(
             screen.getByRole("button", { name: "Preview selection" }),
@@ -107,14 +108,15 @@ describe("Dataset UI Foundation", () => {
         expect(screen.getByText("No table selected")).toBeInTheDocument();
         expect(
             screen.getByRole("navigation").querySelectorAll("button"),
-        ).toHaveLength(5);
+        ).toHaveLength(6);
+        expect(screen.getByRole("button", { name: "Overview" })).toBeEnabled();
         expect(screen.getByRole("button", { name: "Plan" })).toBeEnabled();
         expect(
             screen.queryByText(/verified distance/i),
         ).not.toBeInTheDocument();
     });
     it("guides offset boundaries and uses the real request contract", async () => {
-        render(<App />);
+        render(<App opening="dataset" />);
         await upload();
         await userEvent.selectOptions(
             screen.getByLabelText("Worksheet"),
@@ -157,7 +159,7 @@ describe("Dataset UI Foundation", () => {
         expect(within(inspector).getByText("B2:B4")).toBeInTheDocument();
     });
     it("preserves advanced A1 entry, normalizes references and clears stale previews", async () => {
-        render(<App />);
+        render(<App opening="dataset" />);
         await upload();
         await userEvent.selectOptions(
             screen.getByLabelText("Worksheet"),
@@ -173,7 +175,7 @@ describe("Dataset UI Foundation", () => {
         expect(screen.queryByText("Berlin")).not.toBeInTheDocument();
     });
     it("blocks malformed and reversed syntax before calling the API", async () => {
-        render(<App />);
+        render(<App opening="dataset" />);
         await upload();
         await advanced("B4:A2");
         expect(screen.getByRole("alert")).toHaveTextContent("must not precede");
@@ -188,7 +190,7 @@ describe("Dataset UI Foundation", () => {
         expect(api.preview).not.toHaveBeenCalled();
     });
     it("lets guided controls recover the last boundaries from invalid advanced input", async () => {
-        render(<App />);
+        render(<App opening="dataset" />);
         await upload();
         await advanced("bad");
         await userEvent.click(
@@ -202,7 +204,7 @@ describe("Dataset UI Foundation", () => {
         expect(api.preview).not.toHaveBeenCalled();
     });
     it("keeps syntactic validity separate from authoritative backend table validation", async () => {
-        render(<App />);
+        render(<App opening="dataset" />);
         await upload();
         await advanced("A2:B4");
         vi.mocked(api.preview).mockRejectedValueOnce(
@@ -221,7 +223,7 @@ describe("Dataset UI Foundation", () => {
         expect(api.preview).toHaveBeenCalledWith("opaque", "First", "A2:B4");
     });
     it("supports file drop and validates extensions and upload size locally", async () => {
-        render(<App />);
+        render(<App opening="dataset" />);
         const target = screen.getByRole("region", { name: "Source workbook" });
         fireEvent.drop(target, {
             dataTransfer: { files: [new File(["x"], "bad.csv")] },
@@ -241,7 +243,7 @@ describe("Dataset UI Foundation", () => {
         expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
     it("does not discard the dataset, range, preview or inspector selection on language/theme changes", async () => {
-        render(<App />);
+        render(<App opening="dataset" />);
         await previewLoaded();
         const initialRange = screen
             .getByLabelText("Last row")
@@ -270,14 +272,14 @@ describe("Dataset UI Foundation", () => {
         expect(api.preview).toHaveBeenCalledTimes(1);
     });
     it("restores a saved theme after remount", async () => {
-        const first = render(<App />);
+        const first = render(<App opening="dataset" />);
         await userEvent.selectOptions(screen.getByLabelText("Theme"), "light");
         first.unmount();
-        render(<App />);
+        render(<App opening="dataset" />);
         expect(screen.getByLabelText("Theme")).toHaveValue("light");
     });
     it("localizes existing API errors in all languages without refetching", async () => {
-        render(<App />);
+        render(<App opening="dataset" />);
         await upload();
         vi.mocked(api.preview).mockRejectedValueOnce(
             new WorkspaceApiError(
@@ -312,7 +314,7 @@ describe("Dataset UI Foundation", () => {
                 reject = fail;
             }),
         );
-        render(<App />);
+        render(<App opening="dataset" />);
         await userEvent.upload(
             screen.getByLabelText("Upload Excel workbook"),
             new File(["x"], "book.xlsx"),
@@ -331,7 +333,7 @@ describe("Dataset UI Foundation", () => {
         expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
     it("replaces workbook/schema and clears the previous preview", async () => {
-        render(<App />);
+        render(<App opening="dataset" />);
         await previewLoaded();
         vi.mocked(api.upload).mockResolvedValueOnce({
             dataset_id: "mountains",
@@ -377,7 +379,7 @@ describe("Dataset UI Foundation", () => {
                 schema_warnings: [],
             },
         });
-        render(<App />);
+        render(<App opening="dataset" />);
         await upload();
         await userEvent.click(
             screen.getByRole("button", { name: "Preview selection" }),
@@ -402,7 +404,7 @@ describe("Dataset UI Foundation", () => {
             ...preview,
             profile: { ...preview.profile, row_count: 0, sample_records: [] },
         });
-        render(<App />);
+        render(<App opening="dataset" />);
         await upload();
         await userEvent.click(
             screen.getByRole("button", { name: "Preview selection" }),

@@ -28,6 +28,7 @@ vi.mock("./api", async (original) => ({
     ...(await original<typeof import("./api")>()),
     api: {
         limits: vi.fn(),
+        capabilities: vi.fn(),
         access: vi.fn(),
         samples: vi.fn(),
         sampleWorkbook: vi.fn(),
@@ -318,7 +319,14 @@ const button = (key: string) =>
 const navigate = async (key: string) =>
     userEvent.click(
         screen.getByRole("navigation").querySelectorAll("button")[
-            ["dataset", "plan", "execution", "review", "export"].indexOf(key)
+            [
+                "overview",
+                "dataset",
+                "plan",
+                "execution",
+                "review",
+                "export",
+            ].indexOf(key)
         ],
     );
 async function prepare() {
@@ -372,7 +380,7 @@ async function start() {
 }
 
 it("uses exact source/mapping, validates and explicitly approves before a separate run", async () => {
-    render(<App />);
+    render(<App opening="dataset" />);
     await generate();
     expect(api.createPlan).toHaveBeenCalledWith({
         dataset_id: "source",
@@ -415,7 +423,7 @@ it("keeps polling and locks source edits across workspace changes, without cance
         ...queued,
         status: "running",
     });
-    const view = render(<App />);
+    const view = render(<App opening="dataset" />);
     await start();
     await waitFor(() =>
         expect(screen.getByTestId("job-status")).toHaveTextContent("Running"),
@@ -439,7 +447,7 @@ it("keeps polling and locks source edits across workspace changes, without cance
 it.each(["instruction", "mapping", "network", "policy", "saved", "source"])(
     "invalidates current approval/results on %s edits, retaining prior runs in Diagnostics",
     async (change) => {
-        render(<App />);
+        render(<App opening="dataset" />);
         await start();
         await waitFor(() => expect(api.getReport).toHaveBeenCalled());
         await navigate("dataset");
@@ -500,7 +508,7 @@ it.each(["invalid", "missing"])("blocks a %s plan", async (kind) => {
             ],
         },
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await generate();
     expect(screen.getByTestId("validation")).toHaveTextContent(
         "Validation failed",
@@ -512,7 +520,7 @@ it.each(["invalid", "missing"])("blocks a %s plan", async (kind) => {
 });
 
 it("shows only compact actual metrics, groups issues honestly and keeps technical details on demand", async () => {
-    render(<App />);
+    render(<App opening="dataset" />);
     await start();
     await waitFor(() => expect(api.getReport).toHaveBeenCalled());
     expect(screen.getByTestId("metric-partial_rows")).toHaveTextContent("3");
@@ -563,7 +571,7 @@ it.each(["failed", "cancelled", "timed_out"] as const)(
             status,
             source_sha256: draft.source_sha256,
         });
-        render(<App />);
+        render(<App opening="dataset" />);
         await start();
         await waitFor(() => expect(api.getReport).toHaveBeenCalled());
         expect(screen.getByTestId("job-status")).toHaveTextContent(
@@ -584,7 +592,7 @@ it.each([
     vi.mocked(api.createPlan).mockRejectedValue(
         new WorkspaceApiError(code, "sanitized"),
     );
-    render(<App />);
+    render(<App opening="dataset" />);
     await prepare();
     await userEvent.click(button("ws.buildPlan"));
     await screen.findByRole("alert");
@@ -601,7 +609,7 @@ it("retries status/report without starting another job; retrying the approved pl
     vi.mocked(api.getJob).mockRejectedValueOnce(
         new WorkspaceApiError("network_error", "unreachable"),
     );
-    render(<App />);
+    render(<App opening="dataset" />);
     await start();
     await screen.findByRole("alert");
     expect(button("workflow.cancel")).toBeEnabled();
@@ -614,7 +622,7 @@ it("retries status/report without starting another job; retrying the approved pl
 
 it("requests cancellation and keeps polling until a terminal backend status", async () => {
     vi.mocked(api.getJob).mockResolvedValue({ ...queued, status: "running" });
-    render(<App />);
+    render(<App opening="dataset" />);
     await start();
     await waitFor(() =>
         expect(screen.getByTestId("job-status")).toHaveTextContent("Running"),
@@ -681,7 +689,7 @@ it("fills the first rows of a table longer than one run accepts, as many as aske
             ]),
         },
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await prepare();
     // The length of the table is not a reason to refuse: a run takes its first rows.
     const rows = within(screen.getByTestId("run-rows"));
@@ -712,7 +720,7 @@ it("fills the first rows of a table longer than one run accepts, as many as aske
 });
 
 it("rejects malformed supplied JSON before API submission", async () => {
-    render(<App />);
+    render(<App opening="dataset" />);
     await prepare();
     await userEvent.click(screen.getByText(i18n.t("workflow.savedPlan")));
     fireEvent.change(screen.getByLabelText("EnrichmentPlan JSON"), {
@@ -727,7 +735,7 @@ it("rejects malformed supplied JSON before API submission", async () => {
 });
 
 it("holds the user on Dataset while a source replacement is pending; the approved plan cannot be started", async () => {
-    render(<App />);
+    render(<App opening="dataset" />);
     await generate();
     await userEvent.click(button("ws.approveContinue"));
     await navigate("dataset");
@@ -745,7 +753,7 @@ it("holds the user on Dataset while a source replacement is pending; the approve
     expect(screen.getByText(i18n.t("activity.upload"))).toBeVisible();
     const execution = within(screen.getByRole("navigation")).getAllByRole(
         "button",
-    )[2];
+    )[3];
     expect(execution).toBeDisabled();
     expect(execution).toHaveAttribute("title", i18n.t("activity.wait"));
     await act(async () =>
@@ -800,7 +808,7 @@ it("preserves the exact header when selecting an existing output column", async 
 it.each(["en", "uk", "de"] as const)(
     "configures masked ephemeral settings without losing the %s workflow or preferences",
     async (locale) => {
-        render(<App />);
+        render(<App opening="dataset" />);
         await generate();
         await navigate("dataset");
         await userEvent.selectOptions(
@@ -883,7 +891,7 @@ it("clears rejected key input and presents a stable error without displaying a b
     vi.mocked(api.configureProvider).mockRejectedValue(
         new WorkspaceApiError("configuration_forbidden", secret),
     );
-    render(<App />);
+    render(<App opening="dataset" />);
     await userEvent.click(button("ws.providerSettings"));
     const input = screen.getByLabelText(i18n.t("provider.keyInput"));
     await waitFor(() => expect(input).toBeEnabled());
@@ -909,7 +917,7 @@ it.each([
             ...current,
             ...overrides,
         });
-        render(<App />);
+        render(<App opening="dataset" />);
         await prepare();
         expect(
             screen.getByText(i18n.t(`provider.${reason}`)),
@@ -937,7 +945,7 @@ it("distinguishes injected offline mode and still requires explicit consent for 
         planning_mode: "offline_injected",
         live_ready: false,
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await prepare();
     expect(screen.getByText(i18n.t("provider.offline"))).toBeInTheDocument();
     expect(button("ws.buildPlan")).toBeEnabled();
@@ -950,7 +958,7 @@ it("distinguishes injected offline mode and still requires explicit consent for 
 
 it("fails closed when readiness cannot be read and disables settings outside local mode", async () => {
     vi.mocked(api.providerSettings).mockRejectedValue(new Error("offline"));
-    render(<App />);
+    render(<App opening="dataset" />);
     await prepare();
     expect(button("ws.buildPlan")).toBeDisabled();
     expect(
@@ -1018,7 +1026,7 @@ it("distinguishes passing contracts from intent conflicts and blocks approval", 
             ],
         },
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await generate();
     expect(screen.getByText(i18n.t("workflow.intentConflict"))).toBeVisible();
     expect(screen.getByText(i18n.t("workflow.assumptions"))).toBeVisible();
@@ -1029,7 +1037,7 @@ it("distinguishes passing contracts from intent conflicts and blocks approval", 
 });
 
 it("lets a person settle each ambiguous name once and resumes as a new job", async () => {
-    render(<App />);
+    render(<App opening="dataset" />);
     await start();
     await waitFor(() =>
         expect(api.getReview).toHaveBeenCalledWith("job", expect.anything()),
@@ -1224,7 +1232,7 @@ it("says before the run that the chosen column already has values, and asks what
             ]),
         },
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await userEvent.upload(
         screen.getByLabelText("Upload Excel workbook"),
         new File(["x"], "capitals.xlsx"),
@@ -1259,7 +1267,7 @@ it("says before the run that the chosen column already has values, and asks what
 });
 
 it("makes applying the choices the next step once something is chosen", async () => {
-    render(<App />);
+    render(<App opening="dataset" />);
     await start();
     await navigate("review");
     await screen.findByTestId("review-Kyiv");
@@ -1281,7 +1289,7 @@ it("makes applying the choices the next step once something is chosen", async ()
 });
 
 it("makes the choice from the map, without going back to find the option in the list", async () => {
-    render(<App />);
+    render(<App opening="dataset" />);
     await start();
     await navigate("review");
     const kyiv = within(await screen.findByTestId("review-Kyiv"));
@@ -1308,7 +1316,7 @@ it("reports a rejected resume with a localized message and keeps the choices", a
     vi.mocked(api.resumeJob).mockRejectedValue(
         new WorkspaceApiError("invalid_decision", "sanitized"),
     );
-    render(<App />);
+    render(<App opening="dataset" />);
     await start();
     await navigate("review");
     await screen.findByTestId("review-Kyiv");
@@ -1329,7 +1337,7 @@ it("offers nothing to decide when a run only has names without a match", async (
         items: [],
         affected_rows: 0,
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await start();
     await navigate("review");
     expect(
@@ -1372,7 +1380,7 @@ it("searches a name under another one at once and offers what the source confirm
                   )
                 : found(kyiv, name, "703448", "9001"),
     );
-    render(<App />);
+    render(<App opening="dataset" />);
     await start();
     await navigate("review");
     const search = { name: i18n.t("review.otherName.search") };
@@ -1496,7 +1504,7 @@ it("offers the fill for a run with nothing to choose once a search has a chosen 
             status: "provider_failure",
             query: { ...oslo.query, searched_as: "Kristiania" },
         });
-    render(<App />);
+    render(<App opening="dataset" />);
     await start();
     await navigate("review");
     await screen.findByTestId("unresolved-Oslo");
@@ -1525,7 +1533,7 @@ it("offers the fill for a run with nothing to choose once a search has a chosen 
 
 it("Basic fills several columns: each is asked for plainly and new ones stand side by side", async () => {
     localStorage.removeItem("enrichment.mode");
-    render(<App />);
+    render(<App opening="dataset" />);
     await prepareBasic();
     const another = () => screen.getAllByLabelText(i18n.t("ws.fillAnother"));
     const names = () => screen.getAllByLabelText(i18n.t("ws.newColumnName"));
@@ -1556,7 +1564,7 @@ it("Basic fills several columns: each is asked for plainly and new ones stand si
 
 it("Basic closes the gap when a new column is taken away again", async () => {
     localStorage.removeItem("enrichment.mode");
-    render(<App />);
+    render(<App opening="dataset" />);
     await prepareBasic();
     for (const name of ["road", "detour"]) {
         await userEvent.click(button("ws.addFill"));
@@ -1626,7 +1634,7 @@ it("an example that fills three columns arrives with all three chosen", async ()
             })),
         },
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await userEvent.click(
         await screen.findByRole("button", {
             name: i18n.t("sample.capitals_roads"),
@@ -1666,7 +1674,7 @@ it("asks the AI for one task that fills all chosen columns, and again when they 
     vi.mocked(api.suggestTasks).mockResolvedValue({
         tasks: ["Fill distance and city2."],
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await userEvent.upload(
         screen.getByLabelText("Upload Excel workbook"),
         new File(["x"], "capitals.xlsx"),
@@ -1721,7 +1729,7 @@ it("asks the AI for a task in the interface language and puts the chosen one int
         .mockImplementation(async ({ language }) => ({
             tasks: language === "uk" ? tasks : [],
         }));
-    render(<App />);
+    render(<App opening="dataset" />);
     await userEvent.upload(
         screen.getByLabelText("Upload Excel workbook"),
         new File(["x"], "capitals.xlsx"),
@@ -1791,7 +1799,7 @@ it("asks the AI for other names and searches the one that is chosen", async () =
         query: { ...oslo.query, searched_as: "Kristiania" },
         candidates: [place("3143244", { label: "Kristiania" })],
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await start();
     await navigate("review");
     const ask = { name: i18n.t("review.ai.ask") };
@@ -1915,7 +1923,7 @@ it("shows results with source values, readable numbers, reasons, filters and det
                 ),
         },
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await start();
     await waitFor(() => expect(api.getReport).toHaveBeenCalled());
     await navigate("export");
@@ -2015,7 +2023,7 @@ it("says next to the button what is still missing, and opens settings for a miss
         configuration_enabled: true,
         storage: "process_memory",
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     const missing = () =>
         [...document.querySelectorAll("[data-requirement]")].map((item) =>
             item.getAttribute("data-requirement"),
@@ -2069,7 +2077,7 @@ it("says next to the button what is still missing, and opens settings for a miss
 });
 
 it("keeps the task when the boundaries of the table are adjusted", async () => {
-    render(<App />);
+    render(<App opening="dataset" />);
     await prepare();
     await userEvent.click(button("ws.buildPlan"));
     await waitFor(() => expect(api.createPlan).toHaveBeenCalledTimes(1));
@@ -2102,7 +2110,7 @@ it("keeps the task when the boundaries of the table are adjusted", async () => {
 });
 
 it("shows no list of missing items once a plan can be built", async () => {
-    render(<App />);
+    render(<App opening="dataset" />);
     await prepare();
     expect(document.querySelector("[data-requirement]")).toBeNull();
     expect(button("ws.buildPlan")).toBeEnabled();
@@ -2119,7 +2127,7 @@ it("goes from an empty screen to a ready task with one click on an example", asy
     vi.mocked(api.samples).mockResolvedValue({ samples: [example] });
     vi.mocked(api.sampleWorkbook).mockResolvedValue(new Blob(["x"]));
     vi.mocked(api.samplePlan).mockResolvedValue(draft.plan!);
-    render(<App />);
+    render(<App opening="dataset" />);
     await userEvent.click(
         await screen.findByRole("button", { name: i18n.t("sample.capitals") }),
     );
@@ -2158,7 +2166,7 @@ it("goes from an empty screen to a ready task with one click on an example", asy
 });
 
 it("offers no examples when the server has none, and forgets one after a manual change", async () => {
-    render(<App />);
+    render(<App opening="dataset" />);
     await waitFor(() => expect(api.samples).toHaveBeenCalled());
     expect(screen.queryByText(i18n.t("sample.try"))).toBeNull();
     // A workbook of the user's own starts with an empty task, as before.
@@ -2180,7 +2188,7 @@ const absent = (key: string) =>
 
 it("starts in Basic without technical tools; the switch reveals them and is remembered", async () => {
     localStorage.removeItem("enrichment.mode");
-    render(<App />);
+    render(<App opening="dataset" />);
     const mode = screen.getByLabelText(i18n.t("mode.label"));
     expect(mode).toHaveValue("basic");
     absent("ws.diagnostics");
@@ -2204,7 +2212,7 @@ it("starts in Basic without technical tools; the switch reveals them and is reme
 
 it("Basic runs the whole scenario with the second layer out of sight", async () => {
     localStorage.removeItem("enrichment.mode");
-    render(<App />);
+    render(<App opening="dataset" />);
     await generateBasic();
     // Column types and the column inspector belong to Advanced.
     await navigate("dataset");
@@ -2249,9 +2257,9 @@ it("Basic offers the review step only when there is something to settle", async 
         ...finished,
         status: "completed",
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     const reviewTab = () =>
-        screen.getByRole("navigation").querySelectorAll("button")[3];
+        screen.getByRole("navigation").querySelectorAll("button")[4];
     expect(reviewTab()).toBeDisabled();
     await startBasic();
     await waitFor(() => expect(api.getReport).toHaveBeenCalled());
@@ -2295,7 +2303,7 @@ it("Basic says a prepared plan is in use and lets the user drop it", async () =>
     });
     vi.mocked(api.sampleWorkbook).mockResolvedValue(new Blob(["x"]));
     vi.mocked(api.samplePlan).mockResolvedValue(draft.plan!);
-    render(<App />);
+    render(<App opening="dataset" />);
     await userEvent.click(
         await screen.findByRole("button", { name: i18n.t("sample.capitals") }),
     );
@@ -2324,7 +2332,7 @@ it("names what it is waiting for, counts the time and says what is locked", asyn
             ...queued,
             status: "running",
         });
-        render(<App />);
+        render(<App opening="dataset" />);
         await prepare();
         await userEvent.click(button("ws.buildPlan"));
         // A short request: named, timed, and it keeps the user on its step.
@@ -2337,10 +2345,10 @@ it("names what it is waiting for, counts the time and says what is locked", asyn
         expect(within(bar()).getByRole("timer")).toHaveTextContent("0:07");
         const tabs = () =>
             within(screen.getByRole("navigation")).getAllByRole("button");
-        expect(tabs()[1]).toBeDisabled();
+        expect(tabs()[2]).toBeDisabled();
         await act(async () => finish(draft));
         expect(document.querySelector(".activity-bar")).toBeNull();
-        expect(tabs()[0]).toBeEnabled();
+        expect(tabs()[1]).toBeEnabled();
         // A running job: other steps stay reachable, and say why they are locked.
         await userEvent.click(button("ws.approveContinue"));
         await userEvent.click(button("workflow.run"));
@@ -2374,8 +2382,10 @@ it("names a road distance among what it can do when the server offers it", async
         default_timeout_seconds: 180,
         capabilities: ["geocode", "geodesic_distance", "road_distance"],
     });
-    render(<App />);
-    expect(await screen.findByText(i18n.t("can.roadDistance"))).toBeVisible();
+    render(<App opening="dataset" />);
+    expect(
+        await screen.findByText(i18n.t("cap.road_distance.title")),
+    ).toBeVisible();
 });
 
 it("takes the bounds of one run from the server", async () => {
@@ -2401,7 +2411,7 @@ it("takes the bounds of one run from the server", async () => {
             },
         ],
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await generate();
     await userEvent.click(button("ws.approveContinue"));
     await navigate("dataset");
@@ -2440,7 +2450,7 @@ it("says in Review that a row's country was not recognized, as it was written", 
             },
         ],
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await start();
     await navigate("review");
     const london = within(await screen.findByTestId("unresolved-London"));
@@ -2458,11 +2468,13 @@ it("says in Review that a row's country was not recognized, as it was written", 
 
 it("Basic previews the table on upload, proposes the empty column and takes the button as consent", async () => {
     localStorage.removeItem("enrichment.mode");
-    render(<App />);
+    render(<App opening="dataset" />);
     // Before a workbook there is a plain statement of what can be asked for.
-    expect(screen.getByText(i18n.t("can.cityDistance"))).toBeVisible();
+    expect(
+        screen.getByText(i18n.t("cap.geodesic_distance.title")),
+    ).toBeVisible();
     // A road distance is named only where the server offers it.
-    expect(screen.queryByText(i18n.t("can.roadDistance"))).toBeNull();
+    expect(screen.queryByText(i18n.t("cap.road_distance.title"))).toBeNull();
     expect(screen.getByText(i18n.t("can.limit", { max: 20 }))).toBeVisible();
     await prepareBasic();
     expect(api.preview).toHaveBeenCalledWith("source", "Sheet1", "A1:E11");
@@ -2513,7 +2525,7 @@ it("Basic reads the whole table, however many rows one run accepts", async () =>
         range_ref: "A1:E101",
         profile: { ...preview.profile, row_count: 100 },
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await userEvent.upload(
         screen.getByLabelText("Upload Excel workbook"),
         new File(["x"], "long.xlsx"),
@@ -2547,7 +2559,7 @@ it("says so when a table is longer than can be read", async () => {
         range_ref: "A1:E5001",
         profile: { ...preview.profile, row_count: 5000 },
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await userEvent.upload(
         screen.getByLabelText("Upload Excel workbook"),
         new File(["x"], "huge.xlsx"),
@@ -2591,7 +2603,7 @@ it("Basic reads a table that does not start in A1 from where the server found it
         range_ref: "C4:G44",
         profile: { ...preview.profile, row_count: 40 },
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await userEvent.upload(
         screen.getByLabelText("Upload Excel workbook"),
         new File(["x"], "report.xlsx"),
@@ -2614,7 +2626,7 @@ it("Basic shows the table boundaries when the table cannot be read, or on reques
     vi.mocked(api.preview).mockRejectedValueOnce(
         new WorkspaceApiError("invalid_headers", "Headers"),
     );
-    render(<App />);
+    render(<App opening="dataset" />);
     await userEvent.upload(
         screen.getByLabelText("Upload Excel workbook"),
         new File(["x"], "capitals.xlsx"),
@@ -2632,7 +2644,7 @@ it("Basic shows the table boundaries when the table cannot be read, or on reques
 
 it("Basic can fill a new column placed after the table", async () => {
     localStorage.removeItem("enrichment.mode");
-    render(<App />);
+    render(<App opening="dataset" />);
     await prepareBasic();
     await userEvent.selectOptions(
         screen.getByLabelText(i18n.t("ws.fillColumn")),
@@ -2665,7 +2677,7 @@ it("proposes no column when the table has none or several empty ones", async () 
                 ),
         },
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await userEvent.upload(
         screen.getByLabelText("Upload Excel workbook"),
         new File(["x"], "capitals.xlsx"),
@@ -2726,7 +2738,7 @@ it("Basic shows the plan in words instead of the graph, and one press approves a
         status: "approved",
         approved_at: "2026-11-10T09:00:00Z",
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await generateBasic();
     expect(
         screen.getByRole("heading", { name: i18n.t("plan.title") }),
@@ -2779,7 +2791,7 @@ it("Basic keeps the plan approved when the start is refused and offers the start
     vi.mocked(api.startRun).mockRejectedValueOnce(
         new WorkspaceApiError("job_active", "sanitized"),
     );
-    render(<App />);
+    render(<App opening="dataset" />);
     await generateBasic();
     await userEvent.click(button("ws.approveRun"));
     expect(await screen.findByRole("alert")).toHaveAttribute(
@@ -2805,7 +2817,7 @@ it("says plainly why there is no plan and what can be asked for instead", async 
             errors: [{ code: "no_plan", message: "No ready plan." }],
         },
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await generateBasic();
     const refusal = screen.getByTestId("plan-refusal");
     expect(refusal).toHaveTextContent(i18n.t("plan.refused.unsupported"));
@@ -2815,7 +2827,7 @@ it("says plainly why there is no plan and what can be asked for instead", async 
     );
     expect(screen.getAllByText("Population is not available.")).toHaveLength(1);
     expect(
-        within(refusal).getByText(i18n.t("can.mountainElevation")),
+        within(refusal).getByText(i18n.t("cap.lookup_property.title")),
     ).toBeVisible();
     expect(within(refusal).getByText(i18n.t("plan.rephrase"))).toBeVisible();
     expect(screen.queryByText("no_plan")).not.toBeInTheDocument();
@@ -2850,7 +2862,7 @@ it("Basic explains a plan that failed the check without codes and does not offer
             ],
         },
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await generateBasic();
     const invalid = screen.getByTestId("plan-invalid");
     expect(invalid).toHaveTextContent(i18n.t("plan.invalid.text"));
@@ -2879,7 +2891,7 @@ it("shows how many rows a running job has finished, in the bar and on Execution"
             ...running,
             progress: { rows_done: 4, rows_total: 10 },
         });
-    render(<App />);
+    render(<App opening="dataset" />);
     await startBasic();
     // Until the worker has read the table there is nothing to count.
     expect(await screen.findByTestId("run-progress")).toHaveTextContent(
@@ -2914,7 +2926,7 @@ it("shows how many rows a running job has finished, in the bar and on Execution"
 
 it("Basic sums a finished run up in a sentence and leaves the counters to Advanced", async () => {
     localStorage.removeItem("enrichment.mode");
-    render(<App />);
+    render(<App opening="dataset" />);
     await startBasic();
     await waitFor(() => expect(api.getReview).toHaveBeenCalled());
     // The fixture report lists one row, and it is empty; two names can be chosen.
@@ -2959,7 +2971,7 @@ it("Basic says how a stopped run ended and offers to run it again", async () => 
         ...timedOut,
         source_sha256: draft.source_sha256,
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await startBasic();
     await waitFor(() =>
         expect(screen.getByTestId("job-status")).toHaveTextContent(
@@ -2985,7 +2997,7 @@ it("Basic says how a stopped run ended and offers to run it again", async () => 
 it("starting over asks first when a filled table would be lost", async () => {
     localStorage.removeItem("enrichment.mode");
     vi.mocked(api.remove).mockResolvedValue(undefined);
-    render(<App />);
+    render(<App opening="dataset" />);
     await startBasic();
     await waitFor(() => expect(api.getReport).toHaveBeenCalled());
     await userEvent.click(
@@ -3006,7 +3018,7 @@ it("starting over asks first when a filled table would be lost", async () => {
     await userEvent.click(button("startOver.confirm"));
     expect(api.remove).toHaveBeenCalledWith("source");
     // Back at the first step with nothing loaded.
-    expect(await screen.findByText(i18n.t("can.cityDistance"))).toBeVisible();
+    expect(await screen.findByText(i18n.t("cap.geocode.title"))).toBeVisible();
     expect(screen.getByLabelText("Enrichment instruction")).toHaveValue("");
     await navigate("execution");
     expect(screen.getByTestId("job-status")).toHaveTextContent(
@@ -3063,7 +3075,7 @@ it("tells mountain namesakes apart by what the source records about each", async
             },
         ],
     });
-    render(<App />);
+    render(<App opening="dataset" />);
     await start();
     await navigate("review");
     const alps = within(await screen.findByTestId("candidate-wikidata:Q583"));

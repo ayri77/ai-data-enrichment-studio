@@ -1,9 +1,11 @@
 """Configure approved live providers for Excel enrichment."""
 
 from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Literal, cast
 
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
+from ai_data_enrichment.execution.contracts import CapabilityHandler
 from ai_data_enrichment.execution.job_executor import JobExecutor
 from ai_data_enrichment.execution.job_models import JobExecutionPolicy
 from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
@@ -39,6 +41,21 @@ from ai_data_enrichment.resolution.models import ResolutionPolicy
 from ai_data_enrichment.resolution.other_name import OtherNameResolutionService
 from ai_data_enrichment.resolution.resume import OtherName, ResumeSelection
 from ai_data_enrichment.resolution.sqlite_cache import SQLiteResolutionCache
+
+# Where the values of each capability come from in a live run: the id of the
+# source that answers for it, or "local" for a calculation done in this
+# process. The executor is assembled from this table and a client is told the
+# same, so the two cannot disagree.
+LIVE_SOURCES: Mapping[str, str] = MappingProxyType(
+    {
+        "geocode": "open-meteo",
+        "geodesic_distance": "local",
+        "resolve_entity": "wikidata",
+        "lookup_property": "wikidata",
+        "ratio": "local",
+        "road_distance": ROUTING_PROVIDER,
+    }
+)
 
 
 def build_live_executor(
@@ -138,43 +155,28 @@ def build_live_executor(
         if isinstance(item, OtherName)
     }
 
-    providers.register(
-        capability_id="geocode",
-        provider_id="open-meteo",
-        handler=OpenMeteoGeocodingHandler(city_transport),
-    )
-    providers.register(
-        capability_id="geodesic_distance",
-        provider_id="local",
-        handler=GeodesicDistanceHandler(),
-    )
-    providers.register(
-        capability_id="resolve_entity",
-        provider_id="wikidata",
-        handler=WikidataMountainResolver(mountain_transport),
-    )
-    providers.register(
-        capability_id="lookup_property",
-        provider_id="wikidata",
-        handler=WikidataElevationHandler(mountain_transport),
-    )
-
+    handlers: dict[str, CapabilityHandler] = {
+        "geocode": OpenMeteoGeocodingHandler(city_transport),
+        "geodesic_distance": GeodesicDistanceHandler(),
+        "resolve_entity": WikidataMountainResolver(mountain_transport),
+        "lookup_property": WikidataElevationHandler(mountain_transport),
+    }
     if with_ratio:
-        providers.register(capability_id="ratio", provider_id="local", handler=RatioHandler())
+        handlers["ratio"] = RatioHandler()
     if routing_transport is not None:
+        handlers["road_distance"] = OpenRouteServiceDistanceHandler(routing_transport)
+    for capability, handler in handlers.items():
         providers.register(
-            capability_id="road_distance",
-            provider_id=ROUTING_PROVIDER,
-            handler=OpenRouteServiceDistanceHandler(routing_transport),
+            capability_id=capability,
+            provider_id=LIVE_SOURCES[capability],
+            handler=handler,
         )
 
+    absent = {"ratio": not with_ratio, "road_distance": not with_roads}
     selected = {
-        "geocode": "open-meteo",
-        "geodesic_distance": "local",
-        "resolve_entity": "wikidata",
-        "lookup_property": "wikidata",
-        **({"ratio": "local"} if with_ratio else {}),
-        **({"road_distance": ROUTING_PROVIDER} if with_roads else {}),
+        capability: source
+        for capability, source in LIVE_SOURCES.items()
+        if not absent.get(capability, False)
     }
 
     return JobExecutor(

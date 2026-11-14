@@ -64,6 +64,30 @@ export interface Sample {
     /** A prepared plan exists, so the example also works without the AI provider. */
     has_plan: boolean;
 }
+/** One value a capability takes or is set up with, as its contract states it. */
+export interface CapabilityField {
+    type: string;
+    required: boolean;
+    description: string;
+    /** The only values a parameter accepts, where it is restricted to some. */
+    allowed_values?: string[] | null;
+}
+/** One kind of step a plan may be built from on this server. */
+export interface Capability {
+    id: string;
+    version: string;
+    /** The description the planning model is shown, in English. */
+    description: string;
+    /** Where the values come from: a source id, or "local" for a calculation. */
+    source: string;
+    inputs: Record<string, CapabilityField>;
+    parameters: Record<string, CapabilityField>;
+    output: {
+        type: string;
+        description: string;
+        fields: Record<string, string>;
+    };
+}
 export interface AccessState {
     /** True on a hosted deployment that asks for a code. */
     required: boolean;
@@ -380,6 +404,8 @@ export interface RunLimits {
 }
 export const api = {
     limits: () => response<RunLimits>(call("/api/limits")),
+    capabilities: () =>
+        response<{ capabilities: Capability[] }>(call("/api/capabilities")),
     access: () =>
         response<AccessState>(call("/api/access", { cache: "no-store" })),
     /** The usage summary; opened by the admin code, not by a visitor's. */

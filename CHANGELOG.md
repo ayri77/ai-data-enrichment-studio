@@ -26,9 +26,18 @@
   plans, runs, rows, requests to the AI with tokens, requests to each source.
   Numbers and fixed words only; table contents, file names and task texts are
   never recorded.
-- The planning measurement of 0.1.0 was made with four capabilities and has to
-  be repeated for the new sets
-  ([road distance and ratio](docs/30-road-distance-and-ratio.md)).
+- **An overview page** opens first: what the system is, how a table is filled,
+  what to keep in mind, and the list of what a plan may be built from. The list
+  is the server's (`GET /api/capabilities`), so a capability added there is
+  listed without a change to the interface; Basic words each one plainly,
+  Advanced adds its contract exactly as the planning model is shown it and the
+  source that answers for it. The short "what it can do" list on the first step
+  and after a refused plan is the same list.
+- The planning measurement of 0.1.0 was made with four capabilities. With six
+  (a routing key set) it was repeated on 2026-11-14: 30 valid plans of 30 on
+  three tasks after one sentence was added to the planner's guidance
+  ([measurement](docs/26-live-planning-reliability.md)). The set of five, without
+  a routing key, was not measured.
 
 ## 0.1.0 — MVP (2026-11-13)
 

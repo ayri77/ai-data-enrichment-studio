@@ -14,6 +14,8 @@ test("trusted local settings → real SDK with injected response → validated d
         localStorage.setItem("enrichment.mode", "advanced"),
     );
     await page.goto("/");
+    // The page opens on the overview; the work begins one click later.
+    await page.getByRole("button", { name: "Start with my table" }).click();
     await page
         .getByLabel("Upload Excel workbook")
         .setInputFiles(resolve("../samples/capitals.xlsx"));

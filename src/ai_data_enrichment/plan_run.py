@@ -40,6 +40,7 @@ from ai_data_enrichment.plan_run_worker import (
     builtin_registry,
     execute_workbook,
     live_executor,
+    offered_descriptions,
 )
 from ai_data_enrichment.planning.llm_planner import (
     LLMPlanner,
@@ -564,6 +565,12 @@ class PlanRunService:
                 # What a plan may use here; a road distance only with its key.
                 "capabilities": sorted(spec.id for spec in builtin_registry().list_all()),
             }
+
+        @router.get("/capabilities")
+        async def capabilities():
+            # What a plan may be built from here, with each contract and source:
+            # the list a client shows instead of keeping one of its own.
+            return {"capabilities": offered_descriptions()}
 
         @router.post("/task-ideas")
         async def task_ideas(body: TaskIdeasRequest):

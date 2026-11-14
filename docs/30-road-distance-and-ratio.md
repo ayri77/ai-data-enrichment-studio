@@ -78,8 +78,10 @@ Read on 2026-11-13; the limits belong to the service and can change.
   holds them; the key travels in a header of the routing transport only. Routes
   are kept for later runs of the same plan like other lookups
   (`RESULT_REUSE_SECONDS`).
-- `GET /api/limits` lists the ids of the offered capabilities; the interface
-  names a road distance among what it can do only when it is listed.
+- `GET /api/limits` lists the ids of the offered capabilities and
+  `GET /api/capabilities` their contracts and sources; the interface names a
+  road distance among what it can do only when it is listed
+  ([overview page](24-five-workspace-ui.md#overview-page)).
 
 ### Failures a row can end with
 
