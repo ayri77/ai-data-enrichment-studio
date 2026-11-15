@@ -38,8 +38,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
+
+from ai_data_enrichment.providers.web_lookup import (
+    api_citations,
+    claimed_not_reported,
+    tokens,
+)
 
 # Prices read from https://developers.openai.com/api/docs/pricing on 2026-11-15
 # (gpt-6-luna, standard tier; web search $10.00 per 1k calls; search content tokens are
@@ -220,47 +225,6 @@ def parse_reply(text: str, settings: Settings) -> tuple[dict[str, Any] | None, l
     return (None if problems else data), problems
 
 
-def normalize_url(url: str) -> str:
-    """Compare links without the parts that do not change the page."""
-    parts = urlsplit(url.strip())
-    host = parts.netloc.lower().removeprefix("www.")
-    query = urlencode(
-        [(k, v) for k, v in parse_qsl(parts.query) if not k.lower().startswith("utm_")]
-    )
-    return urlunsplit((parts.scheme.lower(), host, parts.path.rstrip("/"), query, ""))
-
-
-def api_citations(response: Any) -> dict[str, Any]:
-    """What the API itself reported: url_citation annotations, search sources, search calls."""
-    annotations: list[str] = []
-    sources: list[str] = []
-    searches = 0
-    for item in getattr(response, "output", None) or []:
-        kind = getattr(item, "type", None)
-        if kind == "web_search_call":
-            searches += 1
-            for source in getattr(getattr(item, "action", None), "sources", None) or []:
-                url = getattr(source, "url", None)
-                if isinstance(url, str):
-                    sources.append(url)
-        elif kind == "message":
-            for part in getattr(item, "content", None) or []:
-                for note in getattr(part, "annotations", None) or []:
-                    url = getattr(note, "url", None)
-                    if getattr(note, "type", None) == "url_citation" and isinstance(url, str):
-                        annotations.append(url)
-    return {
-        "annotation_urls": list(dict.fromkeys(annotations)),
-        "source_urls": list(dict.fromkeys(sources)),
-        "search_calls": searches,
-    }
-
-
-def claimed_not_reported(claimed: Sequence[str], reported: Sequence[str]) -> list[str]:
-    known = {normalize_url(url) for url in reported}
-    return [url for url in claimed if normalize_url(url) not in known]
-
-
 # --- Comparison and cost -------------------------------------------------------------
 
 
@@ -316,16 +280,6 @@ def redact(text: str, secret: str | None) -> str:
     if secret:
         text = text.replace(secret, "[key]")
     return re.sub(r"sk-[A-Za-z0-9_\-*.]+", "[key]", text)[:300]
-
-
-def tokens(response: Any) -> tuple[int, int]:
-    usage = getattr(response, "usage", None)
-    values = []
-    for name in ("input_tokens", "output_tokens"):
-        reported = getattr(usage, name, None)
-        ok = isinstance(reported, int) and not isinstance(reported, bool)
-        values.append(reported if ok else 0)
-    return values[0], values[1]
 
 
 def run_row(
