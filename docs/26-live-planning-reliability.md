@@ -304,13 +304,13 @@ The "fill the gaps" example (`mountains_gaps`: the Mountains table with four hei
 uv run --env-file .env python -m scripts.experiment_planner --case mountains_gaps --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets height
 ```
 
-Latitude and longitude of a city in two new columns of the Capitals table (`capitals_coordinates`, one `geocode` step with two outputs, which is not an example of the demo) is a case of its own and has not been measured either:
+Latitude and longitude of a city in two new columns of the Capitals table (`capitals_coordinates`, one `geocode` step with two outputs, which is not an example of the demo) is a case of its own (measured on 2026-11-15, see "Field outputs of `geocode`"):
 
 ```
 uv run --env-file .env python -m scripts.experiment_planner --case capitals_coordinates --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets latitude,longitude
 ```
 
-The population of a city in one new column of the Capitals table (`capitals_population`, one `geocode` step with one output; also not an example of the demo) is the case for the facts of a found place. It has not been measured:
+The population of a city in one new column of the Capitals table (`capitals_population`, one `geocode` step with one output; also not an example of the demo) is the case for the facts of a found place (measured on 2026-11-15, see "Field outputs of `geocode`"):
 
 ```
 uv run --env-file .env python -m scripts.experiment_planner --case capitals_population --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets population
@@ -401,6 +401,23 @@ number on how rare an abstention now is.
 **Not measured:** the set of five capabilities that an installation without a routing
 key offers. A hosted demo should therefore either be given the routing key, so that it
 offers the measured six, or be measured without the key first.
+
+### Field outputs of `geocode` (2026-11-15)
+
+Two changes on this day altered the contract of `geocode` that every plan request carries: its output declared `latitude` and `longitude` (version 1.1), then `population` and `timezone` with a longer description (version 1.2). The owner measured after each, `gpt-6-luna` at effort `low`, six capabilities offered, ten requests per case, no repair attempts in any run.
+
+| Case | Output targets | After latitude/longitude (on `main`) | After population/timezone (branch `feat/city-facts`) |
+| --- | --- | --- | --- |
+| `capitals` | default | 10 / 10, median 4.05 s | 10 / 10 |
+| `mountains` | default | 10 / 10, median 3.17 s | 10 / 10 |
+| `capitals_roads` | `distance,road,detour` | 10 / 10, median 5.55 s | 10 / 10 |
+| `mountains_gaps` | `height` | 10 / 10, median 2.33 s | 10 / 10 |
+| `capitals_coordinates` | `latitude,longitude` | 10 / 10, median 2.11 s | 10 / 10 |
+| `capitals_population` | `population` | — (case added later) | 10 / 10 |
+
+The first column is from the script's output; for the second the owner reported the counts, and the timings were not recorded here. Before both changes `mountains_gaps` had also given 10 / 10 (the instruction that asks to fill only the missing values and keep the others).
+
+What this shows and what it does not: the planner returns a valid plan for these six tasks with the changed contract, without guidance about fields. The script counts valid plans; it does not compare a plan with an expected one, so it would not notice a valid plan that takes a different route. That is why the elevation of a place record is not offered as a field (it would be a second, shorter route to "elevation of a mountain").
 
 ### Where models are described
 

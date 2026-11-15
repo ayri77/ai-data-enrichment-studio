@@ -12,10 +12,12 @@ table; after you approve it, ordinary Python code looks the values up in open
 sources and writes them into a copy of your file. A value the sources cannot
 confirm is left empty and explained, not invented.
 
-> **Status: beta (0.2.0).** The sample tasks run end to end in the browser. The
+> **Status: beta (0.3.0).** The sample tasks run end to end in the browser. The
 > scope is deliberately small — see [What it can do](#what-it-can-do) and
 > [Limits](#limits). What changed since the first release:
 > [changelog](CHANGELOG.md).
+
+Для менторів курсу: [коротка сторінка українською](docs/for-mentors.uk.md) — що вимагалося, що зроблено і як перевірити.
 
 ![Overview: what the system is and what a plan may be built from](docs/screenshots/release/overview.png)
 
@@ -35,7 +37,8 @@ came from.
 
 | Task | What happens |
 | --- | --- |
-| Coordinates of a city | The city is looked up in Open-Meteo's geocoding service, within the country given in the row |
+| Coordinates of a city | The city is looked up in Open-Meteo's geocoding service, within the country given in the row; latitude and longitude can go into two columns |
+| Population or timezone of a city | Read from the same geocoding record as the coordinates. The figures are the source's own and can be old |
 | Distance between two cities | Both cities are found, then the straight-line distance is calculated |
 | Elevation of a mountain | The mountain is found in Wikidata and its elevation is read from the record |
 | Driving distance between two cities (optional) | Both cities are found, then openrouteservice computes the car route on OpenStreetMap data. Needs a free routing key; see [road distance and ratio](docs/30-road-distance-and-ratio.md) |
@@ -43,6 +46,9 @@ came from.
 A plan can combine these and fill several columns at once, for example the
 straight-line distance, the distance by road and how many times longer the road
 is (the ratio of two calculated values is an operation of its own).
+
+A partly filled column can be completed: rows that already have their values
+are kept and not looked up again.
 
 The application itself lists what a plan may be built from: the overview page
 reads the list from the server, so it is always the list of this installation.
