@@ -188,6 +188,9 @@ Avoid comments that merely repeat the next statement.
 - `uv run --locked python -m scripts.benchmark_m3_excel --rows 1000`:
   offline pipeline performance and consistency, **not** live performance or
   factual accuracy.
+- `uv run --env-file .env python -m scripts.experiment_web_lookup ...`: a live probe of
+  web-search lookup per row, outside the application; see
+  [the probe note](31-universal-lookup-probe.md).
 - [Live planning reliability](26-live-planning-reliability.md): how planning
   was measured and how to repeat it with another model.
 
