@@ -131,12 +131,22 @@ export function PlanDescription({
                         ))}
                         {line.writes.map((write) => (
                             <span className="plan-step-writes" key={write.name}>
-                                {t(
-                                    write.unit
-                                        ? "plan.writesUnit"
-                                        : "plan.writes",
-                                    { ...write },
-                                )}
+                                {write.field
+                                    ? t("plan.writesField", {
+                                          ...write,
+                                          field: t(
+                                              `plan.field.${write.field}`,
+                                              {
+                                                  defaultValue: write.field,
+                                              },
+                                          ),
+                                      })
+                                    : t(
+                                          write.unit
+                                              ? "plan.writesUnit"
+                                              : "plan.writes",
+                                          { ...write },
+                                      )}
                             </span>
                         ))}
                         {outcomes?.get(line.id) && (

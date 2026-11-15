@@ -8,6 +8,10 @@ The three-column case mirrors the interface when the output targets are stated:
 
     ... --case capitals_roads --output-targets distance,road,detour
 
+Latitude and longitude of a city in two new columns of the Capitals table:
+
+    ... --case capitals_coordinates --output-targets latitude,longitude
+
 The partly filled table (empty cells are filled, the others kept):
 
     ... --case mountains_gaps --output-targets height --repeat 10
@@ -34,6 +38,7 @@ from uuid import uuid4
 
 from openai import OpenAI
 from tests.support.planning import (
+    CAPITALS_COORDINATES_INSTRUCTION,
     CAPITALS_INSTRUCTION,
     CAPITALS_ROADS_INSTRUCTION,
     MOUNTAINS_GAPS_INSTRUCTION,
@@ -56,6 +61,8 @@ INSTRUCTIONS = {
     "mountains_gaps": MOUNTAINS_GAPS_INSTRUCTION,
     # Five steps and three columns; needs a routing key in the environment.
     "capitals_roads": CAPITALS_ROADS_INSTRUCTION,
+    # One geocode step written into two new columns; the Capitals table, no routing key.
+    "capitals_coordinates": CAPITALS_COORDINATES_INSTRUCTION,
 }
 
 

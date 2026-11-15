@@ -6,6 +6,7 @@ import {
     filterRows,
     formatValue,
     inputColumns,
+    outputColumns,
     resultRows,
     sortRows,
 } from "./resultsModel";
@@ -262,6 +263,35 @@ it("summarizes numeric columns and formats values for reading", () => {
     expect(formatValue(2023.7941796667708, "en", "km")).toBe("2,023.79 km");
     expect(formatValue(2023.7941796667708, "de", "km")).toBe("2.023,79 km");
     expect(formatValue(undefined, "en", "km")).toBe("—");
+    // A coordinate is shown with five decimals; other numbers keep two.
+    expect(formatValue(51.50853, "en", undefined, 5)).toBe("51.50853");
+    expect(formatValue(-0.12574, "de", undefined, 5)).toBe("-0,12574");
+    expect(formatValue(51.50853, "en")).toBe("51.51");
+    expect(
+        outputColumns({
+            version: "1.0",
+            steps: [],
+            outputs: [
+                { step_id: "c", value_field: "latitude", target_column: "lat" },
+                {
+                    step_id: "c",
+                    value_field: "longitude",
+                    target_column: "lon",
+                },
+                {
+                    step_id: "d",
+                    value_field: "value",
+                    target_column: "km",
+                    expected_unit: "km",
+                },
+            ],
+            assumptions: [],
+        } as EnrichmentPlan),
+    ).toEqual([
+        { key: "lat", label: "lat", unit: undefined, digits: 5 },
+        { key: "lon", label: "lon", unit: undefined, digits: 5 },
+        { key: "km", label: "km", unit: "km" },
+    ]);
     expect(formatValue("Kyiv", "en")).toBe("Kyiv");
     expect(describeValue({ latitude: 50.4547, longitude: 30.5238 }, "en")).toBe(
         "50.4547, 30.5238",

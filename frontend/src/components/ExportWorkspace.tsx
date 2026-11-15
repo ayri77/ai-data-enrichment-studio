@@ -241,7 +241,7 @@ function Stats({
             {columns.map((column) => {
                 const stats = columnStats(rows, column.key);
                 const number = (value: number) =>
-                    formatValue(value, locale, column.unit);
+                    formatValue(value, locale, column.unit, column.digits);
                 return (
                     <li key={column.key}>
                         <strong>{column.label}</strong>
@@ -427,6 +427,7 @@ function ResultTable({ w }: { w: Workflow }) {
                                                                           value,
                                                                           locale,
                                                                           column.unit,
+                                                                          column.digits,
                                                                       ),
                                                                   },
                                                               )
@@ -449,6 +450,7 @@ function ResultTable({ w }: { w: Workflow }) {
                                                     value,
                                                     locale,
                                                     column.unit,
+                                                    column.digits,
                                                 )}
                                             </td>
                                         );

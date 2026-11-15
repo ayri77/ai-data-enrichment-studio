@@ -303,6 +303,14 @@ The "fill the gaps" example (`mountains_gaps`: the Mountains table with four hei
 ```
 uv run --env-file .env python -m scripts.experiment_planner --case mountains_gaps --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets height
 ```
+
+Latitude and longitude of a city in two new columns of the Capitals table (`capitals_coordinates`, one `geocode` step with two outputs, which is not an example of the demo) is a case of its own and has not been measured either:
+
+```
+uv run --env-file .env python -m scripts.experiment_planner --case capitals_coordinates --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets latitude,longitude
+```
+
+**After the change that declared the fields of `geocode`'s output (`latitude`, `longitude`), all planning cases must be measured again, not only this one.** Every plan request carries the capability contracts, so every request now carries the changed `geocode` contract; the results above were measured on the earlier one and do not cover it.
  Acceptance, the same bar the default
 model met: 10 of 10 valid plans on both tasks, no request over 30 s, no `incomplete`
 responses.

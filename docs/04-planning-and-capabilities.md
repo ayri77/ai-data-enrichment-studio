@@ -297,6 +297,8 @@ A GeoPoint contains:
 
 The initial coordinate reference system is WGS84.
 
+The contract declares two output fields, `latitude` and `longitude`, both numbers in decimal degrees. An output mapping may name either of them as its `value_field`, so one `geocode` step can fill two columns (`latitude` into one, `longitude` into the other) from a single lookup. A GeoPoint as a whole cannot be written to a column, and no other field name is accepted (`UNKNOWN_OUTPUT_FIELD`). The coordinates are those of the place the source matched; nothing checks them against a second source. A row whose city is not found, or still waits for a choice in Review, leaves both cells empty.
+
 Ambiguous or unsuccessful lookups must produce explicit operation outcomes rather than arbitrary default coordinates.
 
 ### 4.4 `geodesic_distance`
@@ -473,7 +475,7 @@ Conceptual structure:
 }
 ```
 
-For a Quantity result, `value_field: "value"` selects its numeric component.
+For a Quantity result, `value_field: "value"` selects its numeric component. For a GeoPoint result, `value_field` is `latitude` or `longitude`.
 
 The selected field must exist in the output contract and be compatible with the destination column.
 
