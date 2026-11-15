@@ -394,6 +394,8 @@ it("uses exact source/mapping, validates and explicitly approves before a separa
         mountain_resolution_policy: "verified_only",
         // Default: a cell that already holds a value is kept.
         existing_outputs: "keep",
+        // Default: the workbook does not say where the values came from.
+        sources_in_workbook: "none",
     });
     expect(api.approvePlan).not.toHaveBeenCalled();
     expect(api.startRun).not.toHaveBeenCalled();
@@ -1264,6 +1266,27 @@ it("says before the run that the chosen column already has values, and asks what
     await userEvent.click(button("ws.buildPlan"));
     expect(api.createPlan).toHaveBeenCalledWith(
         expect.objectContaining({ existing_outputs: "replace" }),
+    );
+});
+
+it("offers the choice of sources in the workbook in Basic and sends the one chosen", async () => {
+    localStorage.removeItem("enrichment.mode");
+    render(<App opening="dataset" />);
+    await prepareBasic();
+    const choice = within(screen.getByTestId("sources-in-workbook"));
+    const select = choice.getByRole("combobox");
+    // Three options, "none" first and chosen.
+    expect(
+        within(select)
+            .getAllByRole("option")
+            .map((option) => option.getAttribute("value")),
+    ).toEqual(["none", "notes", "sheet"]);
+    expect(select).toHaveValue("none");
+    expect(screen.getByText(i18n.t("sources.hint"))).toBeVisible();
+    await userEvent.selectOptions(select, "sheet");
+    await userEvent.click(button("ws.buildPlan"));
+    expect(api.createPlan).toHaveBeenCalledWith(
+        expect.objectContaining({ sources_in_workbook: "sheet" }),
     );
 });
 

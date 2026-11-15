@@ -2,7 +2,16 @@
 
 ## Unreleased
 
-Nothing yet.
+- The kind of trust behind a value is now shown instead of staying in the code:
+  `GET /api/capabilities` gains `trust` (`computed`, `record`, `resolved_name`,
+  `service`) beside `source`, and the audit report gains `step_provenance`
+  (capability, source and trust of each step) and `sources_in_workbook`. Results
+  says under each output column how its values were obtained, and the overview
+  words each capability from `trust` and its source; a kind this interface does
+  not know is shown as its source. A new request field `sources_in_workbook`
+  (`none`, the default; `notes`; `sheet`) makes the result workbook say where each
+  written value came from, in a note on the cell or on an added `Sources` sheet.
+  The planner is not shown `trust`. The note and sheet texts are English only.
 
 ## 0.3.0 — beta (2026-11-15)
 

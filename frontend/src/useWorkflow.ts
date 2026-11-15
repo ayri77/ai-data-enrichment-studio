@@ -11,6 +11,7 @@ import {
     type ProviderReadiness,
     type Review,
     type Sample,
+    type SourcesInWorkbook,
 } from "./api";
 import { columnLetter, parseRange } from "./range";
 import { DEMO_LIMITS, type Limits } from "./useLimits";
@@ -114,6 +115,9 @@ export function useWorkflow(
     const [existingOutputs, setExistingOutputs] = useState<"keep" | "replace">(
         "keep",
     );
+    // Whether the result workbook says where each written value came from.
+    const [sourcesInWorkbook, setSourcesInWorkbook] =
+        useState<SourcesInWorkbook>("none");
     // How many rows of the table one run fills: its first rows, as many as a
     // run accepts unless the person asks for fewer. The table itself may be
     // far longer; looking through it is not limited by this.
@@ -365,6 +369,7 @@ export function useWorkflow(
             allow_network: consent,
             mountain_resolution_policy: policy,
             existing_outputs: existingOutputs,
+            sources_in_workbook: sourcesInWorkbook,
             ...(supplied === undefined ? {} : { plan: supplied }),
         });
         if (mounted.current && revision === generation.current) {
@@ -625,6 +630,8 @@ export function useWorkflow(
         setPolicy,
         existingOutputs,
         setExistingOutputs,
+        sourcesInWorkbook,
+        setSourcesInWorkbook,
         runCount,
         setRunCount,
         /** Worksheet row of the last row the run takes; null when not valid. */

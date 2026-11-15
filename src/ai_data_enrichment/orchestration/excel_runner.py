@@ -1,5 +1,6 @@
 """Coordinate a validated Excel enrichment workflow."""
 
+import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, time
@@ -29,6 +30,11 @@ from ai_data_enrichment.output.excel_output_mapping import (
 from ai_data_enrichment.output.excel_writer import (
     validate_excel_targets,
     write_excel_cells,
+)
+from ai_data_enrichment.output.provenance import (
+    SourcesMode,
+    annotate_workbook,
+    build_cell_provenance,
 )
 from ai_data_enrichment.validation.plan_validator import (
     PlanValidationPolicy,
@@ -63,6 +69,10 @@ class ExcelEnrichmentResult:
     # value that is kept: for each, those cells with the value they hold. No
     # step ran for them and no source was asked.
     skipped_records: Mapping[str, Mapping[str, str | float | bool]] = MappingProxyType({})
+    # Whether the notes or the sheet asked for were added to the workbook. True
+    # when none was asked for; False when adding them failed and the workbook
+    # holds the values only.
+    sources_applied: bool = True
 
 
 class ExcelEnrichmentRunner:
@@ -97,6 +107,7 @@ class ExcelEnrichmentRunner:
         job_id: str | None = None,
         preserve_existing_outputs: bool = False,
         replace_existing_outputs: bool = False,
+        sources_in_workbook: SourcesMode = "none",
         on_record_done: Callable[[int, int], None] | None = None,
         on_row_result: Callable[[RowExecutionResult], None] | None = None,
     ) -> ExcelEnrichmentResult:
@@ -117,6 +128,12 @@ class ExcelEnrichmentRunner:
         with even one empty target cell is executed completely. Nothing is
         skipped when values may be replaced, or when existing values are not
         tolerated.
+
+        ``sources_in_workbook`` ``"notes"`` or ``"sheet"`` adds, once the values
+        are written, a cell note on each cell this run wrote or a worksheet
+        listing them (``output.provenance``). Kept cells and skipped rows are not
+        described. If adding them fails, the error is logged, the workbook stays
+        as it was written and ``sources_applied`` is False; the run does not fail.
         """
         if replace_existing_outputs and not preserve_existing_outputs:
             raise ValueError("Replacing existing outputs requires tolerating them.")
@@ -266,10 +283,38 @@ class ExcelEnrichmentRunner:
             replace=tuple(replaced),
         )
 
+        sources_applied = True
+        if sources_in_workbook != "none":
+            try:
+                annotate_workbook(
+                    output_path,
+                    sheet_name=selection.sheet_name,
+                    mode=sources_in_workbook,
+                    entries=build_cell_provenance(
+                        plan,
+                        job_result,
+                        row_by_record_id={
+                            record_id: row
+                            for record_id, row in batch.row_by_record_id.items()
+                            if record_id not in skipped
+                        },
+                        output_columns=output_columns,
+                        written={
+                            cell: value for cell, value in value_writes.items() if cell not in kept
+                        },
+                    ),
+                )
+            except Exception:
+                # The values are already in the workbook and are what the run is
+                # for; the failure is logged and stated in the audit.
+                logging.getLogger(__name__).exception("Adding sources to the workbook failed")
+                sources_applied = False
+
         return ExcelEnrichmentResult(
             output_path=output_path,
             job_result=job_result,
             preserved_cells=tuple(sorted(kept)),
             replaced_cells=MappingProxyType(dict(sorted(replaced.items()))),
             skipped_records=MappingProxyType(skipped),
+            sources_applied=sources_applied,
         )

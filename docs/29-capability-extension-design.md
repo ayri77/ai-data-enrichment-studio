@@ -80,7 +80,16 @@ outputs":
 4. **Kind of trust** — *computed* (deterministic, nothing to verify), *read
    from an identified record*, or *resolved from a name* (candidates, a
    verification rule, a policy for accepting one). Today implicit in which
-   dictionary an id appears in.
+   dictionary an id appears in. *Update:* the binding's `Trust` is now shown.
+   `GET /api/capabilities` carries `trust` beside `source`, the audit report lists
+   capability, source and trust once per step (`step_provenance`), Results and
+   the overview word it from `trust` and the source's name
+   (`provenance.<trust>` in the locale files), and the result workbook can carry
+   it in cell notes or a `Sources` sheet. The planner is not shown it. Still
+   worded by hand: the four sentences themselves, one per known kind, in three
+   languages, and the English words of the workbook notes; a new kind of trust
+   needs a sentence in each locale file. The interface does not break on a kind
+   it does not know: it falls back to the source's name.
 5. **Review** — for a resolved name: which input is the name, which is its
    context, whether a user may choose a candidate, whether it may be searched
    under another name, how a chosen entity is verified again.

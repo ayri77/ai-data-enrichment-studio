@@ -74,7 +74,7 @@ provide the dataset ID and actual worksheet/range; the range includes headers.
 
 | Action | Route | Behavior |
 | --- | --- | --- |
-| What a plan may use | `GET /api/capabilities` | Every capability registered on this installation, in the order the planner is shown them: its contract (`id`, `version`, `description`, `inputs`, `parameters`, `output`) and `source` — the id of the source its values come from, or `local` for a calculation. `GET /api/limits` carries the same ids with the bounds of one run |
+| What a plan may use | `GET /api/capabilities` | Every capability registered on this installation, in the order the planner is shown them: its contract (`id`, `version`, `description`, `inputs`, `parameters`, `output`), `source` — the id of the source its values come from, or `local` for a calculation — and `trust`, the kind of trust behind its values as a lowercase word: `computed` (calculated here), `record` (read from an identified record of the source), `resolved_name` (a name matched to a record of the source) or `service` (calculated by an outside service, with no record to check it against). `source` and `trust` are not part of the contract the planner is shown; a client must treat a `trust` it does not know as "unknown kind". `GET /api/limits` carries the same ids with the bounds of one run |
 | Task ideas from the model | `POST /api/task-ideas` | 200; up to three tasks that could be asked for with the selected table, in the language asked for; plans and writes nothing |
 | Create draft | `POST /api/plans` | 201; generate with `LLMPlanner`, or validate a supplied `plan` |
 | Read draft | `GET /api/plans/{plan_id}` | Plan JSON, binding, fingerprint, decision and validation |
@@ -236,6 +236,65 @@ each cell holds (a number, a flag or text; a formula is recorded as its text).
 
 Limit: a run takes the first `N` rows of the table (`MAX_RUN_ROWS`), and skipped
 rows count against `N`.
+
+### Where each value came from
+
+**In the audit.** The report gains two top-level fields, both additive. They are
+written by the run worker, so they are present only for a run that finished
+(`completed` or `needs_review`); a failed, cancelled or timed-out job has neither.
+
+`step_provenance` states, once per step of the approved plan and in plan order
+(not per row), what the step is and what stands behind its values. `source` and
+`trust` are those of the capability's binding (`capabilities/bindings.py`), the
+same values `GET /api/capabilities` gives; the evidence of each value (`Evidence`
+in `execution.records`) is unchanged.
+
+```json
+"step_provenance": [
+  {"step_id": "find", "capability": "resolve_entity", "source": "wikidata", "trust": "resolved_name"},
+  {"step_id": "height", "capability": "lookup_property", "source": "wikidata", "trust": "record"}
+],
+"sources_in_workbook": {"mode": "sheet", "applied": true}
+```
+
+`sources_in_workbook` says which choice the run had (`mode`, below) and whether
+the workbook got it (`applied`: `true` when `mode` is `none` too; `false` when
+adding the notes or the sheet failed). The choice is also in `approved_plan`.
+
+**In the workbook (optional).** The plan request takes `sources_in_workbook`:
+`none` (the default, also for plans made before the option existed), `notes` or
+`sheet`; any other value is a 422. Like `existing_outputs` it is part of the
+approved plan, so it is covered by the fingerprint and carried into a resume.
+`none` writes the workbook exactly as before.
+
+- `notes`: every cell this run wrote gets a cell note (an Excel comment, author
+  "AI Data Enrichment Studio") with three lines: `Source:` the source's readable
+  name (or its id where there is no name; `calculated here` for a local
+  calculation), `Reference:` the references of the value's evidence (omitted
+  where there is none), and `Kind of trust:` in words, for example "a name matched
+  to a record of the source". An earlier note on a cell the run writes is
+  **replaced**; this happens only in this mode.
+- `sheet`: a worksheet `Sources` is added after the user's sheets (`Sources (2)`,
+  `Sources (3)` and so on where the name is taken, compared without regard to
+  case) with a header row and one row per written cell, in sheet order: `Sheet`,
+  `Cell`, `Column` (the output's header), `Value`, `Capability`, `Source`,
+  `Reference`, `Kind of trust`. The user's own sheets, their notes included, are
+  not altered beyond the written cells.
+
+Only cells this run wrote are described. A kept cell (it already held a value), a
+row that was skipped, a cell left empty because the step failed or the source has
+no value, and the header cells get nothing. The texts are English; they are not
+localized, because a workbook is a file that gets passed on. Limits: the note and
+the sheet say what the audit says, for the cell as written; a value that the
+source returned and the run could not write is not in them. A value a person
+types over later is no longer described by its note.
+
+**Failure.** The notes and the sheet are added in a separate step after the values
+are written. If that step fails (for example the workbook cannot be saved again),
+the run does not fail: the workbook holds the values without notes or sheet, the
+exception is logged on the server, and the audit says `"applied": false`. The
+failed step is never half done: the workbook is replaced only by a complete,
+reopened file.
 
 ## Review and resume
 

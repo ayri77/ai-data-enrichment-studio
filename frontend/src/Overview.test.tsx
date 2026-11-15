@@ -29,6 +29,7 @@ const geocode: Capability = {
     version: "1.1",
     description: "Resolve geographical coordinates",
     source: "open-meteo",
+    trust: "resolved_name",
     inputs: {
         city: { type: "Text", required: true, description: "City name" },
         administrative_area: {
@@ -56,6 +57,7 @@ const ratio: Capability = {
     version: "1.0",
     description: "Divide one quantity by another quantity of the same unit.",
     source: "local",
+    trust: "computed",
     inputs: {
         numerator: {
             type: "Quantity",
@@ -76,6 +78,8 @@ const added: Capability = {
     version: "0.1",
     description: "Read the exchange rate of a currency on a date.",
     source: "ecb",
+    // A kind of trust this interface has no wording for.
+    trust: "found_on_the_web",
     inputs: {},
     parameters: {},
     output: { type: "Number", description: "Rate", fields: {} },
@@ -119,9 +123,13 @@ it("opens on the overview and lists what the server offers, in plain words", asy
     expect(city.getByText(i18n.t("cap.geocode.title"))).toBeVisible();
     expect(city.getByText(i18n.t("cap.geocode.text"))).toBeVisible();
     expect(
-        city.getByText(i18n.t("overview.source", { source: "Open-Meteo" })),
+        city.getByText(
+            i18n.t("provenance.resolved_name", { source: "Open-Meteo" }),
+        ),
     ).toBeVisible();
-    expect(card("ratio").getByText(i18n.t("overview.computed"))).toBeVisible();
+    expect(
+        card("ratio").getByText(i18n.t("provenance.computed")),
+    ).toBeVisible();
     // A capability without wording here is still listed, as the server says it.
     const unknown = card("currency_rate");
     expect(unknown.getByText("Currency rate")).toBeVisible();

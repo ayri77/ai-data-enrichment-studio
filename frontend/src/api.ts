@@ -80,6 +80,11 @@ export interface Capability {
     description: string;
     /** Where the values come from: a source id, or "local" for a calculation. */
     source: string;
+    /**
+     * What stands behind the values: "computed", "record", "resolved_name" or
+     * "service". A later server may say more; absent from an older one.
+     */
+    trust?: string;
     inputs: Record<string, CapabilityField>;
     parameters: Record<string, CapabilityField>;
     output: {
@@ -196,6 +201,8 @@ export interface Validation {
     contract_valid?: boolean;
     errors: { code: string; message: string; step_id?: string | null }[];
 }
+/** Nothing, a note on each written cell, or an added worksheet. */
+export type SourcesInWorkbook = "none" | "notes" | "sheet";
 export interface PlanRequest {
     dataset_id: string;
     sheet_name: string;
@@ -206,6 +213,8 @@ export interface PlanRequest {
     mountain_resolution_policy: "strict" | "verified_only";
     /** What a run does with an output cell that already holds a value. */
     existing_outputs?: "keep" | "replace";
+    /** Whether the result workbook says where each written value came from. */
+    sources_in_workbook?: SourcesInWorkbook;
     plan?: EnrichmentPlan;
 }
 export interface PlanDraft extends Omit<PlanRequest, "allow_network" | "plan"> {
