@@ -189,3 +189,33 @@ Stated as questions; the probe does not predict the answers.
   could have steered the model (prompt injection through search results).
 - Stability: each row is asked once. Repeating the run shows the spread; one run does
   not.
+
+## First run (2026-11-15, by the owner)
+
+One run of the mountains probe: `gpt-6-luna`, effort `low`, `search_context_size` low, answer requested as a JSON schema, search required, at most three tool calls per request. One run of fifteen rows is an observation, not a measurement.
+
+| What | Result |
+| --- | --- |
+| Requests accepted with web search and a JSON-schema answer together | 15 of 15 (no HTTP 400, no shape failure, no transport error) |
+| Ten real mountains | 9 answered, all 9 within tolerance; 1 left empty |
+| Five invented names | 5 of 5 left empty, each with a reason; no value was made up |
+| Rows with citations reported by the API | 15 of 15 (20 to 38 source URLs per row) |
+| Rows naming a source the API did not report | 1 (see below) |
+| Search calls | 17, 1.13 per row |
+| Tokens | 136,979 in (about 9,100 per row), 2,998 out |
+| Time | 83 s in total, about 5.5 s per row, one request at a time |
+| Estimated cost | 0.185 USD, about 1.2 cents per row; the search fee is 0.17 of it |
+
+What the rows show:
+
+- Eight of the nine answers equal the expected value exactly; Everest came back as 8848.86 against an expected 8849. Each answer carried a quote containing the number.
+- **Nanga Parbat came back as 8126 m**, with a quote, against 8215 in the committed check file `samples/check/mountains_enriched.xlsx`. The two differ by about 1 %, so the default tolerance of 10 % counted a match. The check file's value is therefore in doubt; what the verified path (Wikidata) returns for this mountain has to be looked at before either is called right.
+- **Makalu was left empty on purpose**: the model reported that two official sources give 8,485 m and 8,463 m and set `confident` to false. This is the instructed behaviour, and it is the kind of row the design sends to Review.
+- The one "source the API did not report" is a link with percent-encoded non-Latin characters on the Makalu row. Whether the model altered the address or the two differ only in encoding was not examined.
+
+What this answers, and what it does not:
+
+- The request shape works on this model: web search and a schema-shaped answer in one request, with citations.
+- On this task the model declined to answer where it should have. Famous mountains are an easy case; nothing here says how it behaves on obscure objects, on text answers, or on names that resemble real ones more closely.
+- Cost and time are dominated by the search call and by about nine thousand input tokens of search content per row. At one request at a time, twenty rows take about two minutes, which is close to the default time limit of a run.
+- The estimate assumes the search content is inside the reported input tokens; it has not been compared with the provider's bill.
