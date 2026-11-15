@@ -23,12 +23,29 @@ The application opens on **Overview**, the first entry of the navigation and not
 
 **The list is the server's.** `GET /api/capabilities` returns every capability registered on this installation — the same registry the planner is shown and the validator checks against (`plan_run_worker.offered_descriptions`) — with its contract and the id of its source (from the capability's binding in `capabilities/bindings.py`, the table the executor is assembled from). A capability added to the registry is therefore listed without a change to the interface, and one that is not offered here (a road distance without its key) is not listed.
 
-- **Basic** shows each capability as a title, one or two sentences and its source in words. The wording is the interface's own (`cap.<id>.title`, `cap.<id>.text`, `source.<id>` in the three locale files). A capability without wording is still listed: under its id made readable ("currency_rate" → "Currency rate"), with the server's English description and the source id.
+- **Basic** shows each capability as a title, one or two sentences and one line on how its values are obtained, worded from the server's `trust` and its source (see "How a value was obtained" below). The wording is the interface's own (`cap.<id>.title`, `cap.<id>.text`, `source.<id>` in the three locale files). A capability without wording is still listed: under its id made readable ("currency_rate" → "Currency rate"), with the server's English description and the source id.
 - **Advanced** adds the contract exactly as the planning model is shown it: id, version and source id, the description, every input and parameter with its type or accepted values and whether it is required, and the output with its fields. Nothing is reworded, so what is read there is what a plan is validated against.
 - The short list on the empty Dataset step and after a refused plan (`components/CanDo.tsx`) is generated from the same answer; until it arrives, and on a server that does not give it, the ids from `GET /api/limits` are used.
 - The line next to **Build plan** in Basic that says where the names are looked up takes the source names from the same list, so it names the routing service where a road distance is offered.
 
 Limits. The list says what a plan may be built *from*, not which tasks will succeed: whether a task can be planned is still decided by the planner and the validator. The plain wording of the six capabilities is written by hand and can drift from a contract that changes; the Advanced view cannot. Translating the descriptions of future capabilities needs either wording added to the locale files or wording that arrives with the capability ([plug-in design](29-capability-extension-design.md), point 7).
+
+## How a value was obtained
+
+`GET /api/capabilities` gives each capability its source and its kind of trust (`trust`); the interface words them in `provenanceLabel` (`capabilities.ts`), with the texts `provenance.<trust>` and the source names `source.<id>` in the three locale files:
+
+| `trust`         | English wording                                                |
+| --------------- | -------------------------------------------------------------- |
+| `computed`      | Calculated here from other values of the row                   |
+| `record`        | Read from a record of {source}                                 |
+| `resolved_name` | Found by name in {source} and matched to one of its records    |
+| `service`       | Calculated by {source}; there is no record to check it against |
+
+On **Results** the line stands under the header of each output column, in the column statistics (`results.stats`), in Basic and Advanced. It comes from the step of the plan that fills the column and that step's capability in the server's list. On the **overview** the same line is shown on each capability card in place of the former "Calculated here, without an outside source" and "Source: …". A `trust` this interface has no wording for (a later server may send one) is not guessed at: the line names the source ("Source: {source}"); an older server that sends none gets the same, except that a local calculation still reads as calculated here. A column whose capability the server did not list shows no line.
+
+Limits. The line describes the capability, not the single cell: every value of a column carries it, and a failed or empty cell is described by its own row message. The per-value evidence stays in the step detail (Advanced) and the audit.
+
+**Sources in the workbook.** Beside the existing-values choice on Dataset, in Basic and Advanced, a select offers "Not in the workbook" (the default), "A note on each written cell" and "A "Sources" sheet", with one sentence of explanation. The choice is part of the plan request (`sources_in_workbook`, [plan/run API](22-m5-plan-run-api.md), "Where each value came from"). It is not reset when another workbook is chosen. The notes and the sheet are written in English whatever the interface language.
 
 ## Layout and accessibility
 

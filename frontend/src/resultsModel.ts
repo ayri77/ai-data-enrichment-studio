@@ -91,6 +91,8 @@ export interface ResultColumn {
     unit?: string;
     /** Decimals shown for a number; a coordinate needs more than a measurement. */
     digits?: number;
+    /** The capability of the step that fills the column, when the plan has it. */
+    capability?: string;
 }
 
 /** Five decimals are about a metre on the ground. */
@@ -154,6 +156,8 @@ export const outputColumns = (plan: EnrichmentPlan | null): ResultColumn[] =>
         key: output.target_column,
         label: output.target_column,
         unit: output.expected_unit,
+        capability: plan?.steps.find((step) => step.id === output.step_id)
+            ?.capability,
         ...(output.value_field === "latitude" ||
         output.value_field === "longitude"
             ? { digits: COORDINATE_DIGITS }

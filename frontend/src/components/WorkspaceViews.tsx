@@ -12,7 +12,7 @@ import {
     X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { isTerminal, type Preview } from "../api";
+import { isTerminal, type Preview, type SourcesInWorkbook } from "../api";
 import { sourceNames, useOffered } from "../capabilities";
 import { Advanced, useAdvanced, useHosted } from "../mode";
 import type { Workflow, Workspace } from "../useWorkflow";
@@ -193,6 +193,39 @@ function ExistingOutputs({
             ))}
             <p className="muted">{t("existing.hint")}</p>
         </fieldset>
+    );
+}
+
+/**
+ * Whether the result workbook says where each written value came from: not at
+ * all, in a note on each cell, or on a sheet of its own.
+ */
+function SourcesInWorkbookChoice({ w }: { w: Workflow }) {
+    const { t } = useTranslation();
+    return (
+        <>
+            <label data-testid="sources-in-workbook">
+                {t("sources.title")}
+                <select
+                    value={w.sourcesInWorkbook}
+                    disabled={w.locked}
+                    onChange={(e) =>
+                        w.edit(() =>
+                            w.setSourcesInWorkbook(
+                                e.target.value as SourcesInWorkbook,
+                            ),
+                        )
+                    }
+                >
+                    {(["none", "notes", "sheet"] as const).map((choice) => (
+                        <option key={choice} value={choice}>
+                            {t(`sources.${choice}`)}
+                        </option>
+                    ))}
+                </select>
+            </label>
+            <p className="muted">{t("sources.hint")}</p>
+        </>
     );
 }
 
@@ -624,6 +657,7 @@ export function DatasetConfiguration({
                     )}
                     <RunRows w={w} preview={preview} />
                     <ExistingOutputs w={w} preview={preview} />
+                    <SourcesInWorkbookChoice w={w} />
                     <Advanced>
                         <label>
                             {t("workflow.policy")}

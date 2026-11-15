@@ -2041,3 +2041,8 @@ button.candidate-link {
     border-color: var(--studio-accent);
     box-shadow: 0 0 0 1px var(--studio-accent);
 }
+.result-stats .result-provenance {
+    flex-basis: 100%;
+    text-align: right;
+    font-style: italic;
+}

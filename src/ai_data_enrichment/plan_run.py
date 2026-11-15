@@ -165,6 +165,9 @@ class PlanRequest(BaseModel):
     # An output cell that already holds a value is kept by default. "replace"
     # writes a newly found value over it; a row with no new value keeps its own.
     existing_outputs: Literal["keep", "replace"] = "keep"
+    # Whether the result workbook says where each written value came from: not at
+    # all, in a note on each written cell, or on an added worksheet.
+    sources_in_workbook: Literal["none", "notes", "sheet"] = "none"
 
 
 class ApprovalRequest(BaseModel):
@@ -1011,6 +1014,7 @@ class PlanRunService:
             mountain_policy=draft["mountain_resolution_policy"],
             # Drafts made before the option existed keep what they had.
             existing_outputs=draft.get("existing_outputs", "keep"),
+            sources_in_workbook=draft.get("sources_in_workbook", "none"),
             resume_selections=resume_selections,
             previous_job_id=previous_job_id,
             reuse_directory=reuse_directory,

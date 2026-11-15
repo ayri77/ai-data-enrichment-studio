@@ -1,7 +1,7 @@
 import { ArrowRight, Info } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Capability, CapabilityField, Sample } from "../api";
-import { capabilityTitle, useOffered } from "../capabilities";
+import { capabilityTitle, provenanceLabel, useOffered } from "../capabilities";
 import { useAdvanced, useHosted } from "../mode";
 import { Button } from "./ui/button";
 
@@ -157,13 +157,7 @@ function CapabilityCard({ item }: { item: Capability }) {
             <strong>{capabilityTitle(t, item.id)}</strong>
             <span>{text}</span>
             <span className="capability-source">
-                {item.source === "local"
-                    ? t("overview.computed")
-                    : t("overview.source", {
-                          source: t(`source.${item.source}`, {
-                              defaultValue: item.source,
-                          }),
-                      })}
+                {provenanceLabel(t, item)}
             </span>
             {advanced && (
                 <Contract item={item} described={text !== item.description} />

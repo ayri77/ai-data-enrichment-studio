@@ -1,6 +1,6 @@
 import { test, expect, type Page, type TestInfo } from "@playwright/test";
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -955,6 +955,48 @@ test("example: one click fills the task; the prepared plan runs without an AI re
     ).toBeVisible();
 });
 
+test("example: the result says how each value was obtained, and the workbook gets a Sources sheet on request", async ({
+    page,
+}, testInfo) => {
+    const requests: string[] = [];
+    page.on("request", (r) => {
+        if (r.url().endsWith("/api/plans") && r.method() === "POST")
+            requests.push(r.postData() ?? "");
+    });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Start with my table" }).click();
+    await page.getByRole("button", { name: "Mountains: heights" }).click();
+    await expect(page.getByLabel("Which column to fill?")).toHaveValue("C");
+    // Basic offers the choice too; nothing is added to the workbook unless asked.
+    const choice = page.getByLabel("Sources in the result workbook");
+    await expect(choice).toHaveValue("none");
+    await choice.selectOption("sheet");
+    await page
+        .getByRole("button", { name: "Use it instead of asking the AI" })
+        .click();
+    await page
+        .getByRole("button", { name: "Submit and validate plan" })
+        .click();
+    await page.getByRole("button", { name: "Approve and run" }).click();
+    await expect(page.getByTestId("job-status")).toHaveText(
+        /Rows filled: \d+ of 10\.|All rows are filled: 10 of 10\./,
+        { timeout: 30_000 },
+    );
+    expect(JSON.parse(requests[0]).sources_in_workbook).toBe("sheet");
+    await page.getByRole("button", { name: "Results", exact: true }).click();
+    // The height is read from a record of Wikidata, and the page says so.
+    const column = page
+        .getByTestId("result-stats")
+        .locator("li", { hasText: "height" });
+    await expect(column.getByTestId("result-provenance")).toHaveText(
+        "Read from a record of Wikidata",
+    );
+    const shot = testInfo.outputPath("provenance-results.png");
+    await page.screenshot({ path: shot });
+    await mkdir("/tmp/shots", { recursive: true });
+    await copyFile(shot, "/tmp/shots/provenance-results.png");
+});
+
 test("example: rows that already have their value are kept and not looked up", async ({
     page,
 }, testInfo) => {
@@ -1542,10 +1584,10 @@ test("overview: the page a visitor opens says what the system is and lists what 
     const roads = page.locator('[data-capability="road_distance"]');
     await expect(roads).toContainText("Calculate the driving distance by road");
     await expect(roads).toContainText(
-        "Source: openrouteservice (OpenStreetMap data)",
+        "Calculated by openrouteservice (OpenStreetMap data); there is no record to check it against",
     );
     await expect(page.locator('[data-capability="ratio"]')).toContainText(
-        "Calculated here, without an outside source.",
+        "Calculated here from other values of the row",
     );
     // Basic keeps to plain words: no contract, no identifiers.
     await expect(page.getByTestId("capability-contract")).toHaveCount(0);

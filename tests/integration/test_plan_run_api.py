@@ -13,6 +13,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from openpyxl import Workbook, load_workbook
+from openpyxl.comments import Comment
 from tests.support.planning import (
     CAPITALS_INSTRUCTION,
     ScriptedPlanClient,
@@ -24,6 +25,7 @@ from tests.support.wikidata import entity_statement
 from ai_data_enrichment import api as api_module
 from ai_data_enrichment import plan_run
 from ai_data_enrichment.api import create_app
+from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan
 from ai_data_enrichment.evaluation.plan_run_fixtures import (
     APITransportFixture,
     FixtureNamesClient,
@@ -31,8 +33,15 @@ from ai_data_enrichment.evaluation.plan_run_fixtures import (
     FixtureTasksClient,
     offline_executor,
 )
+from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.plan_run import TERMINAL, PlanRunSettings
-from ai_data_enrichment.plan_run_worker import MountainPolicy, builtin_registry, live_executor
+from ai_data_enrichment.plan_run_worker import (
+    MountainPolicy,
+    RunTask,
+    builtin_registry,
+    execute_workbook,
+    live_executor,
+)
 from ai_data_enrichment.providers.http_transport import UrllibJsonTransport
 from ai_data_enrichment.providers.wikidata import WIKIDATA_API_URL
 from ai_data_enrichment.run_limits import (
@@ -2534,3 +2543,241 @@ def test_replacing_overwrites_a_fact_only_where_the_source_gives_one(client):
     assert report["replaced_cells"] == {"F3": 1.0, "G3": 2.0, "H3": "x"}
     assert set(report["preserved_cells"]) == {"G7", "G5"}
     assert rows[7]["empty_outputs"] == {"pop": GAP}
+
+
+def test_capabilities_state_the_kind_of_trust_and_the_planner_is_not_told(client, monkeypatch):
+    monkeypatch.delenv("OPENROUTESERVICE_API_KEY", raising=False)
+    listed = client.get("/api/capabilities").json()["capabilities"]
+    assert {item["id"]: item["trust"] for item in listed} == {
+        "geocode": "resolved_name",
+        "resolve_entity": "resolved_name",
+        "lookup_property": "record",
+        "geodesic_distance": "computed",
+        "ratio": "computed",
+    }
+    monkeypatch.setenv("OPENROUTESERVICE_API_KEY", "key-for-the-offline-fixture")
+    roads = client.get("/api/capabilities").json()["capabilities"][-1]
+    assert (roads["id"], roads["trust"]) == ("road_distance", "service")
+    # The planner is shown the specs' own dump, byte for byte, and no kind of trust.
+    registry = builtin_registry()
+    shown = registry.describe_all()
+    assert json.dumps(shown) == json.dumps(
+        [spec.model_dump(mode="json") for spec in registry.list_all()]
+    )
+    assert all("trust" not in item and "source" not in item for item in shown)
+
+
+def test_the_context_a_model_is_sent_for_planning_holds_no_kind_of_trust():
+    llm = FixturePlanClient(plan_payload("capitals"))
+    with TestClient(
+        create_app(
+            settings=PlanRunSettings(),
+            offline_plan_client=llm,
+            offline_executor_factory=offline_executor,
+        )
+    ) as client:
+        draft(client, generate=True)
+    context = json.loads(llm.calls[0]["messages"][1]["content"])
+    registry = builtin_registry()
+    assert json.dumps(context["capabilities"]) == json.dumps(
+        [spec.model_dump(mode="json") for spec in registry.list_all()]
+    )
+    assert '"trust"' not in llm.calls[0]["messages"][1]["content"]
+
+
+def test_the_report_states_capability_source_and_trust_once_per_step(client):
+    job = wait(client, start(client, approve(client, draft(client, "capitals"))))
+    report = client.get(job["artifacts"]["report"]).json()
+    steps = report["approved_plan"]["plan"]["steps"]
+    assert report["step_provenance"] == [
+        {
+            "step_id": step["id"],
+            "capability": step["capability"],
+            "source": "local" if step["capability"] == "geodesic_distance" else "open-meteo",
+            "trust": "computed" if step["capability"] == "geodesic_distance" else "resolved_name",
+        }
+        for step in steps
+    ]
+    assert {item["capability"] for item in report["step_provenance"]} == {
+        "geocode",
+        "geodesic_distance",
+    }
+    assert report["sources_in_workbook"] == {"mode": "none", "applied": True}
+
+
+def sources_run(client, mode=None, *, book=None, **cells):
+    """One run of the coordinates plan on the offline fixtures; returns report and workbook."""
+    body = {
+        "dataset_id": upload(client, "capitals", book or coordinates_book(**cells)),
+        "sheet_name": "Sheet1",
+        "range_ref": "A1:G11",
+        "instruction": "Latitude and longitude of the city in Capital_From.",
+        "output_columns": {"lat": "F", "lon": "G"},
+        "plan": COORDINATES_PLAN,
+        **({"sources_in_workbook": mode} if mode else {}),
+    }
+    response = client.post("/api/plans", json=body)
+    assert response.status_code == 201, response.text
+    job = wait(client, start(client, approve(client, response.json())))
+    report = client.get(job["artifacts"]["report"]).json()
+    return report, load_workbook(BytesIO(client.get(job["artifacts"]["result"]).content))
+
+
+def test_the_choice_of_sources_in_the_workbook_is_part_of_the_plan(client):
+    dataset_id = upload(client, "capitals", None)
+    body = request_body(dataset_id, "capitals")
+    assert client.post("/api/plans", json=body).json()["sources_in_workbook"] == "none"
+    sheet = client.post("/api/plans", json={**body, "sources_in_workbook": "sheet"}).json()
+    notes = client.post("/api/plans", json={**body, "sources_in_workbook": "notes"}).json()
+    assert sheet["fingerprint"] != notes["fingerprint"]
+    refused = client.post("/api/plans", json={**body, "sources_in_workbook": "all"})
+    assert refused.status_code == 422
+
+
+def test_without_the_option_the_workbook_is_written_as_before(client):
+    plain, book_plain = sources_run(client)
+    explicit, book_explicit = sources_run(client, "none")
+    try:
+        assert book_plain.sheetnames == book_explicit.sheetnames == ["Sheet1"]
+        assert not any(cell.comment for row in book_plain["Sheet1"] for cell in row)
+        assert not any(cell.comment for row in book_explicit["Sheet1"] for cell in row)
+        assert explicit["sources_in_workbook"] == {"mode": "none", "applied": True}
+        assert plain["step_provenance"] == explicit["step_provenance"]
+    finally:
+        book_plain.close()
+        book_explicit.close()
+
+
+def test_notes_are_put_on_written_cells_only(client):
+    # F3 holds a value with a note of the person's: kept, so left as it is. Row 4
+    # has every target cell filled: not looked up, so nothing is said about it.
+    book = coordinates_book(F3=1.0, F4=2.0, G4=3.0)
+    sheet_book = load_workbook(BytesIO(book))
+    sheet_book["Sheet1"]["F3"].comment = Comment("mine", "me")
+    sheet_book["Sheet1"]["G7"].comment = Comment("old note on a cell that gets written", "me")
+    buffer = BytesIO()
+    sheet_book.save(buffer)
+    report, output = sources_run(client, "notes", book=buffer.getvalue())
+    try:
+        sheet = output["Sheet1"]
+        assert output.sheetnames == ["Sheet1"]
+        assert report["sources_in_workbook"] == {"mode": "notes", "applied": True}
+        assert "F3" in report["preserved_cells"] and 4 in {r["row"] for r in report["skipped_rows"]}
+        london = sheet["G3"].comment
+        assert london is not None
+        lines = london.text.splitlines()
+        assert lines[0] == "Source: Open-Meteo"
+        assert lines[1].startswith("Reference: ") and len(lines[1]) > len("Reference: ")
+        assert lines[2] == "Kind of trust: a name matched to a record of the source"
+        # A written cell with an earlier note gets the new one.
+        assert sheet["G7"].comment.text.startswith("Source: Open-Meteo")
+        # Kept, skipped, empty and header cells are not annotated; the kept note stays.
+        assert sheet["F3"].comment.text == "mine"
+        assert sheet["F4"].comment is None and sheet["G4"].comment is None
+        assert sheet["F1"].comment is None and sheet["F2"].comment is None
+        noted = {cell.coordinate for row in sheet for cell in row if cell.comment}
+        written = {
+            cell.coordinate
+            for row in sheet.iter_rows(min_row=2, min_col=6, max_col=7)
+            for cell in row
+            if cell.value is not None
+        } - {"F3", "F4", "G4"}
+        assert noted - {"F3"} == written
+    finally:
+        output.close()
+
+
+def test_a_sources_sheet_lists_each_written_cell(client):
+    book = coordinates_book(F3=1.0, F4=2.0, G4=3.0)
+    sheet_book = load_workbook(BytesIO(book))
+    sheet_book["Sheet1"]["G7"].comment = Comment("kept in sheet mode", "me")
+    buffer = BytesIO()
+    sheet_book.save(buffer)
+    report, output = sources_run(client, "sheet", book=buffer.getvalue())
+    try:
+        assert output.sheetnames == ["Sheet1", "Sources"]
+        rows = list(output["Sources"].iter_rows(values_only=True))
+        assert rows[0] == (
+            "Sheet",
+            "Cell",
+            "Column",
+            "Value",
+            "Capability",
+            "Source",
+            "Reference",
+            "Kind of trust",
+        )
+        cells = {str(row[1]): row for row in rows[1:]}
+        main = output["Sheet1"]
+        written = {
+            cell.coordinate
+            for row in main.iter_rows(min_row=2, min_col=6, max_col=7)
+            for cell in row
+            if cell.value is not None
+        } - {"F3", "F4", "G4"}
+        assert set(cells) == written and len(cells) == len(rows) - 1
+        london = cells["G3"]
+        assert london[0] == "Sheet1" and london[2] == "lon" and london[3] == main["G3"].value
+        assert london[4:6] == ("geocode", "Open-Meteo") and london[6]
+        assert london[7] == "a name matched to a record of the source"
+        order = [(int(c[1:]), c[0]) for c in cells]
+        assert [row[1] for row in rows[1:]] == [f"{c}{r}" for r, c in sorted(order)]
+        # The person's own sheet is untouched beyond the written cells; notes stay.
+        assert main["G7"].comment.text == "kept in sheet mode"
+        assert not any(c.comment for row in main for c in row if c.coordinate != "G7")
+        assert report["sources_in_workbook"] == {"mode": "sheet", "applied": True}
+    finally:
+        output.close()
+
+
+def test_the_sources_sheet_takes_a_free_name(client):
+    book = coordinates_book()
+    sheet_book = load_workbook(BytesIO(book))
+    sheet_book.create_sheet("Sources")
+    sheet_book.create_sheet("sources (2)")
+    buffer = BytesIO()
+    sheet_book.save(buffer)
+    _, output = sources_run(client, "sheet", book=buffer.getvalue())
+    try:
+        assert output.sheetnames == ["Sheet1", "Sources", "sources (2)", "Sources (3)"]
+        assert output["Sources"].max_row == 1 and output["Sources (3)"].max_row > 1
+    finally:
+        output.close()
+
+
+def test_a_failure_to_add_sources_leaves_the_values_and_is_stated(tmp_path, monkeypatch, caplog):
+    def refuse(*args, **kwargs):
+        raise RuntimeError("no sheet today")
+
+    # In process, so that the patch reaches the worker's code.
+    monkeypatch.setattr("ai_data_enrichment.orchestration.excel_runner.annotate_workbook", refuse)
+    source = tmp_path / "source.xlsx"
+    source.write_bytes(coordinates_book())
+    directory = tmp_path / "job"
+    directory.mkdir()
+    execute_workbook(
+        RunTask(
+            job_id="job",
+            dataset_id="capitals",
+            source_path=source,
+            source_sha256=sha256(source.read_bytes()).hexdigest(),
+            directory=directory,
+            selection=TableSelection("Sheet1", "A1:G11"),
+            plan=EnrichmentPlan.model_validate(COORDINATES_PLAN),
+            output_columns={"lat": "F", "lon": "G"},
+            mountain_policy="strict",
+            sources_in_workbook="sheet",
+        ),
+        offline_executor,
+    )
+    assert not (directory / "error.json").exists()
+    audit = json.loads((directory / "execution.json").read_text("utf-8"))
+    assert audit["sources_in_workbook"] == {"mode": "sheet", "applied": False}
+    # The error is logged, not swallowed; the values are in the workbook.
+    assert "Adding sources to the workbook failed" in caplog.text
+    output = load_workbook(directory / "result.xlsx")
+    try:
+        assert output.sheetnames == ["Sheet1"]
+        assert output["Sheet1"]["G3"].value == -0.12574
+    finally:
+        output.close()

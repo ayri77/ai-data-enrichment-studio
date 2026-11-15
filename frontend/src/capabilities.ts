@@ -41,6 +41,31 @@ export function capabilityTitle(t: TFunction, id: string) {
     return t(`cap.${id}.title`, { defaultValue: readable(id) });
 }
 
+/**
+ * How the values of a capability were obtained, in one plain sentence. The
+ * wording follows the server's kind of trust and the source's name; a kind this
+ * interface does not know yet (a later server may send one) is not guessed at,
+ * it is named by its source, and a capability the server did not list says
+ * nothing.
+ */
+export function provenanceLabel(
+    t: TFunction,
+    item: Pick<Capability, "source" | "trust"> | undefined,
+) {
+    if (!item) return null;
+    const source = t(`source.${item.source}`, { defaultValue: item.source });
+    switch (item.trust) {
+        case "computed":
+        case "record":
+        case "resolved_name":
+        case "service":
+            return t(`provenance.${item.trust}`, { source });
+    }
+    // An older server states no kind: a calculation done here still says so.
+    if (item.source === "local") return t("provenance.computed");
+    return t("overview.source", { source });
+}
+
 /** The names of the outside sources a run may ask, each once, in list order. */
 export function sourceNames(t: TFunction, offered: Capability[]) {
     const ids = [...new Set(offered.map((item) => item.source))];

@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { isTerminal } from "../api";
+import { provenanceLabel, useOffered } from "../capabilities";
 import { useAdvanced } from "../mode";
 import type { Workflow } from "../useWorkflow";
 import {
@@ -252,15 +253,28 @@ function Stats({
 }) {
     const { t, i18n } = useTranslation();
     const locale = i18n.resolvedLanguage ?? "en";
+    const offered = useOffered();
     return (
         <ul className="result-stats" data-testid="result-stats">
             {columns.map((column) => {
                 const stats = columnStats(rows, column.key);
                 const number = (value: number) =>
                     formatValue(value, locale, column.unit, column.digits);
+                const how = provenanceLabel(
+                    t,
+                    offered?.find((item) => item.id === column.capability),
+                );
                 return (
                     <li key={column.key}>
                         <strong>{column.label}</strong>
+                        {how && (
+                            <span
+                                className="result-provenance"
+                                data-testid="result-provenance"
+                            >
+                                {how}
+                            </span>
+                        )}
                         <span>
                             {t("results.stats.filled", {
                                 filled: stats.filled,

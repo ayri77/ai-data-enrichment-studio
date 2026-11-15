@@ -24,6 +24,7 @@ from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.orchestration.excel_runner import ExcelEnrichmentRunner
 from ai_data_enrichment.orchestration.live_executor import build_live_executor
 from ai_data_enrichment.output.excel_output_mapping import EMPTY_FIELD_CODE, empty_output_fields
+from ai_data_enrichment.output.provenance import SourcesMode
 from ai_data_enrichment.providers.http_transport import JsonTransport
 from ai_data_enrichment.providers.openrouteservice import routing_key
 from ai_data_enrichment.providers.request_policy import ProviderRequestPolicy
@@ -67,12 +68,19 @@ def offered_descriptions() -> list[dict[str, Any]]:
     """What this installation offers, as a client is told about it.
 
     Each entry is the capability's own contract (the one the planner is shown)
-    with the id of the source its values come from in a live run. The list
+    with the id of the source its values come from in a live run and the kind of
+    trust that stands behind them (``Trust``, as a lowercase word). Neither is in
+    the contract the planner is shown: that is ``CapabilityRegistry.describe_all``
+    and stays the specs' own dump. The list
     follows the registry, so a capability added to it is listed without any
     further change, and one that is not offered here is not listed.
     """
     return [
-        {**spec.model_dump(mode="json"), "source": binding_for(spec.id).source_id}
+        {
+            **spec.model_dump(mode="json"),
+            "source": binding_for(spec.id).source_id,
+            "trust": binding_for(spec.id).trust.value,
+        }
         for spec in builtin_registry().list_all()
     ]
 
@@ -135,6 +143,8 @@ class RunTask:
     mountain_policy: MountainPolicy
     # What to do with an output cell that already holds a value.
     existing_outputs: Literal["keep", "replace"] = "keep"
+    # Whether the workbook says where each written value came from.
+    sources_in_workbook: SourcesMode = "none"
     # Set only for a user-approved resume of an earlier job.
     resume_selections: dict[tuple[str, str], ResumeSelection | OtherName] | None = None
     previous_job_id: str | None = None
@@ -244,6 +254,7 @@ def execute_workbook(
                 previous_job_id=task.previous_job_id,
                 preserve_existing_outputs=True,
                 replace_existing_outputs=task.existing_outputs == "replace",
+                sources_in_workbook=task.sources_in_workbook,
                 on_record_done=report if progress is not None else None,
                 on_row_result=tally.add if progress is not None else None,
             )
@@ -315,6 +326,23 @@ def execute_workbook(
                 for record in batch.records
                 if record.record_id in result.skipped_records
             ],
+            # What each step of the plan is, where its values come from and what
+            # stands behind them: once per step, in plan order, not per row.
+            "step_provenance": [
+                {
+                    "step_id": step.id,
+                    "capability": step.capability,
+                    "source": binding_for(step.capability).source_id,
+                    "trust": binding_for(step.capability).trust.value,
+                }
+                for step in task.plan.steps
+            ],
+            # Which choice the run was asked for, and whether the workbook got
+            # it: False when adding the notes or the sheet failed.
+            "sources_in_workbook": {
+                "mode": task.sources_in_workbook,
+                "applied": result.sources_applied,
+            },
             "source_unchanged": True,
             "preserved_cells": result.preserved_cells,
             "replaced_cells": dict(result.replaced_cells),
