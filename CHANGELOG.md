@@ -12,6 +12,9 @@
   (`none`, the default; `notes`; `sheet`) makes the result workbook say where each
   written value came from, in a note on the cell or on an added `Sources` sheet.
   The planner is not shown `trust`. The note and sheet texts are English only.
+- A measurement script, `scripts/experiment_web_lookup.py`, with a probe workbook and
+  [a note](docs/31-universal-lookup-probe.md), tests whether a model with web search can fill
+  a column for tasks no registered capability covers. It is not part of the application.
 
 ## 0.3.0 — beta (2026-11-15)
 
