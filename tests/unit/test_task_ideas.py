@@ -61,6 +61,12 @@ def test_what_is_sent_is_the_planning_profile_the_capabilities_and_the_language(
     assert set(sent) == {"language", "capabilities", "rows", "columns", "sample_rows"}
 
 
+def test_the_open_question_may_propose_filling_a_partly_filled_column() -> None:
+    system, _ = idea_messages(PROFILE, builtin_registry(), "en")
+    assert "empty or only partly filled" in system["content"]
+    assert "cells that already have a value are kept" in system["content"]
+
+
 def test_the_model_is_asked_once_for_a_list_of_tasks() -> None:
     client = Client({"tasks": ["Знайди висоту кожної гори й запиши у «Висота»."]})
     ideas = suggest_tasks(client, profile=PROFILE, registry=builtin_registry(), language="uk")

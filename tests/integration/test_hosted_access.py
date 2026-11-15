@@ -123,7 +123,7 @@ def test_examples_are_listed_downloadable_and_pass_the_ordinary_upload_checks(
         # Examples are part of the protected API like everything else.
         assert client.get("/api/samples").status_code == 401
         listed = client.get("/api/samples", headers=granted).json()["samples"]
-        assert [s["sample_id"] for s in listed] == ["capitals", "mountains"]
+        assert [s["sample_id"] for s in listed] == ["capitals", "mountains", "mountains_gaps"]
         capitals = listed[0]
         assert capitals["filename"] == "capitals.xlsx" and capitals["has_plan"] is True
         assert capitals["outputs"] == [{"name": "distance", "column": "E"}]
@@ -155,8 +155,13 @@ def test_examples_are_listed_downloadable_and_pass_the_ordinary_upload_checks(
         # that is offered, and its prepared plan is valid for its own workbook.
         monkeypatch.setenv("OPENROUTESERVICE_API_KEY", "key-for-the-offline-fixture")
         listed = client.get("/api/samples", headers=granted).json()["samples"]
-        assert [s["sample_id"] for s in listed] == ["capitals", "mountains", "capitals_roads"]
-        roads = listed[2]
+        assert [s["sample_id"] for s in listed] == [
+            "capitals",
+            "mountains",
+            "mountains_gaps",
+            "capitals_roads",
+        ]
+        roads = listed[3]
         assert roads["has_plan"] is True
         assert roads["outputs"] == [
             {"name": "distance", "column": "E"},

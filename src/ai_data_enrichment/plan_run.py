@@ -1084,6 +1084,9 @@ class PlanRunService:
                 execution = json.loads((task.directory / "execution.json").read_text("utf-8"))
                 result = JobExecutionResult.model_validate_json(json.dumps(execution["execution"]))
                 job["metrics"] = result.metrics.model_dump(mode="json")
+                # Rows not looked up because every chosen cell already had a
+                # value. Everything above and below counts the other rows only.
+                job["rows_skipped"] = len(execution.get("skipped_rows", []))
                 # Technical completion can still contain unresolved values.
                 job["status"] = (
                     "needs_review"
@@ -1184,6 +1187,7 @@ class PlanRunService:
                 resume=task.previous_job_id is not None,
                 rows=metrics.get("total_rows", 0),
                 rows_filled=metrics.get("successful_rows", 0),
+                rows_skipped=job.get("rows_skipped", 0),
                 seconds=round(monotonic() - started, 1),
                 # Requests that left for each source, repeats included.
                 source_requests={

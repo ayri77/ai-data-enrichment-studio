@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- In keep mode a row whose every chosen cell already has a value is no longer
+  looked up: none of its steps run, no source is asked, and it never lowers the
+  outcome or reaches Review. Rows with some cells empty are looked up in full;
+  replace mode skips nothing. The audit gains `skipped_rows` and the job
+  `rows_skipped`; `progress` and the counts cover the executed rows. Execution
+  and Results say which rows were not looked up. New example "Mountains: fill
+  only the missing heights". One run still takes the first rows of the table,
+  skipped or not.
 - While a run goes on, the picture and the list of steps on Execution (and the
   nodes of the Advanced graph) show what each step has done over the rows
   finished so far. The job's `progress` gains `steps`, counts of `filled`,

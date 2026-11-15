@@ -49,11 +49,17 @@ export interface ResultRow {
     recordId: string;
     /** Excel row number; null for reports written before it was recorded. */
     row: number | null;
-    status: "success" | "partial" | "failure";
+    /** "skipped": not looked up, every chosen cell already had a value. */
+    status: "success" | "partial" | "failure" | "skipped";
     inputs: Record<string, ReviewValue>;
     /** Keyed by target column; undefined means the cell stays empty. */
     outputs: Record<string, Scalar | undefined>;
     filled: boolean;
+    /**
+     * The row was left out of the run: every chosen cell already had a value.
+     * It is neither filled nor failed, and its outputs are the kept values.
+     */
+    skipped: boolean;
     /** Output columns whose cell already held a value and was left as it was. */
     kept: string[];
     /** Output columns whose earlier value was replaced, with that value. */
@@ -121,7 +127,10 @@ function subject(
 
 export function inputColumns(report: AuditReport | null): string[] {
     const names: string[] = [];
-    for (const row of report?.rows ?? [])
+    for (const row of [
+        ...(report?.rows ?? []),
+        ...(report?.skipped_rows ?? []),
+    ])
         for (const name of Object.keys(row.inputs ?? {}))
             if (!names.includes(name)) names.push(name);
     return names;
@@ -142,7 +151,32 @@ export function resultRows(
         (report?.execution?.records ?? []).map((r) => [r.record_id, r]),
     );
     const planSteps = new Map((plan?.steps ?? []).map((s) => [s.id, s]));
-    return (report?.rows ?? []).map((row) => {
+    // Rows that were not looked up hold the values they already had.
+    const skipped: ResultRow[] = (report?.skipped_rows ?? []).map((row) => ({
+        recordId: row.record_id,
+        row: row.row,
+        status: "skipped",
+        inputs: row.inputs ?? {},
+        outputs: Object.fromEntries(
+            (plan?.outputs ?? []).map((output) => {
+                const value = row.kept_values?.[output.target_column];
+                return [
+                    output.target_column,
+                    scalar(value) ? value : undefined,
+                ];
+            }),
+        ),
+        filled: false,
+        skipped: true,
+        kept: row.kept_outputs ?? [],
+        replaced: {},
+        chosen: [],
+        searched: [],
+        automatic: [],
+        cause: null,
+        steps: [],
+    }));
+    const executed: ResultRow[] = (report?.rows ?? []).map((row) => {
         const inputs = row.inputs ?? {};
         const steps: ResultStep[] = (
             records.get(row.record_id)?.row_result.steps ?? []
@@ -191,6 +225,7 @@ export function resultRows(
                         value !== undefined &&
                         !(row.kept_outputs ?? []).includes(column),
                 ),
+            skipped: false,
             kept: row.kept_outputs ?? [],
             replaced: row.replaced_outputs ?? {},
             chosen: subjects(row.user_chosen_steps),
@@ -216,12 +251,19 @@ export function resultRows(
             steps,
         };
     });
+    // Sheet order; reports without row numbers keep the order they have.
+    return [...executed, ...skipped].sort(
+        (a, b) => (a.row ?? 0) - (b.row ?? 0),
+    );
 }
 
-export type RowFilter = "all" | "filled" | "empty" | "chosen" | "automatic";
+export type RowFilter =
+    "all" | "filled" | "empty" | "skipped" | "chosen" | "automatic";
 export function filterRows(rows: ResultRow[], filter: RowFilter) {
     if (filter === "filled") return rows.filter((r) => r.filled);
-    if (filter === "empty") return rows.filter((r) => !r.filled);
+    // A row that was not looked up is not an empty one: its cells have values.
+    if (filter === "empty") return rows.filter((r) => !r.filled && !r.skipped);
+    if (filter === "skipped") return rows.filter((r) => r.skipped);
     if (filter === "chosen") return rows.filter((r) => r.chosen.length > 0);
     if (filter === "automatic")
         return rows.filter((r) => r.automatic.length > 0);
@@ -257,18 +299,30 @@ export function sortRows(rows: ResultRow[], sort: Sort, locale: string) {
 }
 export interface ColumnStats {
     filled: number;
+    /** Rows the run looked at; rows that were not looked up are not among them. */
     total: number;
+    /** Rows not looked up because the cell already had a value. */
+    skipped: number;
     min?: number;
     max?: number;
     mean?: number;
 }
-/** Numeric summary only when every filled value of the column is a number. */
+/**
+ * Numeric summary only when every filled value of the column is a number.
+ * Rows that were not looked up are counted apart: they are neither filled
+ * nor failed, and their earlier values are not part of the summary.
+ */
 export function columnStats(rows: ResultRow[], column: string): ColumnStats {
-    const values = rows
+    const looked = rows.filter((r) => !r.skipped);
+    const values = looked
         .map((r) => r.outputs[column])
         .filter((v) => v !== undefined);
     const numbers = values.filter((v) => typeof v === "number");
-    const stats: ColumnStats = { filled: values.length, total: rows.length };
+    const stats: ColumnStats = {
+        filled: values.length,
+        total: looked.length,
+        skipped: rows.length - looked.length,
+    };
     if (numbers.length && numbers.length === values.length) {
         stats.min = Math.min(...numbers);
         stats.max = Math.max(...numbers);

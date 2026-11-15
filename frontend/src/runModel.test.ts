@@ -396,3 +396,71 @@ it("agrees with the audit on filled, failed and skipped for a finished run", () 
             skipped: audited.get(id)!.skipped,
         });
 });
+
+it("counts the rows that needed filling and says how many already had their values", () => {
+    const withSkipped = {
+        ...report(true, false),
+        skipped_rows: [
+            {
+                record_id: "s1",
+                row: 3,
+                reason: "already_filled",
+                kept_outputs: ["km"],
+                kept_values: { km: 5 },
+            },
+            {
+                record_id: "s2",
+                row: 4,
+                reason: "already_filled",
+                kept_outputs: ["km"],
+                kept_values: { km: 6 },
+            },
+        ],
+    } as unknown as AuditReport;
+    const run = {
+        ...job,
+        status: "completed" as const,
+        metrics: { total_rows: 2, successful_rows: 1 },
+        rows_skipped: 2,
+    };
+    // One of the two rows that were looked up is filled; the two kept rows are not counted.
+    expect(runOutcome(run, withSkipped, plan, null)).toEqual({
+        key: "some",
+        values: { filled: 1, total: 2 },
+        more: [{ key: "skipped", values: { count: 2 } }],
+    });
+    // Before the audit has arrived the job's own counters say the same.
+    expect(runOutcome(run, null, plan, null)).toEqual({
+        key: "some",
+        values: { filled: 1, total: 2 },
+        more: [{ key: "skipped", values: { count: 2 } }],
+    });
+});
+
+it("says plainly that nothing was looked up when every row already had its value", () => {
+    const run = {
+        ...job,
+        status: "completed" as const,
+        metrics: { total_rows: 0, successful_rows: 0 },
+        progress: null,
+        rows_skipped: 10,
+    };
+    const audit = {
+        ...report(),
+        skipped_rows: Array.from({ length: 10 }, (_, i) => ({
+            record_id: `s${i}`,
+            row: i + 2,
+            reason: "already_filled",
+            kept_outputs: ["km"],
+            kept_values: { km: i },
+        })),
+    } as unknown as AuditReport;
+    for (const given of [audit, null])
+        expect(runOutcome(run, given, plan, null)).toEqual({
+            key: "allSkipped",
+            values: { count: 10 },
+            more: [],
+        });
+    // No row was looked up, so there is no step to count rows for.
+    expect(stepOutcomes(run, audit, plan).size).toBe(0);
+});

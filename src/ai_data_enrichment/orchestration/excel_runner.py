@@ -59,6 +59,10 @@ class ExcelEnrichmentResult:
     # Output cells whose earlier value was replaced, with that value, so that
     # nothing a person had in the table disappears without a record.
     replaced_cells: Mapping[str, str | float | bool] = MappingProxyType({})
+    # Records left out of the run because every target cell already held a
+    # value that is kept: for each, those cells with the value they hold. No
+    # step ran for them and no source was asked.
+    skipped_records: Mapping[str, Mapping[str, str | float | bool]] = MappingProxyType({})
 
 
 class ExcelEnrichmentRunner:
@@ -106,6 +110,13 @@ class ExcelEnrichmentRunner:
         ``replace_existing_outputs`` writes a new value over an earlier one, but
         only where a new value was produced: a row whose lookup failed keeps
         what it had. The source workbook is never changed either way.
+
+        A kept record whose every target cell already holds a value is not
+        executed at all (``ExcelEnrichmentResult.skipped_records``); the
+        executor, its counts and its request budgets never see it. A record
+        with even one empty target cell is executed completely. Nothing is
+        skipped when values may be replaced, or when existing values are not
+        tolerated.
         """
         if replace_existing_outputs and not preserve_existing_outputs:
             raise ValueError("Replacing existing outputs requires tolerating them.")
@@ -189,6 +200,16 @@ class ExcelEnrichmentRunner:
                 workbook.close()
         preserved = set(occupied)
 
+        # A record needing nothing is left out before the executor is handed
+        # anything. Replacing asks for a new value, so it skips nobody.
+        skipped: dict[str, dict[str, str | float | bool]] = {}
+        if preserve_existing_outputs and not replace_existing_outputs and output_letters:
+            for record_id, row_number in batch.row_by_record_id.items():
+                row_cells = [f"{letter}{row_number}" for letter in output_letters]
+                if all(cell in occupied for cell in row_cells):
+                    skipped[record_id] = {cell: occupied[cell] for cell in row_cells}
+        records = [record for record in batch.records if record.record_id not in skipped]
+
         validate_excel_targets(
             source_path,
             sheet_name=selection.sheet_name,
@@ -204,7 +225,7 @@ class ExcelEnrichmentRunner:
         # Execute the validated DAG using the configured providers.
         job_result = self._executor.execute(
             plan,
-            batch.records,
+            records,
             previous_job_id=previous_job_id,
             job_id=job_id,
             **observers,
@@ -215,7 +236,11 @@ class ExcelEnrichmentRunner:
             plan,
             job_result,
             selection,
-            row_by_record_id=batch.row_by_record_id,
+            row_by_record_id={
+                record_id: row
+                for record_id, row in batch.row_by_record_id.items()
+                if record_id not in skipped
+            },
             output_columns=output_columns,
             existing_headers=existing_headers,
         )
@@ -246,4 +271,5 @@ class ExcelEnrichmentRunner:
             job_result=job_result,
             preserved_cells=tuple(sorted(kept)),
             replaced_cells=MappingProxyType(dict(sorted(replaced.items()))),
+            skipped_records=MappingProxyType(skipped),
         )

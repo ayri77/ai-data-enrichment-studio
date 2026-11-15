@@ -257,12 +257,29 @@ export interface Job {
     timeout_seconds: number;
     /** Set when this job continues an earlier one after review. */
     previous_job_id?: string | null;
+    /**
+     * Rows left out of the run because every chosen cell already had a value
+     * (kept, not looked up). Present once a run has finished; `metrics` and
+     * `progress` count the other rows only.
+     */
+    rows_skipped?: number;
 }
 export interface AuditReport extends Job {
     source_sha256: string;
     result_sha256?: string;
     source_unchanged?: boolean;
     preserved_cells?: string[];
+    /** Rows that were not looked up: every chosen cell already held a value. */
+    skipped_rows?: {
+        record_id: string;
+        row: number;
+        inputs?: Record<string, ReviewValue>;
+        reason: "already_filled";
+        /** Output columns whose cell holds a kept value. */
+        kept_outputs: string[];
+        /** The value each of those cells holds. */
+        kept_values: Record<string, string | number | boolean>;
+    }[];
     rows?: {
         record_id: string;
         status: "success" | "partial" | "failure";

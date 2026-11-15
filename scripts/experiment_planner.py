@@ -8,6 +8,10 @@ The three-column case mirrors the interface when the output targets are stated:
 
     ... --case capitals_roads --output-targets distance,road,detour
 
+The partly filled table (empty cells are filled, the others kept):
+
+    ... --case mountains_gaps --output-targets height --repeat 10
+
 A reasoning model is measured with its effort stated, because the default effort is the
 model's own and its reasoning tokens count against the output budget:
 
@@ -32,6 +36,7 @@ from openai import OpenAI
 from tests.support.planning import (
     CAPITALS_INSTRUCTION,
     CAPITALS_ROADS_INSTRUCTION,
+    MOUNTAINS_GAPS_INSTRUCTION,
     MOUNTAINS_INSTRUCTION,
     workbook_profile,
 )
@@ -46,6 +51,9 @@ from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy
 INSTRUCTIONS = {
     "capitals": CAPITALS_INSTRUCTION,
     "mountains": MOUNTAINS_INSTRUCTION,
+    # The same table with some heights filled in: does the planner accept a
+    # "fill the gaps" task and keep the plan the empty table gets?
+    "mountains_gaps": MOUNTAINS_GAPS_INSTRUCTION,
     # Five steps and three columns; needs a routing key in the environment.
     "capitals_roads": CAPITALS_ROADS_INSTRUCTION,
 }

@@ -81,7 +81,7 @@ provide the dataset ID and actual worksheet/range; the range includes headers.
 | Validate | `POST /api/plans/{plan_id}/validate` | Semantic DAG/type/parameter checks and explicit column bindings |
 | Approve | `POST /api/plans/{plan_id}/approve` | Requires `approved: true` and exact displayed `fingerprint` |
 | Start | `POST /api/plans/{plan_id}/runs` | 202 with opaque job ID and initial `queued` state |
-| Poll | `GET /api/jobs/{job_id}` | Status, timestamps, metrics, sanitized error and artifact URLs; `progress` — `{rows_done, rows_total, steps}` once the worker has read the table, `null` before. It counts finished rows whatever their outcome; `steps` is `{<step_id>: {filled, failed, skipped}}` over those rows, one entry for every step of the plan and empty until the first row is finished. A step counts as `filled` for a row if its operation succeeded, `skipped` if it failed with `DEPENDENCY_FAILED`, `failed` otherwise: the audit of the finished run gives the same three numbers. Both stay as they were when a run is cancelled or timed out, and carry no result — counts only, no values, names, record ids or error texts; partial results are still never published. The audit report of a job repeats the job's last `progress`, so it carries `steps` as well |
+| Poll | `GET /api/jobs/{job_id}` | Status, timestamps, metrics, sanitized error and artifact URLs; `progress` — `{rows_done, rows_total, steps}` once the worker has read the table, `null` before. It counts finished rows whatever their outcome; `steps` is `{<step_id>: {filled, failed, skipped}}` over those rows, one entry for every step of the plan and empty until the first row is finished. A step counts as `filled` for a row if its operation succeeded, `skipped` if it failed with `DEPENDENCY_FAILED`, `failed` otherwise: the audit of the finished run gives the same three numbers. `rows_done` and `rows_total` cover the rows that are executed: a row that was left out because every chosen cell already had a value (see "Existing values") is in neither, and `progress` stays `null` when no row is executed. A finished job also has `rows_skipped`, the number of such rows (0 when there are none) Both stay as they were when a run is cancelled or timed out, and carry no result — counts only, no values, names, record ids or error texts; partial results are still never published. The audit report of a job repeats the job's last `progress`, so it carries `steps` as well |
 | Cancel | `POST /api/jobs/{job_id}/cancel` | 202; request cancellation, poll until terminal |
 | Download | `GET /api/jobs/{job_id}/artifacts/result` | Separate enriched XLSX after successful publication |
 | Report | `GET /api/jobs/{job_id}/artifacts/report` | JSON audit for every terminal job, including stops/failures |
@@ -172,6 +172,70 @@ HTTP errors use `{"error":{"code":"...","message":"..."}}`; in particular
 `planning_failed` (502), `approval_required`, `approval_mismatch`, `source_changed`
 and `job_busy` (409) remain distinct. Review adds `review_not_available` (409),
 `invalid_decision` and `no_decisions` (422).
+
+### Existing values
+
+A plan chooses the cells it fills. Whether a cell that already holds a value
+keeps it is part of the plan request: `existing_outputs` is `keep` (the default,
+also for plans made before the option existed) or `replace`. The source workbook
+is never changed; the result is a copy.
+
+**Keep.** An occupied target cell, a formula included, stays as it is. A record
+for which **every** target cell of the plan's outputs holds a value is **not
+executed at all**: none of its steps run, no source is asked and nothing is
+counted against a request budget. The runner (`ExcelEnrichmentRunner.run`)
+leaves such records out of what it hands to the executor, so the executor,
+its metrics and its budgets never see them. A record with at least one empty
+target cell is executed completely, as before; there is no pruning per step or
+per column, so a row with some cells filled still costs all its lookups, and
+the cells that already had a value are kept afterwards (`kept_outputs`).
+
+**Replace.** Nothing is skipped. A new value is written over the earlier one
+only where one was produced; the earlier value is recorded in `replaced_cells`
+and a row's `replaced_outputs`. A row whose lookup failed keeps what it had.
+
+A run without the keep/replace choice (the command line, the benchmarks) is
+unchanged: an occupied target cell is refused before anything runs, and no
+record is skipped.
+
+**What the outcome counts.** Status, `metrics` (`total_rows`, `successful_rows`,
+`partial_rows`, `failed_rows` and the operation counts), `progress`, the
+`rows` list, `execution.records` and the review all cover the executed rows
+only. A skipped row never lowers the outcome: the job is `needs_review` only
+because of an executed row. If every row is skipped the job is `completed`
+with `metrics.total_rows` 0, `progress` `null`, the workbook is published with
+its values unchanged, and `rows_skipped` is the number of selected rows. A
+skipped row cannot appear in Review, and a resume ("fill in the remaining
+rows") starts from the same workbook with the same plan and choice, so it skips
+the same rows.
+
+**The audit.** The report gains one top-level list, `skipped_rows`, one entry per
+skipped row in sheet order (`[]` when none). Nothing else changes: `rows`,
+`kept_outputs`, `replaced_outputs`, `preserved_cells` and `replaced_cells` keep
+their meaning, and `preserved_cells` still names the kept cells of the skipped
+rows too.
+
+```json
+"skipped_rows": [
+  {
+    "record_id": "Sheet1!2",
+    "row": 2,
+    "inputs": {"Mountain": "Mount Everest", "Country": "Nepal/China"},
+    "reason": "already_filled",
+    "kept_outputs": ["height"],
+    "kept_values": {"height": 8848.86}
+  }
+]
+```
+
+`reason` is `already_filled` (every target cell held a value, so the row was not
+looked up); `kept_outputs` lists the target columns, `kept_values` the value
+each cell holds (a number, a flag or text; a formula is recorded as its text).
+`inputs` are the same plan-referenced source values a `rows` entry has. The
+`run_finished` usage event gains the number `rows_skipped`.
+
+Limit: a run takes the first `N` rows of the table (`MAX_RUN_ROWS`), and skipped
+rows count against `N`.
 
 ## Review and resume
 

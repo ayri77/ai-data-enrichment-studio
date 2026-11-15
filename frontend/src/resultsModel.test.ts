@@ -249,6 +249,7 @@ it("summarizes numeric columns and formats values for reading", () => {
     expect(columnStats(rows, "distance")).toEqual({
         filled: 2,
         total: 5,
+        skipped: 0,
         min: 470.5,
         max: 2023.7941796667708,
         mean: (470.5 + 2023.7941796667708) / 2,
@@ -256,6 +257,7 @@ it("summarizes numeric columns and formats values for reading", () => {
     expect(columnStats(filterRows(rows, "empty"), "distance")).toEqual({
         filled: 0,
         total: 3,
+        skipped: 0,
     });
     expect(formatValue(2023.7941796667708, "en", "km")).toBe("2,023.79 km");
     expect(formatValue(2023.7941796667708, "de", "km")).toBe("2.023,79 km");
@@ -427,4 +429,56 @@ it("reads a plain number a step returned, and names what a routing service said"
         { kind: "too_far", code: "ROUTE_TOO_LONG", subject: null },
         { kind: "access", code: "SOURCE_ACCESS_DENIED", subject: null },
     ]);
+});
+
+it("shows a row that was not looked up with its kept value, counted apart from filled and empty", () => {
+    const withSkipped = {
+        ...report,
+        skipped_rows: [
+            {
+                record_id: "Sheet1!7",
+                row: 7,
+                inputs: { From: "Lutsk", Country: "Ukraine" },
+                reason: "already_filled",
+                kept_outputs: ["distance"],
+                kept_values: { distance: 1234.5 },
+            },
+            {
+                record_id: "Sheet1!1",
+                row: 1,
+                inputs: { From: "Rivne" },
+                reason: "already_filled",
+                kept_outputs: ["distance"],
+                kept_values: { distance: "=1+1" },
+            },
+        ],
+    } as unknown as AuditReport;
+    const all = resultRows(withSkipped, plan);
+    // Sheet order, the skipped rows among the others.
+    expect(all.map((r) => r.row)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(all[0]).toMatchObject({
+        skipped: true,
+        filled: false,
+        status: "skipped",
+        kept: ["distance"],
+        outputs: { distance: "=1+1" },
+        cause: null,
+        steps: [],
+    });
+    expect(all[6].outputs).toEqual({ distance: 1234.5 });
+    expect(inputColumns(withSkipped)).toEqual(["From", "Country"]);
+    // Neither filled nor empty: its own filter.
+    expect(filterRows(all, "skipped").map((r) => r.row)).toEqual([1, 7]);
+    expect(filterRows(all, "filled").map((r) => r.row)).toEqual([2, 3]);
+    expect(filterRows(all, "empty").map((r) => r.row)).toEqual([4, 5, 6]);
+    expect(filterRows(all, "all")).toHaveLength(7);
+    // The kept values are not part of the summary of what the run found.
+    expect(columnStats(all, "distance")).toMatchObject({
+        filled: 2,
+        total: 5,
+        skipped: 2,
+        min: 470.5,
+    });
+    // A report from before the field existed reads as before.
+    expect(rows.every((r) => !r.skipped)).toBe(true);
 });
