@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+Nothing yet.
+
+## 0.3.0 — beta (2026-11-15)
+
+More can be filled from what the sources already return, and less is looked
+up: facts of a found city go into columns, a partly filled column is completed
+without asking again for the rows that have their values, and a run shows what
+each step is doing while it goes on.
+
+### What is new
+
 - More facts about a found city can be written into columns: the output of
   `geocode` now also declares `population` (a number) and `timezone` (text), taken
   from the same response as the coordinates, with no further request. A place the
@@ -12,9 +23,7 @@
   The elevation of a place record is deliberately not offered: it would compete
   with the elevation of a mountain, which has its own verified path. The version of
   `geocode` is now 1.2, so results cached under 1.1, which lack the values, are not
-  reused: the first run after the change asks the source again. The planning model
-  is shown the changed contract: all planning cases need to be measured again (new
-  case `capitals_population`).
+  reused: the first run after the change asks the source again.
 - The latitude and the longitude of a city can be written into two columns: the
   output of `geocode` now declares the fields `latitude` and `longitude` (numbers,
   decimal degrees), so one step fills two columns from a single lookup. Both cells
@@ -23,8 +32,7 @@
   into which column, Results show a coordinate with five decimals, and the
   overview says so. The coordinates are those of the place the source matched;
   nothing checks them against a second source. The capability's version stays
-  1.1. The planning model is shown the changed contract: all planning cases need
-  to be measured again (new case `capitals_coordinates`).
+  1.1.
 - In keep mode a row whose every chosen cell already has a value is no longer
   looked up: none of its steps run, no source is asked, and it never lowers the
   outcome or reaches Review. Rows with some cells empty are looked up in full;
@@ -44,6 +52,49 @@
   run worker and the resolution, other-name and resume code read it instead of
   comparing capability ids. No change in behaviour, in what the planner is
   shown or in any response.
+- A short page in Ukrainian for the course mentors:
+  [docs/for-mentors.uk.md](docs/for-mentors.uk.md).
+
+### Measured
+
+- Planning with the contracts of this release (six capabilities, `geocode`
+  1.2), `gpt-6-luna` at effort `low`, 2026-11-15: 60 valid plans of 60 on six
+  tasks — capitals, mountains, capitals with three columns, mountains with
+  gaps, coordinates into two columns, population
+  ([live planning reliability](docs/26-live-planning-reliability.md)). The
+  measurement counts valid plans; it does not compare a plan with an expected
+  one.
+
+### Checked by the owner since 0.2.0
+
+Single live trials, not measurements:
+
+- the usage summary at `/#usage` on the hosted instance;
+- the example with missing heights: the filled rows were not looked up;
+- a population column for the capitals was filled from the live source;
+- "Suggest a task" proposed a fitting task for a partly filled column and for
+  three chosen columns.
+
+### Not verified
+
+- The `timezone` field in a live response.
+- The step counts growing during a live run, and the live counts in Advanced.
+- A run started under an earlier version and resumed under this one (its
+  saved results have the earlier shape).
+- The failure answers of the routing service, and planning without a routing
+  key (five capabilities), as in 0.2.0.
+
+### Known limits
+
+- A run still takes the first rows of the table, so rows that are skipped
+  because they are filled count against the row limit. A row with some of its
+  chosen cells empty is looked up in full.
+- Coordinates, population and timezone are what the geocoding source holds for
+  the matched place. Nothing checks them against a second source, and
+  population figures can be old.
+- The step counts during a run are the row counter split by step, updated when
+  a row finishes; there is no event stream.
+- The limits of 0.2.0 still apply.
 
 ## 0.2.0 — beta (2026-11-14)
 
