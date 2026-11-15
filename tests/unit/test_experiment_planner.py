@@ -61,8 +61,8 @@ def test_a_failed_request_is_timed_too() -> None:
 
 
 def test_every_measured_case_is_an_example_with_its_own_instruction_and_table() -> None:
-    # capitals_coordinates is a measurement case on the Capitals table, not a demo example.
-    assert set(INSTRUCTIONS) - {"capitals_coordinates"} == {
+    # These two are measurement cases on the Capitals table, not demo examples.
+    assert set(INSTRUCTIONS) - {"capitals_coordinates", "capitals_population"} == {
         sample.sample_id for sample in sample_catalog.SAMPLES
     }
     for sample in sample_catalog.SAMPLES:

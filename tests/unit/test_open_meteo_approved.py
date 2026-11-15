@@ -69,7 +69,7 @@ def test_approved_location_is_selected_after_a_fresh_search() -> None:
     approved, transport = service()
     outcome = approved.resolve(inputs=INPUTS, policy=STRICT, parameters={})
     assert outcome.operation.status == "success"
-    assert outcome.operation.value == GeoPoint(latitude=54.03, longitude=13.4)
+    assert outcome.operation.value == GeoPoint(latitude=54.03, longitude=13.4, population=1000)
     assert len(transport.requests) == 1  # The search really was repeated.
     decision = outcome.report.decision
     assert decision.status == "resolved" and decision.basis == "user_override"

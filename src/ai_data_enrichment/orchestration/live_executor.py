@@ -221,7 +221,7 @@ def build_live_executor(
         resolution_cache=reuse[1] if reuse else None,
         capability_versions={
             **({"resolve_entity": "1.0"} if audit_mountains else {}),
-            **({"geocode": "1.1"} if audit_capitals else {}),
+            **({"geocode": "1.2"} if audit_capitals else {}),
             **({"lookup_property": "1.0"} if reuse else {}),
             **({"road_distance": "1.0"} if reuse and with_roads else {}),
         },

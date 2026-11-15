@@ -71,6 +71,11 @@ def validate_paired_result(
             or operation.value.longitude != facts["longitude"]
         ):
             raise ValueError("Selected coordinates disagree with verified candidate.")
+        # The facts of the place ride along: the result holds what the candidate
+        # holds, no more and no less.
+        for name in ("population", "timezone"):
+            if getattr(operation.value, name) != facts.get(name):
+                raise ValueError("Selected place facts disagree with verified candidate.")
     else:
         raise ValueError("Unsupported audited resolution output type.")
 

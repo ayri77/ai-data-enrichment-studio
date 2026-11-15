@@ -11,11 +11,14 @@ from json import JSONDecodeError
 
 from pydantic import ValidationError
 
-from ai_data_enrichment.execution.models import GeoPoint, OperationResult, RuntimeValue
+from ai_data_enrichment.execution.models import OperationResult, RuntimeValue
 from ai_data_enrichment.providers.http_results import transport_failure_result
 from ai_data_enrichment.providers.http_transport import JsonTransport, JsonTransportError
 from ai_data_enrichment.providers.open_meteo import GEOCODING_RESULT_LIMIT, GEOCODING_URL
-from ai_data_enrichment.providers.open_meteo_candidates import normalize_open_meteo_candidates
+from ai_data_enrichment.providers.open_meteo_candidates import (
+    geo_point_from_facts,
+    normalize_open_meteo_candidates,
+)
 from ai_data_enrichment.resolution.engine import ResolutionEngine
 from ai_data_enrichment.resolution.geographic import GeographicRankingStrategy
 from ai_data_enrichment.resolution.geography import normalize_country_code
@@ -163,12 +166,7 @@ class OpenMeteoResolutionService:
             )
             attributes = {attribute.name: attribute.value for attribute in candidate.attributes}
             # The source adapter validated these coordinates before verification.
-            point = GeoPoint.model_validate(
-                {
-                    "latitude": attributes["latitude"],
-                    "longitude": attributes["longitude"],
-                }
-            )
+            point = geo_point_from_facts(attributes)
             return GeocodingResolutionOutcome(
                 operation=OperationResult(
                     status="success",

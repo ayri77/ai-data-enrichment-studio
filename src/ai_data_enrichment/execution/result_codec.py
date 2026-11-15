@@ -57,6 +57,11 @@ def _encode_value(value: RuntimeValue) -> dict[str, object]:
             "type": "geo_point",
             "latitude": _hex_float(value.latitude),
             "longitude": _hex_float(value.longitude),
+            # Always present, null when the source gave none: an entry written
+            # before these existed lacks the keys and is rejected, never read
+            # back as a place without a population.
+            "population": value.population,
+            "timezone": value.timezone,
         }
     if isinstance(value, EntityRef):
         return {"type": "entity_ref", "source": value.source, "entity_id": value.entity_id}
@@ -77,10 +82,21 @@ def _decode_value(value: object) -> RuntimeValue:
         obj = _required_object(value, frozenset({"type", "value"}))
         return _parse_hex_float(obj["value"])
     if tag == "geo_point":
-        obj = _required_object(value, frozenset({"type", "latitude", "longitude"}))
+        obj = _required_object(
+            value,
+            frozenset({"type", "latitude", "longitude", "population", "timezone"}),
+        )
+        population = obj["population"]
+        timezone = obj["timezone"]
+        if population is not None and (type(population) is not int or population < 0):
+            raise ValueError("Cached population must be a nonnegative integer or null.")
+        if timezone is not None and not isinstance(timezone, str):
+            raise ValueError("Cached timezone must be text or null.")
         return GeoPoint(
             latitude=_parse_hex_float(obj["latitude"]),
             longitude=_parse_hex_float(obj["longitude"]),
+            population=population,
+            timezone=timezone,
         )
     if tag == "entity_ref":
         obj = _required_object(value, frozenset({"type", "source", "entity_id"}))

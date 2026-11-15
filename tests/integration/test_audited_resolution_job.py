@@ -126,7 +126,7 @@ def _job(
         },
         selected_providers={"geocode": "open-meteo", "geodesic_distance": "local"},
         configuration_ids={"geocode": config, "geodesic_distance": "hav-v1"},
-        capability_versions={"geocode": "1.1"},
+        capability_versions={"geocode": "1.2"},
         provider_versions={"geocode": provider_version},
         policy=JobExecutionPolicy(
             max_rows=1000,
@@ -182,7 +182,8 @@ def test_ranked_job_has_audited_capital_selection_and_downstream_dependency() ->
         ("row-2", "geocode"),
     }
     assert all(
-        rec.row_result.steps[0].result.value == GeoPoint(latitude=52.52437, longitude=13.41053)
+        rec.row_result.steps[0].result.value
+        == GeoPoint(latitude=52.52437, longitude=13.41053, population=3500000)
         for rec in result.records
     )
     assert all(rec.row_result.steps[1].result.status == "success" for rec in result.records)

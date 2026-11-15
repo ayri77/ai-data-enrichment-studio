@@ -299,6 +299,11 @@ export interface AuditReport extends Job {
         kept_outputs?: string[];
         /** Output columns whose earlier value was replaced, with that value. */
         replaced_outputs?: Record<string, string | number | boolean>;
+        /**
+         * Output columns left empty because the source holds no value for the
+         * field, although the step succeeded: the field and a reason code.
+         */
+        empty_outputs?: Record<string, { field: string; code: string }>;
     }[];
     execution?: {
         provider_requests: Record<string, Record<string, number>>;

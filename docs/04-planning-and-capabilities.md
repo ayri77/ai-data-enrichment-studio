@@ -297,7 +297,13 @@ A GeoPoint contains:
 
 The initial coordinate reference system is WGS84.
 
-The contract declares two output fields, `latitude` and `longitude`, both numbers in decimal degrees. An output mapping may name either of them as its `value_field`, so one `geocode` step can fill two columns (`latitude` into one, `longitude` into the other) from a single lookup. A GeoPoint as a whole cannot be written to a column, and no other field name is accepted (`UNKNOWN_OUTPUT_FIELD`). The coordinates are those of the place the source matched; nothing checks them against a second source. A row whose city is not found, or still waits for a choice in Review, leaves both cells empty.
+The contract (version 1.2) declares four output fields: `latitude` and `longitude` (numbers, decimal degrees), `population` (a number, a count of people) and `timezone` (text, an IANA name such as `Europe/Berlin`). An output mapping may name any of them as its `value_field`, so one `geocode` step can fill several columns from a single lookup. A GeoPoint as a whole cannot be written to a column, and no other field name is accepted (`UNKNOWN_OUTPUT_FIELD`). A row whose city is not found, or still waits for a choice in Review, leaves all its cells empty.
+
+The values are what the geocoding source (GeoNames data, served by Open-Meteo) holds for the place it matched, taken from the response of the one request made for that city; no further request is made for them. The population figures can be old, and nothing checks any of the values against a second source. The elevation of a place record is deliberately not offered as a field: it would compete with the elevation of a mountain, which has its own verified path (`resolve_entity` and `lookup_property`). The coordinates, the population and the timezone belong to the record that was accepted, also when the user chose it in Review, and they never influence which record is accepted.
+
+A small place may have no population recorded. The step has still succeeded: that one cell stays empty, the other outputs of the same step are written, and the audit of the row lists the column under `empty_outputs` with the field and the code `VALUE_NOT_GIVEN`. Results say in words that the source has no value for the field. The empty cell is not a failure and does not change the outcome of the row. An existing value in such a cell is kept, also when existing values are replaced.
+
+The version of `geocode` is part of the key of a cached result. Version 1.1 results do not hold these values, so they are not read under 1.2: the first run after the change asks the source again for each city.
 
 Ambiguous or unsuccessful lookups must produce explicit operation outcomes rather than arbitrary default coordinates.
 
@@ -475,7 +481,7 @@ Conceptual structure:
 }
 ```
 
-For a Quantity result, `value_field: "value"` selects its numeric component. For a GeoPoint result, `value_field` is `latitude` or `longitude`.
+For a Quantity result, `value_field: "value"` selects its numeric component. For a GeoPoint result, `value_field` is `latitude`, `longitude`, `population` or `timezone`.
 
 The selected field must exist in the output contract and be compatible with the destination column.
 

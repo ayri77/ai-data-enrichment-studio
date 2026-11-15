@@ -14,7 +14,7 @@ def get_geocode_spec() -> CapabilitySpec:
 
     return CapabilitySpec(
         id="geocode",
-        version="1.1",
+        version="1.2",
         description="Resolve geographical coordinates",
         inputs={
             "city": InputSpec(
@@ -45,10 +45,17 @@ def get_geocode_spec() -> CapabilitySpec:
         },
         output=OutputSpec(
             type=DataType.GEO_POINT,
-            description="Resolved coordinates",
+            description=(
+                "Resolved coordinates of the matched place, with its population (a count) "
+                "and timezone (an IANA name such as Europe/Berlin) when the source records "
+                "them. A field the source does not give stays empty; the others are "
+                "still written."
+            ),
             fields={
                 "latitude": DataType.NUMBER,
                 "longitude": DataType.NUMBER,
+                "population": DataType.NUMBER,
+                "timezone": DataType.TEXT,
             },
         ),
     )

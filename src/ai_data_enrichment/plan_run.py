@@ -1122,6 +1122,11 @@ class PlanRunService:
                         "replaced_outputs": source_rows.get(record.record_id, {}).get(
                             "replaced_outputs", {}
                         ),
+                        # Output columns left empty because the source holds no
+                        # value for the field, although the step succeeded.
+                        "empty_outputs": source_rows.get(record.record_id, {}).get(
+                            "empty_outputs", {}
+                        ),
                     }
                     for record in result.records
                 ]

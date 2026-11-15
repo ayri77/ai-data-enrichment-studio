@@ -39,7 +39,7 @@ def test_builtin_capabilities_include_geocode() -> None:
     capabilities = get_builtin_capabilities()
     geocode_capability = next((c for c in capabilities if c.id == "geocode"), None)
     assert geocode_capability is not None
-    assert geocode_capability.version == "1.1"
+    assert geocode_capability.version == "1.2"
     assert geocode_capability.inputs == {
         "city": InputSpec(
             type=DataType.TEXT,
@@ -61,14 +61,18 @@ def test_builtin_capabilities_include_geocode() -> None:
 
     assert required_role.type == DataType.TEXT
     assert required_role.allowed_values == ["country_capital"]
-    assert geocode_capability.output == OutputSpec(
-        type=DataType.GEO_POINT,
-        description="Resolved coordinates",
-        fields={
-            "latitude": DataType.NUMBER,
-            "longitude": DataType.NUMBER,
-        },
-    )
+    output = geocode_capability.output
+    assert output.type == DataType.GEO_POINT
+    assert output.fields == {
+        "latitude": DataType.NUMBER,
+        "longitude": DataType.NUMBER,
+        "population": DataType.NUMBER,
+        "timezone": DataType.TEXT,
+    }
+    # The gaps of the source are said where the planning model reads them, and
+    # the elevation of a place is deliberately not offered.
+    assert "stays empty" in output.description
+    assert "elevation" not in output.description
 
 
 def test_builtin_capabilities_include_resolve_entity() -> None:

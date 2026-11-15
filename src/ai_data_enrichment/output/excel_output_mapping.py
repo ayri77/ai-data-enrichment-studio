@@ -9,7 +9,10 @@ from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan
 from ai_data_enrichment.execution.job_models import JobExecutionResult
 from ai_data_enrichment.execution.models import Quantity
 from ai_data_enrichment.ingestion.table_selection import TableSelection
-from ai_data_enrichment.output.value_projection import project_operation_field
+from ai_data_enrichment.output.value_projection import field_is_empty, project_operation_field
+
+# Reported next to an output cell that stays empty although its step succeeded.
+EMPTY_FIELD_CODE = "VALUE_NOT_GIVEN"
 
 
 def build_output_header_writes(
@@ -121,6 +124,11 @@ def build_output_value_writes(
             if result.status != "success":
                 continue
 
+            # The source gave no value for this field: its cell stays empty and
+            # the other outputs of the step are written as usual.
+            if field_is_empty(result, output.value_field):
+                continue
+
             # Check the typed measurement before discarding its unit.
             # A mismatch must never become an apparently valid numeric cell.
             if output.expected_unit is not None:
@@ -150,3 +158,23 @@ def build_output_value_writes(
             writes[coordinate] = value
 
     return writes
+
+
+def empty_output_fields(
+    plan: EnrichmentPlan,
+    job_result: JobExecutionResult,
+) -> dict[str, dict[str, str]]:
+    """Per record, the output columns left empty because the source gave no value.
+
+    Maps a record ID to ``{target column: field}``; records without such a gap
+    are left out. A failed step is not listed: it carries its own error code.
+    """
+
+    gaps: dict[str, dict[str, str]] = {}
+    for record in job_result.records:
+        step_results = {step.step_id: step.result for step in record.row_result.steps}
+        for output in plan.outputs:
+            result = step_results.get(output.step_id)
+            if result is not None and field_is_empty(result, output.value_field):
+                gaps.setdefault(record.record_id, {})[output.target_column] = output.value_field
+    return gaps

@@ -12,6 +12,10 @@ Latitude and longitude of a city in two new columns of the Capitals table:
 
     ... --case capitals_coordinates --output-targets latitude,longitude
 
+The population of a city in one new column of the Capitals table:
+
+    ... --case capitals_population --output-targets population
+
 The partly filled table (empty cells are filled, the others kept):
 
     ... --case mountains_gaps --output-targets height --repeat 10
@@ -40,6 +44,7 @@ from openai import OpenAI
 from tests.support.planning import (
     CAPITALS_COORDINATES_INSTRUCTION,
     CAPITALS_INSTRUCTION,
+    CAPITALS_POPULATION_INSTRUCTION,
     CAPITALS_ROADS_INSTRUCTION,
     MOUNTAINS_GAPS_INSTRUCTION,
     MOUNTAINS_INSTRUCTION,
@@ -63,6 +68,8 @@ INSTRUCTIONS = {
     "capitals_roads": CAPITALS_ROADS_INSTRUCTION,
     # One geocode step written into two new columns; the Capitals table, no routing key.
     "capitals_coordinates": CAPITALS_COORDINATES_INSTRUCTION,
+    # One geocode step, one new column: a fact of the found place, not its position.
+    "capitals_population": CAPITALS_POPULATION_INSTRUCTION,
 }
 
 

@@ -5,7 +5,7 @@ normalized, typed candidates and never interprets GeoNames feature codes.
 This module is pure: it makes no HTTP calls and takes no ranking decisions.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from re import fullmatch
 
 from pydantic import ValidationError
@@ -19,6 +19,7 @@ from ai_data_enrichment.resolution.models import (
     ResolutionAttribute,
     ResolutionCandidate,
     ResolutionQuery,
+    ResolutionValue,
 )
 
 # These are provider semantics, *not* universal feature IDs.
@@ -47,6 +48,33 @@ def exact_open_meteo_matches(
         and isinstance(candidate.get("name"), str)
         and candidate["name"].strip().casefold() == normalized_city
     ]
+
+
+def place_facts(record: Mapping[str, object]) -> dict[str, int | str]:
+    """The population and timezone a source record gives, and no others.
+
+    A value that is absent or not of the documented type is left out: these
+    facts only ride along with the accepted record and never decide a match.
+    """
+    facts: dict[str, int | str] = {}
+    population = record.get("population")
+    if type(population) is int and population >= 0:
+        facts["population"] = population
+    timezone = record.get("timezone")
+    if isinstance(timezone, str) and timezone.strip():
+        facts["timezone"] = timezone.strip()
+    return facts
+
+
+def geo_point_from_facts(facts: Mapping[str, ResolutionValue]) -> GeoPoint:
+    """Build the result of a found place from the attributes of its candidate."""
+    return GeoPoint.model_validate(
+        {
+            "latitude": facts["latitude"],
+            "longitude": facts["longitude"],
+            **{name: facts[name] for name in ("population", "timezone") if name in facts},
+        }
+    )
 
 
 def normalize_open_meteo_candidates(
@@ -127,6 +155,12 @@ def normalize_open_meteo_candidates(
             if type(population) is not int or population < 0:
                 raise ValueError("Open-Meteo population must be nonnegative integer.")
             attributes.append(ResolutionAttribute(name="population", value=population))
+
+        # Carried for the result of the accepted record; the strategy does not
+        # read it.
+        given = place_facts(match)
+        if "timezone" in given:
+            attributes.append(ResolutionAttribute(name="timezone", value=given["timezone"]))
 
         if feature_code == "PPLX":
             entity_type = "district"

@@ -310,7 +310,13 @@ Latitude and longitude of a city in two new columns of the Capitals table (`capi
 uv run --env-file .env python -m scripts.experiment_planner --case capitals_coordinates --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets latitude,longitude
 ```
 
-**After the change that declared the fields of `geocode`'s output (`latitude`, `longitude`), all planning cases must be measured again, not only this one.** Every plan request carries the capability contracts, so every request now carries the changed `geocode` contract; the results above were measured on the earlier one and do not cover it.
+The population of a city in one new column of the Capitals table (`capitals_population`, one `geocode` step with one output; also not an example of the demo) is the case for the facts of a found place. It has not been measured:
+
+```
+uv run --env-file .env python -m scripts.experiment_planner --case capitals_population --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets population
+```
+
+**After the changes that declared the fields of `geocode`'s output (`latitude` and `longitude`, then `population` and `timezone`), all planning cases must be measured again, not only these.** Every plan request carries the capability contracts, so every request now carries the changed `geocode` contract (and its new version, 1.2); the results above were measured on the earlier ones and do not cover them.
  Acceptance, the same bar the default
 model met: 10 of 10 valid plans on both tasks, no request over 30 s, no `incomplete`
 responses.

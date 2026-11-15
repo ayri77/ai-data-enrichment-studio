@@ -32,6 +32,17 @@ FIXTURE_CITIES = {
     "Paris": (2988507, "FR", 48.85341, 2.3488),
     "Kyiv": (703448, "UA", 50.45466, 30.5238),
 }
+# What the source records about a place besides its coordinates, named exactly
+# as the geocoding API names them. Round figures. A key that is missing is a
+# fact the source does not give: Rome has no population here, and Paris has
+# no timezone, so that each gap can be exercised on its own.
+FIXTURE_FACTS: dict[str, dict[str, object]] = {
+    "Warszawa": {"population": 1_702_139, "timezone": "Europe/Warsaw"},
+    "London": {"population": 7_556_900, "timezone": "Europe/London"},
+    "Rome": {"timezone": "Europe/Rome"},
+    "Paris": {"population": 2_138_551},
+    "Kyiv": {"population": 2_952_301, "timezone": "Europe/Kyiv"},
+}
 # Route lengths in metres between fixture cities, in either direction. Round
 # figures of the right order; a pair that is not listed has no route.
 FIXTURE_ROADS = {
@@ -90,10 +101,22 @@ class APITransportFixture:
             "latitude": lat,
             "longitude": lon,
             "feature_code": "PPLC",
+            **FIXTURE_FACTS.get(city, {}),
         }
         candidates = [candidate]
         if city == "Kyiv":
-            candidates.append({**candidate, "id": 704213, "latitude": 47.0, "longitude": 32.0})
+            # The other place of the name has facts of its own. Its population
+            # equals the first one's: the two stay equally ranked, as they were.
+            candidates.append(
+                {
+                    **candidate,
+                    "id": 704213,
+                    "latitude": 47.0,
+                    "longitude": 32.0,
+                    "population": 2_952_301,
+                    "timezone": "Europe/Zaporozhye",
+                }
+            )
         return {"results": candidates}
 
 
