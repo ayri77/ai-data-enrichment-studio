@@ -14,6 +14,7 @@ export type Cause =
     | "off_road"
     | "too_far"
     | "access"
+    | "no_value"
     | "other";
 const CAUSES: Record<string, Cause> = {
     AMBIGUOUS: "ambiguous",
@@ -36,6 +37,7 @@ const CAUSES: Record<string, Cause> = {
     POINT_NOT_ON_ROAD: "off_road",
     ROUTE_TOO_LONG: "too_far",
     SOURCE_ACCESS_DENIED: "access",
+    VALUE_NOT_GIVEN: "no_value",
 };
 export interface ResultStep {
     stepId: string;
@@ -74,6 +76,11 @@ export interface ResultRow {
     }[];
     /** Source values accepted automatically although other matches stayed unconfirmed. */
     automatic: string[];
+    /**
+     * Output columns left empty although the step succeeded, because the source
+     * holds no value for that field of the found place.
+     */
+    gaps: { column: string; field: string; subject: string | null }[];
     /** The first real failure in the row, not its downstream consequences. */
     cause: { kind: Cause; code: string; subject: string | null } | null;
     steps: ResultStep[];
@@ -88,6 +95,8 @@ export interface ResultColumn {
 
 /** Five decimals are about a metre on the ground. */
 const COORDINATE_DIGITS = 5;
+/** A count of people has no decimals. */
+const COUNT_DIGITS = 0;
 
 const scalar = (value: unknown): value is Scalar =>
     typeof value === "string" ||
@@ -148,7 +157,9 @@ export const outputColumns = (plan: EnrichmentPlan | null): ResultColumn[] =>
         ...(output.value_field === "latitude" ||
         output.value_field === "longitude"
             ? { digits: COORDINATE_DIGITS }
-            : {}),
+            : output.value_field === "population"
+              ? { digits: COUNT_DIGITS }
+              : {}),
     }));
 
 /** Join the published row list with step results from the same audit. */
@@ -182,6 +193,7 @@ export function resultRows(
         chosen: [],
         searched: [],
         automatic: [],
+        gaps: [],
         cause: null,
         steps: [],
     }));
@@ -246,6 +258,21 @@ export function resultRows(
                 }),
             ),
             automatic: subjects(row.auto_accepted_steps),
+            gaps: Object.entries(row.empty_outputs ?? {}).map(
+                ([column, gap]) => ({
+                    column,
+                    field: gap.field,
+                    subject: subject(
+                        planSteps.get(
+                            (plan?.outputs ?? []).find(
+                                (o) => o.target_column === column,
+                            )?.step_id ?? "",
+                        ),
+                        inputs,
+                        planSteps,
+                    ),
+                }),
+            ),
             cause: failed
                 ? {
                       kind: CAUSES[failed.errorCode ?? ""] ?? "other",

@@ -96,7 +96,9 @@ def test_berlin_prominence_auto_selects_capital_and_preserves_alternative() -> N
     )
     assert len(transport.requests) == 1
     assert outcome.operation.status == "success"
-    assert outcome.operation.value == GeoPoint(latitude=52.52437, longitude=13.41053)
+    assert outcome.operation.value == GeoPoint(
+        latitude=52.52437, longitude=13.41053, population=3426354
+    )
     assert outcome.operation.evidence[0].reference == "geonames:2950159"
     report = outcome.report
     assert report.decision.status == "auto_resolved"
@@ -560,6 +562,7 @@ def test_kyiv_complete_search_auto_resolves_capital() -> None:
     assert outcome.operation.value == GeoPoint(
         latitude=50.4501,
         longitude=30.5234,
+        population=2952301,
     )
     assert outcome.operation.evidence[0].reference == "geonames:703448"
 

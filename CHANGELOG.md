@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- More facts about a found city can be written into columns: the output of
+  `geocode` now also declares `population` (a number) and `timezone` (text), taken
+  from the same response as the coordinates, with no further request. A place the
+  source holds no value for leaves that one cell empty; its other cells are written,
+  and the audit and Results say that the source has no value (`VALUE_NOT_GIVEN`).
+  The values are what GeoNames data, served by Open-Meteo, holds for the matched
+  place: populations can be old, and nothing checks them against a second source.
+  The elevation of a place record is deliberately not offered: it would compete
+  with the elevation of a mountain, which has its own verified path. The version of
+  `geocode` is now 1.2, so results cached under 1.1, which lack the values, are not
+  reused: the first run after the change asks the source again. The planning model
+  is shown the changed contract: all planning cases need to be measured again (new
+  case `capitals_population`).
 - The latitude and the longitude of a city can be written into two columns: the
   output of `geocode` now declares the fields `latitude` and `longitude` (numbers,
   decimal degrees), so one step fills two columns from a single lookup. Both cells

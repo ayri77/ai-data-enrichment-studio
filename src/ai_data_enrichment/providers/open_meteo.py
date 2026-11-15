@@ -16,6 +16,7 @@ from ai_data_enrichment.providers.http_transport import JsonTransport, JsonTrans
 from ai_data_enrichment.providers.open_meteo_candidates import (
     administrative_area_matches,
     exact_open_meteo_matches,
+    place_facts,
 )
 from ai_data_enrichment.resolution.geography import normalize_country_code
 
@@ -197,6 +198,7 @@ class OpenMeteoGeocodingHandler:
                 {
                     "latitude": location.get("latitude"),
                     "longitude": location.get("longitude"),
+                    **place_facts(location),
                 }
             )
         except ValidationError:

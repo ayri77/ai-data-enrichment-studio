@@ -91,7 +91,7 @@ def test_required_capital_flows_through_audited_job_executor() -> None:
             "geocode": "capital-test-v1",
             "geodesic_distance": "haversine-v1",
         },
-        capability_versions={"geocode": "1.1"},
+        capability_versions={"geocode": "1.2"},
         provider_versions={"geocode": "open-meteo-v1"},
         policy=JobExecutionPolicy(
             max_rows=10,
@@ -210,7 +210,7 @@ def test_mixed_geocode_steps_keep_distinct_resolution_semantics() -> None:
         },
         selected_providers={"geocode": "open-meteo"},
         configuration_ids={"geocode": "mixed-geocode-v1"},
-        capability_versions={"geocode": "1.1"},
+        capability_versions={"geocode": "1.2"},
         provider_versions={"geocode": "open-meteo-v1"},
         policy=JobExecutionPolicy(
             max_rows=10,

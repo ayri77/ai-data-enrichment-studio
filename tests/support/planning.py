@@ -29,6 +29,13 @@ CAPITALS_COORDINATES_INSTRUCTION = (
     "into a new column named longitude. Leave unresolved or ambiguous results empty; "
     "do not invent values."
 )
+# The population of the first city column, written into one new column of the Capitals
+# table. Not a sample of the demo: no visitor instruction exists for it.
+CAPITALS_POPULATION_INSTRUCTION = (
+    "Find the population of the city in Capital_From, using Country_From to "
+    "disambiguate. Write it into a new column named population. Leave unresolved or "
+    "ambiguous results empty; do not invent values."
+)
 # The partly filled table is measured with the instruction a visitor gets, too.
 _GAPS = sample_catalog.find("mountains_gaps")
 assert _GAPS is not None
@@ -43,9 +50,10 @@ RANGES = {
     "mountains_gaps": "A1:C11",
     "capitals_roads": "A1:G11",
     "capitals_coordinates": "A1:E11",
+    "capitals_population": "A1:E11",
 }
 # A case measured on the table of another one.
-WORKBOOKS = {"capitals_coordinates": "capitals"}
+WORKBOOKS = {"capitals_coordinates": "capitals", "capitals_population": "capitals"}
 
 
 def workbook_profile(name: str) -> DatasetProfile:

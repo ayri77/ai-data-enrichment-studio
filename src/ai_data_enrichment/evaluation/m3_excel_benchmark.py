@@ -288,7 +288,7 @@ def run_benchmark(
             "geocode": "m3-capitals-benchmark-v1",
             "geodesic_distance": "haversine-v1",
         },
-        capability_versions={"geocode": "1.1"},
+        capability_versions={"geocode": "1.2"},
         provider_versions={"geocode": "open-meteo-v1"},
         policy=JobExecutionPolicy(
             max_rows=rows,

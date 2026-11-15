@@ -2383,3 +2383,154 @@ def test_the_plan_can_ask_only_for_fields_the_contract_declares(client):
     validation = response.json()["validation"]
     assert not validation["valid"]
     assert [e["code"] for e in validation["errors"]] == ["UNKNOWN_OUTPUT_FIELD"]
+
+
+FACTS_PLAN = {
+    **COORDINATES_PLAN,
+    "outputs": [
+        {"step_id": "city", "value_field": "latitude", "target_column": "lat"},
+        {"step_id": "city", "value_field": "population", "target_column": "pop"},
+        {"step_id": "city", "value_field": "timezone", "target_column": "tz"},
+    ],
+}
+FACTS_COLUMNS = ("lat", "pop", "tz")
+GAP = {"field": "population", "code": "VALUE_NOT_GIVEN"}
+
+
+def facts_plan(client, *, existing_outputs=None, **cells):
+    """The Capitals table with three new columns F to H: latitude and two facts."""
+    book = filled_workbook("capitals", F1="lat", G1="pop", H1="tz", **cells)
+    body = {
+        "dataset_id": upload(client, "capitals", book),
+        "sheet_name": "Sheet1",
+        "range_ref": "A1:H11",
+        "instruction": "Latitude, population and timezone of the city in Capital_From.",
+        "output_columns": dict(zip(FACTS_COLUMNS, "FGH", strict=True)),
+        "plan": FACTS_PLAN,
+        **({"existing_outputs": existing_outputs} if existing_outputs else {}),
+    }
+    response = client.post("/api/plans", json=body)
+    assert response.status_code == 201, response.text
+    plan = response.json()
+    assert plan["validation"]["valid"], plan["validation"]
+    return approve(client, plan)
+
+
+def fact_cells(client, job):
+    output = load_workbook(BytesIO(client.get(job["artifacts"]["result"]).content))
+    try:
+        sheet = output["Sheet1"]
+        return {
+            row: tuple(sheet[f"{letter}{row}"].value for letter in "FGH") for row in range(2, 12)
+        }
+    finally:
+        output.close()
+
+
+def report_rows(client, job):
+    report = client.get(job["artifacts"]["report"]).json()
+    return report, {row["row"]: row for row in report["rows"]}
+
+
+def test_population_and_timezone_are_written_as_the_source_gives_them(client):
+    job = wait(client, start(client, facts_plan(client)))
+    cells = fact_cells(client, job)
+    # London has every fact: a whole number and a text.
+    assert cells[3] == (51.50853, 7_556_900, "Europe/London")
+    assert isinstance(cells[3][1], int | float) and not isinstance(cells[3][1], bool)
+    assert isinstance(cells[3][2], str)
+    # A city that is not found, or has to be chosen, stays empty in every column.
+    assert cells[5] == cells[2] == (None, None, None)
+    report, rows = report_rows(client, job)
+    assert rows[3]["empty_outputs"] == {} and rows[3]["status"] == "success"
+    # One step, one lookup per row: four outputs cost no second request.
+    steps = {
+        step["step_id"]
+        for record in report["execution"]["records"]
+        for step in record["row_result"]["steps"]
+    }
+    assert steps == {"city"}
+    assert job["progress"]["steps"]["city"]["filled"] == 3
+
+
+def test_a_record_without_a_fact_leaves_that_cell_empty_and_says_why(client):
+    job = wait(client, start(client, facts_plan(client)))
+    cells = fact_cells(client, job)
+    # Rome has no population in the source: only that cell is empty.
+    assert cells[7] == (41.89193, None, "Europe/Rome")
+    # Paris has no timezone: the other two are written.
+    assert cells[4] == (48.85341, 2_138_551, None)
+    report, rows = report_rows(client, job)
+    assert rows[7]["empty_outputs"] == {"pop": GAP}
+    assert rows[4]["empty_outputs"] == {"tz": {"field": "timezone", "code": "VALUE_NOT_GIVEN"}}
+    # The step did not fail: the row is a success and the audit holds its value.
+    assert rows[7]["status"] == rows[4]["status"] == "success"
+    by_record = {r["record_id"]: r for r in report["execution"]["records"]}
+    rome = by_record[rows[7]["record_id"]]["row_result"]["steps"][0]["result"]
+    assert rome["status"] == "success" and rome["error_code"] is None
+    assert rome["value"]["population"] is None and rome["value"]["latitude"] == 41.89193
+    assert job["metrics"]["successful_rows"] == 3
+
+
+def test_a_city_chosen_in_review_gets_the_facts_of_the_chosen_record(client):
+    first = wait(client, start(client, facts_plan(client)))
+    review = client.get(f"/api/jobs/{first['job_id']}/review").json()
+    kyiv = review["items"][0]
+    assert {c["entity_id"] for c in kyiv["candidates"]} == {"703448", "704213"}
+    decision = {"operation_id": kyiv["operation_id"], "source": "open-meteo", "entity_id": "703448"}
+    response = client.post(f"/api/jobs/{first['job_id']}/resume", json={"decisions": [decision]})
+    assert response.status_code == 202, response.text
+    second = wait(client, response.json())
+    cells = fact_cells(client, second)
+    # The other record of the name has another timezone; it must not leak in.
+    assert cells[2] == (50.45466, 2_952_301, "Europe/Kyiv")
+    assert cells[3] == (51.50853, 7_556_900, "Europe/London")
+    _, rows = report_rows(client, second)
+    assert rows[2]["user_chosen_steps"] == ["city"] and rows[2]["empty_outputs"] == {}
+
+
+def test_a_run_taken_from_the_cache_holds_the_same_facts_and_gaps(client):
+    plan = facts_plan(client)
+    first = wait(client, start(client, plan))
+    again = wait(client, start(client, plan))
+    report, rows = report_rows(client, again)
+    # Rome and Paris come from the cache, with the gap they had.
+    assert report["execution"]["metrics"]["persistent_cache_hits"] > 0
+    assert fact_cells(client, again) == fact_cells(client, first)
+    assert fact_cells(client, again)[7][1] is None and rows[7]["empty_outputs"] == {"pop": GAP}
+
+
+def test_existing_facts_are_kept_and_a_row_with_every_cell_filled_is_skipped(client):
+    # London has all three cells, Paris only the population, Rome a population the source lacks.
+    plan = facts_plan(client, F3=1.0, G3=2.0, H3="x", G4=5.0, G7=9.0)
+    job = wait(client, start(client, plan))
+    assert job["rows_skipped"] == 1
+    report, rows = report_rows(client, job)
+    assert [row["row"] for row in report["skipped_rows"]] == [3]
+    assert report["skipped_rows"][0]["kept_values"] == {
+        "lat": 1.0,
+        "pop": 2.0,
+        "tz": "x",
+    }
+    cells = fact_cells(client, job)
+    assert cells[3] == (1.0, 2.0, "x")
+    assert cells[4] == (48.85341, 5.0, None)
+    # The kept 9 stays where the source has nothing to say.
+    assert cells[7] == (41.89193, 9.0, "Europe/Rome")
+    assert set(report["preserved_cells"]) == {"F3", "G3", "H3", "G4", "G7"}
+    assert rows[4]["kept_outputs"] == ["pop"]
+
+
+def test_replacing_overwrites_a_fact_only_where_the_source_gives_one(client):
+    plan = facts_plan(client, existing_outputs="replace", F3=1.0, G3=2.0, H3="x", G7=9.0, G5=4.0)
+    job = wait(client, start(client, plan))
+    assert job["rows_skipped"] == 0
+    cells = fact_cells(client, job)
+    assert cells[3] == (51.50853, 7_556_900, "Europe/London")
+    # Rome's source has no population: what the cell held stays; Berlin is not found.
+    assert cells[7] == (41.89193, 9.0, "Europe/Rome")
+    assert cells[5] == (None, 4.0, None)
+    report, rows = report_rows(client, job)
+    assert report["replaced_cells"] == {"F3": 1.0, "G3": 2.0, "H3": "x"}
+    assert set(report["preserved_cells"]) == {"G7", "G5"}
+    assert rows[7]["empty_outputs"] == {"pop": GAP}

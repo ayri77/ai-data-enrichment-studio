@@ -23,6 +23,7 @@ from ai_data_enrichment.ingestion.excel_records import read_input_batch
 from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.orchestration.excel_runner import ExcelEnrichmentRunner
 from ai_data_enrichment.orchestration.live_executor import build_live_executor
+from ai_data_enrichment.output.excel_output_mapping import EMPTY_FIELD_CODE, empty_output_fields
 from ai_data_enrichment.providers.http_transport import JsonTransport
 from ai_data_enrichment.providers.openrouteservice import routing_key
 from ai_data_enrichment.providers.request_policy import ProviderRequestPolicy
@@ -264,6 +265,9 @@ def execute_workbook(
                 for target, letter in task.output_columns.items()
             ]
 
+        # Output cells left empty because the source holds no value for the field
+        # (its step succeeded): per record, the column, the field and why.
+        gaps = empty_output_fields(task.plan, result.job_result)
         payload = {
             "execution": result.job_result.model_dump(mode="json"),
             "source_rows": {
@@ -281,6 +285,10 @@ def execute_workbook(
                         target: result.replaced_cells[cell]
                         for target, cell in cells(batch.row_by_record_id[record.record_id])
                         if cell in result.replaced_cells
+                    },
+                    "empty_outputs": {
+                        target: {"field": field, "code": EMPTY_FIELD_CODE}
+                        for target, field in gaps.get(record.record_id, {}).items()
                     },
                 }
                 for record in batch.records

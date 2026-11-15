@@ -137,6 +137,22 @@ function Note({ row, w }: { row: ResultRow; w: Workflow }) {
                     })}
                 </span>
             )}
+            {row.gaps
+                .filter((gap) => !row.kept.includes(gap.column))
+                .map((gap) => (
+                    <span
+                        key={gap.column}
+                        className="result-cause"
+                        data-testid="result-gap"
+                    >
+                        {t("results.cause.no_value", {
+                            field: t(`plan.field.${gap.field}`, {
+                                defaultValue: gap.field,
+                            }),
+                            subject: gap.subject ?? t("results.thisRow"),
+                        })}
+                    </span>
+                ))}
             {!row.filled && row.kept.length === 0 && row.cause && (
                 <span className="result-cause">
                     {t(`results.cause.${row.cause.kind}`, {

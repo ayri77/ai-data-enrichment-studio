@@ -10,8 +10,9 @@ import re
 from collections.abc import Mapping
 
 from ai_data_enrichment.domain.enrichment_plan import PlanStep
-from ai_data_enrichment.execution.models import EntityRef, GeoPoint, OperationResult, RuntimeValue
+from ai_data_enrichment.execution.models import EntityRef, OperationResult, RuntimeValue
 from ai_data_enrichment.providers.http_transport import JsonTransport
+from ai_data_enrichment.providers.open_meteo_candidates import geo_point_from_facts
 from ai_data_enrichment.providers.open_meteo_resolution import (
     GeocodingResolutionOutcome,
     OpenMeteoResolutionService,
@@ -174,9 +175,7 @@ class ApprovedOpenMeteoResolutionService:
             )
 
         facts = {attribute.name: attribute.value for attribute in candidate.attributes}
-        point = GeoPoint.model_validate(
-            {"latitude": facts["latitude"], "longitude": facts["longitude"]}
-        )
+        point = geo_point_from_facts(facts)
         return GeocodingResolutionOutcome(
             operation=OperationResult(status="success", value=point, evidence=candidate.evidence),
             report=ResolutionReport(

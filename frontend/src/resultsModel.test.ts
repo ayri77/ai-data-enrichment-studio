@@ -512,3 +512,94 @@ it("shows a row that was not looked up with its kept value, counted apart from f
     // A report from before the field existed reads as before.
     expect(rows.every((r) => !r.skipped)).toBe(true);
 });
+
+it("shows a population without decimals and a timezone as text", () => {
+    const facts = {
+        version: "1.0",
+        steps: [],
+        outputs: [
+            { step_id: "c", value_field: "population", target_column: "pop" },
+            { step_id: "c", value_field: "timezone", target_column: "tz" },
+        ],
+        assumptions: [],
+    } as EnrichmentPlan;
+    const columns = outputColumns(facts);
+    expect(columns).toEqual([
+        { key: "pop", label: "pop", unit: undefined, digits: 0 },
+        { key: "tz", label: "tz", unit: undefined },
+    ]);
+    const shown = (index: number, value: number | string) =>
+        formatValue(value, "en", columns[index].unit, columns[index].digits);
+    expect(shown(0, 3426354)).toBe("3,426,354");
+    expect(shown(0, 1702139.4)).toBe("1,702,139");
+    expect(formatValue(3426354, "de", undefined, 0)).toBe("3.426.354");
+    expect(shown(1, "Europe/Berlin")).toBe("Europe/Berlin");
+});
+
+it("reads a field the source does not give as an empty cell with its reason", () => {
+    const facts = {
+        version: "1.0",
+        steps: [
+            {
+                id: "city",
+                capability: "geocode",
+                inputs: {
+                    city: { kind: "column", name: "From" },
+                    country: { kind: "column", name: "Country" },
+                },
+                parameters: {},
+            },
+        ],
+        outputs: [
+            { step_id: "city", value_field: "latitude", target_column: "lat" },
+            {
+                step_id: "city",
+                value_field: "population",
+                target_column: "pop",
+            },
+        ],
+        assumptions: [],
+    } as EnrichmentPlan;
+    const rome = {
+        record_id: "Sheet1!7",
+        status: "success" as const,
+        row: 7,
+        inputs: { From: "Rome", Country: "Italy" },
+        empty_outputs: {
+            pop: { field: "population", code: "VALUE_NOT_GIVEN" },
+        },
+    };
+    const withGap = {
+        rows: [rome],
+        execution: {
+            provider_requests: {},
+            records: [
+                {
+                    record_id: "Sheet1!7",
+                    row_result: {
+                        steps: [
+                            {
+                                step_id: "city",
+                                result: ok({
+                                    latitude: 41.89193,
+                                    longitude: 12.51133,
+                                    population: null,
+                                    timezone: "Europe/Rome",
+                                }),
+                            },
+                        ],
+                    },
+                },
+            ],
+        },
+    } as unknown as AuditReport;
+    const [row] = resultRows(withGap, facts);
+    // The other output of the step is still there; only the one cell is empty.
+    expect(row.outputs).toEqual({ lat: 41.89193, pop: undefined });
+    expect(row.filled).toBe(false);
+    expect(row.status).toBe("success");
+    expect(row.cause).toBeNull();
+    expect(row.gaps).toEqual([
+        { column: "pop", field: "population", subject: "Rome" },
+    ]);
+});

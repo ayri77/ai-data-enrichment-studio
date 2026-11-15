@@ -7,6 +7,8 @@ from pydantic import (
     ConfigDict,
     Field,
     StrictFloat,
+    StrictInt,
+    StrictStr,
     field_validator,
     model_validator,
 )
@@ -32,6 +34,20 @@ class GeoPoint(BaseModel):
         le=180.0,
         allow_inf_nan=False,
     )
+
+    # What the source records about the matched place, when it records it.
+    # They ride along with the accepted record and never take part in matching;
+    # None means the source gave no value, not that the value is zero.
+    population: StrictInt | None = Field(default=None, ge=0)
+    # An IANA name such as "Europe/Berlin".
+    timezone: StrictStr | None = None
+
+    @field_validator("timezone")
+    @classmethod
+    def _timezone_is_not_blank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("Timezone must not be blank.")
+        return value
 
 
 class EntityRef(BaseModel):
