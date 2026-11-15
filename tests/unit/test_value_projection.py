@@ -4,12 +4,15 @@ import pytest
 
 from ai_data_enrichment.execution.models import (
     EntityRef,
+    FoundRecord,
+    FoundValue,
     GeoPoint,
     OperationResult,
     Quantity,
     RuntimeValue,
 )
 from ai_data_enrichment.output.value_projection import (
+    field_is_empty,
     project_operation_field,
 )
 
@@ -71,3 +74,36 @@ def test_rejects_unknown_field() -> None:
         match="Unsupported output field: latitude",
     ):
         project_operation_field(result, "latitude")
+
+
+def found_result() -> OperationResult:
+    return OperationResult(
+        status="success",
+        value=FoundRecord(
+            slots={
+                "value_1": FoundValue(value="Hamburg", basis="stated"),
+                "value_2": FoundValue(value=1.9, basis="concluded"),
+                "value_3": FoundValue(value=None, basis=None),
+            }
+        ),
+    )
+
+
+def test_projects_a_slot_of_a_found_record() -> None:
+    result = found_result()
+    assert project_operation_field(result, "value_1") == "Hamburg"
+    assert project_operation_field(result, "value_2") == 1.9
+    assert field_is_empty(result, "value_3") is True
+    assert field_is_empty(result, "value_1") is False
+    with pytest.raises(ValueError, match="No value found"):
+        project_operation_field(result, "value_3")
+
+
+def test_an_unknown_slot_is_an_unsupported_field_and_not_an_empty_one() -> None:
+    result = found_result()
+    assert field_is_empty(result, "value_9") is False
+    assert field_is_empty(result, "slots") is False
+    with pytest.raises(ValueError, match="Unsupported output field"):
+        project_operation_field(result, "value_9")
+    with pytest.raises(ValueError, match="Unsupported output field"):
+        project_operation_field(result, "slots")

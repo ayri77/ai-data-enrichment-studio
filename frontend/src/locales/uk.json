@@ -673,6 +673,7 @@
     "provenance.record": "Прочитано із запису в {{source}}",
     "provenance.resolved_name": "Знайдено за назвою в {{source}} і зіставлено з одним з його записів",
     "provenance.service": "Обчислено сервісом {{source}}; запису, з яким це можна звірити, немає",
+    "provenance.ai_found": "Знайдено ШІ через пошук в інтернеті, не перевірено",
     "overview.contract.inputs": "Входи",
     "overview.contract.parameters": "Параметри",
     "overview.contract.output": "Результат",

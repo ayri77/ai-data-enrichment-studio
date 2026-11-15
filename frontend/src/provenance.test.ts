@@ -19,6 +19,9 @@ it("says in plain words how the values of each kind of trust were obtained", () 
     expect(label("openrouteservice", "service")).toBe(
         "Calculated by openrouteservice (OpenStreetMap data); there is no record to check it against",
     );
+    expect(label("openai_web_search", "ai_found")).toBe(
+        "Found by an AI web search, not verified",
+    );
     expect(label("open-meteo", "resolved_name")).toBe(
         "Found by name in Open-Meteo and matched to one of its records",
     );
@@ -41,6 +44,9 @@ it("words the label in each language", async () => {
         const text = label("wikidata", "record");
         expect(text).toContain("Wikidata");
         expect(text).not.toBe("Read from a record of Wikidata");
+        const found = label("openai_web_search", "ai_found");
+        expect(found).not.toBe("Found by an AI web search, not verified");
+        expect(found).not.toContain("provenance.");
     }
 });
 

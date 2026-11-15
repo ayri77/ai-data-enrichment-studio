@@ -4,6 +4,7 @@ import pytest
 
 from ai_data_enrichment.capabilities.bindings import (
     BINDINGS,
+    FALLBACK_BINDINGS,
     Trust,
     binding_for,
     find_binding,
@@ -15,7 +16,7 @@ from ai_data_enrichment.capabilities.definitions import (
     offered_capabilities,
 )
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
-from ai_data_enrichment.orchestration.live_executor import build_live_executor
+from ai_data_enrichment.orchestration.live_executor import LIVE_SOURCES, build_live_executor
 from ai_data_enrichment.plan_run_worker import remote_sources
 from ai_data_enrichment.providers.openrouteservice import ROUTING_PROVIDER
 
@@ -136,3 +137,21 @@ def test_the_sources_a_run_asks_follow_the_registry() -> None:
 
 def test_an_unknown_capability_has_no_binding() -> None:
     assert find_binding("sentiment") is None
+
+
+def test_the_fallback_binding_is_found_by_the_helpers() -> None:
+    assert [item.capability_id for item in FALLBACK_BINDINGS] == ["web_lookup"]
+    found = binding_for("web_lookup")
+    assert find_binding("web_lookup") is found is FALLBACK_BINDINGS[0]
+    assert found.source_id == "openai_web_search"
+    assert found.trust is Trust.AI_FOUND and found.trust.value == "ai_found"
+    assert not found.reusable and not found.always_bound
+    assert found.name_resolution is None
+
+
+def test_the_fallback_binding_is_not_part_of_what_is_offered_or_executed() -> None:
+    assert "web_lookup" not in {item.capability_id for item in BINDINGS}
+    assert "web_lookup" not in LIVE_SOURCES
+    assert "web_lookup" not in {spec.id for spec in offered_capabilities(road_distance=True)}
+    assert "web_lookup" not in {spec.id for spec in get_builtin_capabilities()}
+    assert "openai_web_search" not in remote_sources(registry())

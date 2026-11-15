@@ -673,6 +673,7 @@
     "provenance.record": "Aus einem Datensatz von {{source}} gelesen",
     "provenance.resolved_name": "In {{source}} über den Namen gefunden und einem seiner Datensätze zugeordnet",
     "provenance.service": "Von {{source}} berechnet; es gibt keinen Datensatz, an dem sich das prüfen lässt",
+    "provenance.ai_found": "Per KI-Websuche gefunden, nicht überprüft",
     "overview.contract.inputs": "Eingaben",
     "overview.contract.parameters": "Parameter",
     "overview.contract.output": "Ausgabe",
