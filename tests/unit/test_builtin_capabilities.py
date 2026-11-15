@@ -64,6 +64,10 @@ def test_builtin_capabilities_include_geocode() -> None:
     assert geocode_capability.output == OutputSpec(
         type=DataType.GEO_POINT,
         description="Resolved coordinates",
+        fields={
+            "latitude": DataType.NUMBER,
+            "longitude": DataType.NUMBER,
+        },
     )
 
 

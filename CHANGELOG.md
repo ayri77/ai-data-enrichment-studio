@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- The latitude and the longitude of a city can be written into two columns: the
+  output of `geocode` now declares the fields `latitude` and `longitude` (numbers,
+  decimal degrees), so one step fills two columns from a single lookup. Both cells
+  stay empty for a city that is not found or still waits in Review; the rules for
+  existing values hold for both columns. The plan in words says which field goes
+  into which column, Results show a coordinate with five decimals, and the
+  overview says so. The coordinates are those of the place the source matched;
+  nothing checks them against a second source. The capability's version stays
+  1.1. The planning model is shown the changed contract: all planning cases need
+  to be measured again (new case `capitals_coordinates`).
 - In keep mode a row whose every chosen cell already has a value is no longer
   looked up: none of its steps run, no source is asked, and it never lowers the
   outcome or reaches Review. Rows with some cells empty are looked up in full;

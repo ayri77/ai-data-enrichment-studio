@@ -109,7 +109,17 @@ export function PlanDiagram({
                                     className="plan-step-writes"
                                     key={write.name}
                                 >
-                                    {t("plan.diagram.writes", { ...write })}
+                                    {write.field
+                                        ? t("plan.diagram.writesField", {
+                                              ...write,
+                                              field: t(
+                                                  `plan.field.${write.field}`,
+                                                  { defaultValue: write.field },
+                                              ),
+                                          })
+                                        : t("plan.diagram.writes", {
+                                              ...write,
+                                          })}
                                 </span>
                             ))}
                             {outcome && (

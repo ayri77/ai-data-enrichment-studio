@@ -569,6 +569,9 @@
     "plan.ref.literal": "“{{value}}”, the same for every row",
     "plan.writes": "Written to column “{{name}}” ({{letter}})",
     "plan.writesUnit": "Written to column “{{name}}” ({{letter}}), {{unit}}",
+    "plan.writesField": "Written to column “{{name}}” ({{letter}}): {{field}}",
+    "plan.field.latitude": "latitude",
+    "plan.field.longitude": "longitude",
     "plan.checked": "The plan passed the check against the table",
     "plan.blocked": "The plan did not pass the check and cannot be run",
     "plan.none": "There is no plan to run",
@@ -675,7 +678,7 @@
     "overview.know.sends": "When the AI builds a plan, your task and a sample of the table are sent to OpenAI; a run asks the listed sources about the names in the table.",
     "overview.know.shared": "This demo is one small server shared by everyone who has a code: one run at a time, and nothing is kept after a restart.",
     "cap.geocode.title": "Find the coordinates of a city",
-    "cap.geocode.text": "By the city's name and its country. If several places share the name, you choose.",
+    "cap.geocode.text": "By the city's name and its country. If several places share the name, you choose. You can also write the latitude and the longitude into two columns.",
     "cap.resolve_entity.title": "Find a mountain by its name",
     "cap.resolve_entity.text": "By the mountain's name and its country, in an open knowledge base. If several mountains match, you choose.",
     "cap.lookup_property.title": "Read the elevation of a found mountain",
@@ -692,5 +695,6 @@
     "plan.diagram.title": "How the steps connect",
     "plan.diagram.hint": "An arrow leads from a step to the step that uses its result. Select a step to find it in the list below.",
     "plan.diagram.step": "Step {{number}}:",
-    "plan.diagram.writes": "→ “{{name}}” ({{letter}})"
+    "plan.diagram.writes": "→ “{{name}}” ({{letter}})",
+    "plan.diagram.writesField": "{{field}} → “{{name}}” ({{letter}})"
 }

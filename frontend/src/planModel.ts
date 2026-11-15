@@ -16,6 +16,8 @@ export interface PlanWrite {
     name: string;
     letter: string;
     unit: string;
+    /** The field of the step's result that is written; absent for its plain value. */
+    field?: string;
 }
 
 export interface PlanLine {
@@ -134,6 +136,7 @@ export function describePlan(draft: PlanDraft): PlanLine[] {
                 name: o.target_column,
                 letter: draft.output_columns[o.target_column] ?? "",
                 unit: o.expected_unit ?? "",
+                ...(o.value_field !== "value" ? { field: o.value_field } : {}),
             })),
     }));
 }

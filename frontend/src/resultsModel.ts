@@ -82,7 +82,12 @@ export interface ResultColumn {
     key: string;
     label: string;
     unit?: string;
+    /** Decimals shown for a number; a coordinate needs more than a measurement. */
+    digits?: number;
 }
+
+/** Five decimals are about a metre on the ground. */
+const COORDINATE_DIGITS = 5;
 
 const scalar = (value: unknown): value is Scalar =>
     typeof value === "string" ||
@@ -140,6 +145,10 @@ export const outputColumns = (plan: EnrichmentPlan | null): ResultColumn[] =>
         key: output.target_column,
         label: output.target_column,
         unit: output.expected_unit,
+        ...(output.value_field === "latitude" ||
+        output.value_field === "longitude"
+            ? { digits: COORDINATE_DIGITS }
+            : {}),
     }));
 
 /** Join the published row list with step results from the same audit. */
@@ -335,11 +344,12 @@ export function formatValue(
     value: Scalar | null | undefined,
     locale: string,
     unit?: string,
+    digits = 2,
 ) {
     if (value === undefined || value === null) return "—";
     if (typeof value !== "number") return String(value);
     const text = new Intl.NumberFormat(locale, {
-        maximumFractionDigits: 2,
+        maximumFractionDigits: digits,
     }).format(value);
     return unit ? `${text} ${unit}` : text;
 }

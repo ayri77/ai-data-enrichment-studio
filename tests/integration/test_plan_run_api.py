@@ -2227,3 +2227,159 @@ def test_without_a_routing_key_a_plan_cannot_ask_for_a_road_distance(client, mon
     )
     assert refused.status_code == 422
     assert refused.json()["error"]["code"] == "invalid_plan"
+
+
+COORDINATES_PLAN = {
+    "version": "1.0",
+    "steps": [
+        {
+            "id": "city",
+            "capability": "geocode",
+            "inputs": {
+                "city": {"kind": "column", "name": "Capital_From"},
+                "country": {"kind": "column", "name": "Country_From"},
+            },
+            "parameters": {},
+        }
+    ],
+    "outputs": [
+        {"step_id": "city", "value_field": "latitude", "target_column": "lat"},
+        {"step_id": "city", "value_field": "longitude", "target_column": "lon"},
+    ],
+    "assumptions": [],
+}
+
+
+def coordinates_book(**cells):
+    """The Capitals table with two new columns, F (lat) and G (lon), after its own."""
+    return filled_workbook("capitals", F1="lat", G1="lon", **cells)
+
+
+def coordinates_plan(client, *, existing_outputs=None, **cells):
+    body = {
+        "dataset_id": upload(client, "capitals", coordinates_book(**cells)),
+        "sheet_name": "Sheet1",
+        "range_ref": "A1:G11",
+        "instruction": "Latitude and longitude of the city in Capital_From.",
+        "output_columns": {"lat": "F", "lon": "G"},
+        "plan": COORDINATES_PLAN,
+        **({"existing_outputs": existing_outputs} if existing_outputs else {}),
+    }
+    response = client.post("/api/plans", json=body)
+    assert response.status_code == 201, response.text
+    plan = response.json()
+    assert plan["validation"]["valid"], plan["validation"]
+    return approve(client, plan)
+
+
+def coordinate_cells(client, job):
+    output = load_workbook(BytesIO(client.get(job["artifacts"]["result"]).content))
+    try:
+        sheet = output["Sheet1"]
+        return {row: (sheet[f"F{row}"].value, sheet[f"G{row}"].value) for row in range(2, 12)}
+    finally:
+        output.close()
+
+
+def test_one_geocode_step_writes_latitude_and_longitude_into_two_columns(client):
+    plan = coordinates_plan(client)
+    job = wait(client, start(client, plan))
+    cells = coordinate_cells(client, job)
+    # Found cities: two numeric cells per row, exactly as the source gave them.
+    assert cells[3] == (51.50853, -0.12574)  # London
+    assert cells[4] == (48.85341, 2.3488)  # Paris
+    assert cells[7] == (41.89193, 12.51133)  # Rome
+    assert all(isinstance(value, float) for row in (3, 4, 7) for value in cells[row])
+    # Kyiv has two matches and stays empty until chosen; the others are not found.
+    unresolved = {2, 5, 6, 8, 9, 10, 11}
+    assert {row for row, pair in cells.items() if pair == (None, None)} == unresolved
+    report = client.get(job["artifacts"]["report"]).json()
+    rows = {row["row"]: row for row in report["rows"]}
+    assert rows[3]["status"] == "success" and rows[2]["status"] != "success"
+    assert job["metrics"]["total_rows"] == 10 and job["metrics"]["successful_rows"] == 3
+    # One step, one lookup per row: its two outputs cost no second request.
+    steps = {
+        step["step_id"]
+        for record in report["execution"]["records"]
+        for step in record["row_result"]["steps"]
+    }
+    assert steps == {"city"}
+    errors = {
+        record["record_id"]: record["row_result"]["steps"][0]["result"]["error_code"]
+        for record in report["execution"]["records"]
+    }
+    assert errors["Sheet1!2"] == "AMBIGUOUS" and errors["Sheet1!5"] == "NOT_FOUND"
+    assert errors["Sheet1!3"] is None
+    # The progress counts the step once per row, not once per column.
+    assert job["progress"]["steps"]["city"]["filled"] == 3
+
+
+def test_a_city_with_several_matches_fills_both_cells_after_the_choice(client):
+    plan = coordinates_plan(client)
+    first = wait(client, start(client, plan))
+    review = client.get(f"/api/jobs/{first['job_id']}/review").json()
+    assert [item["query"]["name"] for item in review["items"]] == ["Kyiv"]
+    kyiv = review["items"][0]
+    assert [link["row"] for link in kyiv["affected"]] == [2]
+    decision = {"operation_id": kyiv["operation_id"], "source": "open-meteo", "entity_id": "703448"}
+    response = client.post(f"/api/jobs/{first['job_id']}/resume", json={"decisions": [decision]})
+    assert response.status_code == 202, response.text
+    second = wait(client, response.json())
+    cells = coordinate_cells(client, second)
+    assert cells[2] == (50.45466, 30.5238)
+    assert cells[3] == (51.50853, -0.12574)
+    assert second["metrics"]["successful_rows"] == first["metrics"]["successful_rows"] + 1
+    report = client.get(second["artifacts"]["report"]).json()
+    assert {row["row"]: row for row in report["rows"]}[2]["user_chosen_steps"] == ["city"]
+
+
+def test_existing_coordinates_are_kept_and_a_row_with_both_filled_is_skipped(client):
+    # London has both cells, Paris only the latitude, Rome only the longitude.
+    plan = coordinates_plan(client, F3=1.0, G3=2.0, F4=9.0, G7=8.0)
+    job = wait(client, start(client, plan))
+    report = client.get(job["artifacts"]["report"]).json()
+    assert job["rows_skipped"] == 1
+    assert [row["row"] for row in report["skipped_rows"]] == [3]
+    assert report["skipped_rows"][0]["kept_values"] == {"lat": 1.0, "lon": 2.0}
+    # A partly filled row is looked up in full; only its empty cell is written.
+    cells = coordinate_cells(client, job)
+    assert cells[3] == (1.0, 2.0)
+    assert cells[4] == (9.0, 2.3488)
+    assert cells[7] == (41.89193, 8.0)
+    assert set(report["preserved_cells"]) == {"F3", "G3", "F4", "G7"}
+    assert 3 not in {row["row"] for row in report["rows"]}
+
+
+def test_replacing_overwrites_both_coordinates_only_where_a_city_is_found(client):
+    plan = coordinates_plan(client, existing_outputs="replace", F3=1.0, G3=2.0, F5=3.0, G5=4.0)
+    job = wait(client, start(client, plan))
+    assert job["rows_skipped"] == 0
+    cells = coordinate_cells(client, job)
+    assert cells[3] == (51.50853, -0.12574)
+    # Berlin is not found: nothing replaces what its cells held.
+    assert cells[5] == (3.0, 4.0)
+    report = client.get(job["artifacts"]["report"]).json()
+    assert report["replaced_cells"] == {"F3": 1.0, "G3": 2.0}
+    assert set(report["preserved_cells"]) == {"F5", "G5"}
+
+
+def test_the_plan_can_ask_only_for_fields_the_contract_declares(client):
+    body = {
+        "dataset_id": upload(client, "capitals", coordinates_book()),
+        "sheet_name": "Sheet1",
+        "range_ref": "A1:G11",
+        "instruction": "Latitude of the city.",
+        "output_columns": {"lat": "F", "lon": "G"},
+        "plan": {
+            **COORDINATES_PLAN,
+            "outputs": [
+                {"step_id": "city", "value_field": "altitude", "target_column": "lat"},
+                {"step_id": "city", "value_field": "longitude", "target_column": "lon"},
+            ],
+        },
+    }
+    response = client.post("/api/plans", json=body)
+    assert response.status_code == 201
+    validation = response.json()["validation"]
+    assert not validation["valid"]
+    assert [e["code"] for e in validation["errors"]] == ["UNKNOWN_OUTPUT_FIELD"]

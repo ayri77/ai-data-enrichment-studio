@@ -268,3 +268,43 @@ it("words a road distance with what computed it, and a ratio by its two values",
         [{ name: "detour", letter: "G", unit: "" }],
     ]);
 });
+
+it("says which field of a step's result goes into which column", () => {
+    const lines = describePlan(
+        draft(
+            {
+                version: "1.0",
+                steps: [
+                    {
+                        id: "city",
+                        capability: "geocode",
+                        inputs: {
+                            city: column("Capital_From"),
+                            country: column("Country_From"),
+                        },
+                        parameters: {},
+                    },
+                ],
+                outputs: [
+                    {
+                        step_id: "city",
+                        value_field: "latitude",
+                        target_column: "lat",
+                    },
+                    {
+                        step_id: "city",
+                        value_field: "longitude",
+                        target_column: "lon",
+                    },
+                ],
+                assumptions: [],
+            } as EnrichmentPlan,
+            { lat: "F", lon: "G" },
+        ),
+    );
+    expect(lines).toHaveLength(1);
+    expect(lines[0].writes).toEqual([
+        { name: "lat", letter: "F", unit: "", field: "latitude" },
+        { name: "lon", letter: "G", unit: "", field: "longitude" },
+    ]);
+});

@@ -46,6 +46,10 @@ def get_geocode_spec() -> CapabilitySpec:
         output=OutputSpec(
             type=DataType.GEO_POINT,
             description="Resolved coordinates",
+            fields={
+                "latitude": DataType.NUMBER,
+                "longitude": DataType.NUMBER,
+            },
         ),
     )
 
