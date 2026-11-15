@@ -150,7 +150,9 @@ Other options: `--model`, `--reasoning-effort` (default low), `--search-context-
   **rejected with HTTP 400** is the subset where the API refused the request itself,
   which is how an unsupported combination would show.
 - **rows with no API-reported citation**: replies for which the search calls returned
-  no sources and the answer carried no `url_citation`.
+  no sources and the answer carried no `url_citation`. A row passes as soon as the
+  search returned anything, so this line does not say that the answer relied on a
+  page; see "Second run" below.
 - **rows claiming a source the API did not report**: the model named a link that the
   search never returned (compared without fragment, `utm_*` parameters, trailing slash
   and `www.`). A warning sign for invented links.
@@ -199,7 +201,7 @@ One run of the mountains probe: `gpt-6-luna`, effort `low`, `search_context_size
 | Requests accepted with web search and a JSON-schema answer together | 15 of 15 (no HTTP 400, no shape failure, no transport error) |
 | Ten real mountains | 9 answered, all 9 within tolerance; 1 left empty |
 | Five invented names | 5 of 5 left empty, each with a reason; no value was made up |
-| Rows with citations reported by the API | 15 of 15 (20 to 38 source URLs per row) |
+| Rows for which the search reported sources | 15 of 15 (20 to 38 URLs per row); no answer carried a `url_citation` |
 | Rows naming a source the API did not report | 1 (see below) |
 | Search calls | 17, 1.13 per row |
 | Tokens | 136,979 in (about 9,100 per row), 2,998 out |
@@ -215,7 +217,78 @@ What the rows show:
 
 What this answers, and what it does not:
 
-- The request shape works on this model: web search and a schema-shaped answer in one request, with citations.
+- The request shape works on this model: web search and a schema-shaped answer in one request. The API returned the list of pages the search found; it did not mark which of them the answer used (corrected after the second run; the first version of this line said "with citations").
 - On this task the model declined to answer where it should have. Famous mountains are an easy case; nothing here says how it behaves on obscure objects, on text answers, or on names that resemble real ones more closely.
 - Cost and time are dominated by the search call and by about nine thousand input tokens of search content per row. At one request at a time, twenty rows take about two minutes, which is close to the default time limit of a run.
 - The estimate assumes the search content is inside the reported input tokens; it has not been compared with the provider's bill.
+
+## Second run (2026-11-15, by the owner): several text columns at once
+
+One run on the owner's own test workbook, which is not in the repository: eight phones,
+each described by brand, exact model and a variant or region note. The question named
+six columns to fill (battery capacity, IP rating, eSIM, microSD, wireless charging and
+a link to the evidence), with `--answer text`. Same settings as the first run. There is
+no expected column, so **no answer was judged**: nobody compared the values with the
+pages. Eight rows asked once are an observation.
+
+| What | Result |
+| --- | --- |
+| Rows answered | 8 of 8, none left empty, all with `confident: true` |
+| Shape failures, transport errors, HTTP 400 | 0 |
+| Search calls | 12, 1.5 per row |
+| Tokens | 133,468 in (about 16,700 per row), 3,735 out |
+| Time | 69 s in total, about 8.6 s per row, one request at a time |
+| Estimated cost | 0.135 USD: about 1.7 cents per row, about 0.3 cents per requested cell |
+| Search-reported URLs per row | 34 to 66; `url_citation` annotations: 0 in every row |
+| Rows naming a source the API did not report | 1 (see below) |
+
+What the rows show (evidence):
+
+- **Six values came back as one string.** The script asks for one value per row, so the
+  model packed the six answers into it as `Column: value` pairs. One row separated them
+  with ` | `, seven with `; `. A product cannot split such a string reliably.
+- **The values are not in one form.** Support columns came back as "Yes", "No",
+  "Yes (up to 1.5 TB)", "Yes, 15 W magnetic wireless charging (Qi2)" and
+  "No (European XT2309-2 specifies dual nano-SIM)"; one IP rating as "IPX5/IPX8, IP6X".
+  The question passed to the script did not ask for Yes/No; the instruction text inside
+  the workbook does, but the script never sees it.
+- **Three "No" answers are conclusions from silence**, by the model's own explanation:
+  wireless charging "is not listed" (two rows) and eSIM is "No" because the
+  specification lists two physical SIM slots. All three carry `confident: true`. One
+  flag for the whole row cannot say "five values were stated and one was concluded".
+- **Some sources do not fit the row.** One eSIM answer rests on an independent review, not on the manufacturer, one
+  microSD answer on a product sheet hosted by a carrier outside Europe for a row that
+  says "EU retail version", and a row that says "do not mix regions" lists a support
+  page of another region among its sources.
+- **Nothing was left empty**, although the workbook's guide says that not every cell
+  can be filled and one row asks to "check exact regional variant". The model chose one
+  regional page and answered with confidence. Whether any value is wrong is unknown.
+- **One `quote` field cannot support six values.** Three rows put several quotes into
+  it, and one of them is a stitched summary, not a quotation.
+- **The API marked no citations.** No answer in either run carried a `url_citation`.
+  What the API reports is everything the search found: forum threads, encyclopedia
+  pages and unrelated articles included (the first reported URL of one row is a review
+  of a different phone). "The link was reported by the API" therefore means "the link
+  was among the search results", not "the answer relied on this page".
+- **The one "unreported" source is the same page with another query string.** The model
+  named a manufacturer page without parameters; the search reported it three times,
+  each with a tracking parameter. In the first run the difference was percent-encoding.
+  Both are artefacts of the comparison. Dropping every query string would be wrong too:
+  another row's source needs its `?sku=` parameter to point at the right variant.
+
+What follows for the design (recommendations, not built):
+
+- One request per row with **one answer field per requested column**, each with its own
+  value, its own source and its own mark, instead of one value and one flag per row.
+- A **declared kind per column**: text, number with a unit, or yes/no. Free text in a
+  yes/no column is a shape failure, not an answer.
+- A per-value mark that separates **stated on the page** from **concluded** (for
+  example from absence). Concluded values belong in Review, not among the filled cells.
+- The source check needs a second, weaker level (same address without the query
+  string) reported separately from an exact match.
+- Asking for several columns in one request is what makes the price per cell low. This
+  run paid for 12 searches and answered for 48 cells; one request per cell would have
+  paid for at least 48.
+
+Still unanswered: how often such answers are right. That needs a workbook of this kind
+with an expected column checked by hand, which is the benchmark planned as step 6.
