@@ -1,0 +1,269 @@
+{
+  "$defs": {
+    "ColumnReference": {
+      "additionalProperties": false,
+      "description": "Reference a column in the input dataset.",
+      "properties": {
+        "kind": {
+          "const": "column",
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "title": "ColumnReference",
+      "type": "object"
+    },
+    "EnrichmentPlan": {
+      "additionalProperties": false,
+      "description": "Describe a declarative plan to validate first and execute separately.",
+      "properties": {
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "outputs": {
+          "items": {
+            "$ref": "#/$defs/OutputMapping"
+          },
+          "title": "Outputs",
+          "type": "array"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/PlanStep"
+          },
+          "title": "Steps",
+          "type": "array"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "steps",
+        "outputs",
+        "assumptions"
+      ],
+      "title": "EnrichmentPlan",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "LiteralValue": {
+      "additionalProperties": false,
+      "description": "Represent a JSON-compatible constant used as a plan input.",
+      "properties": {
+        "kind": {
+          "const": "literal",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/JsonValue"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "LiteralValue",
+      "type": "object"
+    },
+    "OutputMapping": {
+      "additionalProperties": false,
+      "description": "Describe a proposed destination column, not an immediate Excel write.",
+      "properties": {
+        "expected_unit": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Unit"
+        },
+        "step_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+          "title": "Step Id",
+          "type": "string"
+        },
+        "target_column": {
+          "minLength": 1,
+          "title": "Target Column",
+          "type": "string"
+        },
+        "value_field": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+          "title": "Value Field",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step_id",
+        "value_field",
+        "target_column"
+      ],
+      "title": "OutputMapping",
+      "type": "object"
+    },
+    "PlanStep": {
+      "additionalProperties": false,
+      "description": "Describe one DAG node; inputs refer to columns, prior results, or literals.",
+      "properties": {
+        "capability": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+          "title": "Capability",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "inputs": {
+          "patternProperties": {
+            "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$": {
+              "discriminator": {
+                "mapping": {
+                  "column": "#/$defs/ColumnReference",
+                  "literal": "#/$defs/LiteralValue",
+                  "step_output": "#/$defs/StepOutputReference"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/ColumnReference"
+                },
+                {
+                  "$ref": "#/$defs/StepOutputReference"
+                },
+                {
+                  "$ref": "#/$defs/LiteralValue"
+                }
+              ]
+            }
+          },
+          "propertyNames": {
+            "maxLength": 64,
+            "minLength": 1
+          },
+          "title": "Inputs",
+          "type": "object"
+        },
+        "parameters": {
+          "patternProperties": {
+            "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$": {
+              "$ref": "#/$defs/JsonValue"
+            }
+          },
+          "propertyNames": {
+            "maxLength": 64,
+            "minLength": 1
+          },
+          "title": "Parameters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "capability",
+        "inputs",
+        "parameters"
+      ],
+      "title": "PlanStep",
+      "type": "object"
+    },
+    "StepOutputReference": {
+      "additionalProperties": false,
+      "description": "Reference the complete typed result of another DAG step.",
+      "properties": {
+        "kind": {
+          "const": "step_output",
+          "title": "Kind",
+          "type": "string"
+        },
+        "step_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+          "title": "Step Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "step_id"
+      ],
+      "title": "StepOutputReference",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Represent a planning decision and its optional plan.",
+  "properties": {
+    "plan": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EnrichmentPlan"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Reason"
+    },
+    "status": {
+      "enum": [
+        "ready",
+        "unsupported",
+        "ambiguous"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "plan",
+    "reason"
+  ],
+  "title": "PlanningResponse",
+  "type": "object"
+}
