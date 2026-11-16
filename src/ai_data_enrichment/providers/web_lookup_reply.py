@@ -24,11 +24,13 @@ from ai_data_enrichment.providers.web_lookup import (
     api_citations,
     clean_text,
     normalize_url,
+    strip_tracking,
     without_query,
 )
 
 MAX_TEXT_VALUE = 500
 MAX_QUOTE = 300
+MAX_DROPPED_TEXT = 300
 
 LinkMatch = Literal["exact", "address"]
 NotFoundReason = Literal[
@@ -39,11 +41,16 @@ NotFoundReason = Literal[
     "missing_basis",
     "no_reported_link",
 ]
+DropReason = Literal["not_reported", "not_a_link", "duplicate", "over_limit"]
 
 
 @dataclass(frozen=True)
 class SlotDiagnostic:
-    """What became of one slot; it holds no row content."""
+    """What became of one slot.
+
+    It holds no cell values. ``dropped`` does hold the links the model named but the
+    reader did not keep (cleaned, cut to 300 characters), each with the one reason.
+    """
 
     slot: str
     found: bool
@@ -53,6 +60,7 @@ class SlotDiagnostic:
     # the reported one had.
     link_matches: tuple[LinkMatch, ...] = ()
     links_dropped: int = 0
+    dropped: tuple[tuple[str, DropReason], ...] = ()
     quote_truncated: bool = False
 
 
@@ -139,17 +147,14 @@ class _Reported:
             self.address.setdefault(without_query(key), url)
 
     def match(self, claimed: str) -> tuple[str, LinkMatch] | None:
-        """The reported link a claimed one stands for, and at which level."""
-        claimed = clean_text(claimed)
-        if not _is_web_link(claimed):
-            return None
+        """The reported link a claimed (cleaned, well-formed) one stands for, and how."""
         key = normalize_url(claimed)
         if key in self.exact:
             return self.exact[key], "exact"
         # The weaker level covers one observed case only: the model names a page
-        # without the tracking parameter the search reported it with. A claimed
-        # link that has its own query string must match exactly, because a query
-        # can select a different variant of the page (``?sku=...``).
+        # without a parameter the search reported it with. A claimed link that has its
+        # own query string must match exactly, because a query can select a different
+        # variant of the page (``?sku=...``).
         if urlsplit(key).query:
             return None
         weak = self.address.get(key)
@@ -158,19 +163,33 @@ class _Reported:
 
 def _resolve_links(
     claimed: list[str], reported: _Reported
-) -> tuple[list[str], list[LinkMatch], int]:
+) -> tuple[list[str], list[LinkMatch], list[tuple[str, DropReason]]]:
+    """Keep up to MAX_LINKS reported links; every other claimed link gets one reason.
+
+    Checks in this order: not a web link, not reported, already kept (a duplicate),
+    more than MAX_LINKS. A kept link is the reported one without tracking parameters.
+    """
     kept: list[str] = []
     levels: list[LinkMatch] = []
-    dropped = 0
-    for link in claimed:
-        found = reported.match(link)
-        if found is None or found[0] in kept:
-            dropped += 1
-        elif len(kept) < MAX_LINKS:
-            kept.append(found[0])
-            levels.append(found[1])
+    dropped: list[tuple[str, DropReason]] = []
+    for raw in claimed:
+        text = clean_text(raw)
+        shown = text[:MAX_DROPPED_TEXT]
+        if not _is_web_link(text):
+            dropped.append((shown, "not_a_link"))
+            continue
+        found = reported.match(text)
+        if found is None:
+            dropped.append((shown, "not_reported"))
+            continue
+        link = strip_tracking(found[0])
+        if link in kept:
+            dropped.append((shown, "duplicate"))
+        elif len(kept) >= MAX_LINKS:
+            dropped.append((shown, "over_limit"))
         else:
-            dropped += 1
+            kept.append(link)
+            levels.append(found[1])
     return kept, levels, dropped
 
 
@@ -208,7 +227,7 @@ def _slot(
 
     links, levels, dropped = _resolve_links(data["sources"], reported)
     if not links:
-        return fail("no_reported_link", links_dropped=dropped)
+        return fail("no_reported_link", links_dropped=len(dropped), dropped=tuple(dropped))
 
     quote = clean_text(data["quote"]) if data["quote"] is not None else ""
     truncated = len(quote) > MAX_QUOTE
@@ -225,7 +244,8 @@ def _slot(
         slot,
         True,
         link_matches=tuple(levels),
-        links_dropped=dropped,
+        links_dropped=len(dropped),
+        dropped=tuple(dropped),
         quote_truncated=truncated,
     )
 

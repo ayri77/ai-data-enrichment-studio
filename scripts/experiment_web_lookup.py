@@ -23,6 +23,10 @@ and nothing is ever written to the workbook:
         --context-columns Brand,Exact_Model --question "Fill the technical characteristics." \\
         --target Battery_mAh:number:mAh --target IP_Rating:text --target eSIM_Support:yes_no
 
+Add --repeat N (1 to 10, columns mode only) to ask every row N times, one after another, and
+get a stability report: which values stay the same between asks and which do not. Every ask
+is a request that is paid for.
+
 Privacy: the cell values of each row are sent to the model provider, and the answers,
 quotes and sources are written to artifacts/web-lookup-experiments/ (ignored by git).
 Do not point the script at data that must not leave your machine. The API key is read
@@ -676,7 +680,11 @@ def slot_entry(
         "quote": found.quote if found else None,
         "unit": found.unit if found else None,
         "diagnostic": asdict(diagnostic) if diagnostic else None,
+        # The links the model named and the reader did not keep, each with its reason.
+        "dropped": [list(item) for item in diagnostic.dropped] if diagnostic else [],
     }
+    if entry["diagnostic"]:
+        del entry["diagnostic"]["dropped"]
     if not is_empty(existing):
         entry["existing"] = json_cell(existing)
         comparison = (
@@ -715,6 +723,7 @@ def run_columns_row(
     tolerance_percent: float,
     replies: list[ParsedReply | ReplyFailure],
     client: RecordingClient,
+    ask: int = 1,
 ) -> dict[str, Any]:
     inputs: dict[str, Any] = {"task": task_json}
     sent: dict[str, object] = {}
@@ -737,6 +746,7 @@ def run_columns_row(
     code = "ok" if result.status == "success" else (result.error_code or "ERROR")
     row: dict[str, Any] = {
         "row": number,
+        "ask": ask,
         "context": sent,
         "status": code,
         "message": result.message,
@@ -760,14 +770,157 @@ def run_columns_row(
     return row
 
 
-def print_columns_row(task: LookupTask, row: dict[str, Any]) -> None:
-    parts = [f"[row {row['row']}] {row['status']}"]
+MAX_DROPPED_LINES = 5
+
+
+def dropped_lines(task: LookupTask, row: dict[str, Any]) -> list[str]:
+    """The distinct dropped links worth showing under a row line: all of them for a row
+    that found nothing, otherwise those of a slot that lost every link."""
+    nothing = row["status"] == "NOTHING_FOUND"
+    seen: dict[tuple[str, str], None] = {}
+    for column in task.columns:
+        entry = row["targets"][column.header]
+        diagnostic = entry["diagnostic"]
+        if nothing or (diagnostic and diagnostic["reason"] == "no_reported_link"):
+            for link, reason in entry["dropped"]:
+                seen.setdefault((reason, link), None)
+    return [f"    dropped: {reason} {link}" for reason, link in seen][:MAX_DROPPED_LINES]
+
+
+def print_columns_row(task: LookupTask, row: dict[str, Any], repeat: int = 1) -> None:
+    label = f"row {row['row']}" + (f", ask {row['ask']}/{repeat}" if repeat > 1 else "")
+    parts = [f"[{label}] {row['status']}"]
     if row["status"] != "ok" and not any(e["diagnostic"] for e in row["targets"].values()):
         parts.append(str(row["message"]))
     else:
         parts += [show_value(c, row["targets"][c.header]) for c in task.columns]
     parts += [f"searches={row['searches']}", f"{row['seconds']} s"]
     print(" | ".join(parts), flush=True)
+    for line in dropped_lines(task, row):
+        print(line, flush=True)
+
+
+# --- Stability over repeated asks ----------------------------------------------------------
+
+
+def value_key(kind: str, value: Any) -> Any:
+    """What makes two found values the same: numbers exactly, yes/no exactly, text up to
+    case and surrounding whitespace."""
+    if kind == "number":
+        return float(value)
+    if kind == "yes_no":
+        return value
+    return str(value).strip().casefold()
+
+
+def classify_slot(kind: str, entries: list[dict[str, Any]]) -> dict[str, Any]:
+    """The stability of one target slot over the asks of one row (one entry per ask)."""
+    found = [e for e in entries if e["diagnostic"] and e["diagnostic"]["found"]]
+    distinct: dict[Any, dict[str, Any]] = {}
+    for entry in found:
+        item = distinct.setdefault(
+            value_key(kind, entry["value"]), {"value": entry["value"], "count": 0}
+        )
+        item["count"] += 1
+    if len(distinct) > 1:
+        category = "values_differ"
+    elif not found:
+        category = "never_found"
+    elif len(found) == len(entries):
+        category = "always_the_same_value"
+    else:
+        category = "sometimes_missing"
+    bases = {e["basis"] for e in found}
+    return {
+        "category": category,
+        "asks": len(entries),
+        "found_in": len(found),
+        "distinct_values": list(distinct.values()),
+        "basis_differs": len(found) == len(entries) and len(bases) > 1,
+    }
+
+
+def stability_report(
+    records: list[dict[str, Any]], task: LookupTask, repeat: int
+) -> dict[str, Any]:
+    """Compare the asks of each row; rows not asked all N times (the run stopped) are left
+    out and counted. Adds ``stability`` to every target of the records."""
+    by_row: dict[int, list[dict[str, Any]]] = {}
+    for record in records:
+        by_row.setdefault(record["row"], []).append(record)
+    complete = {row: asks for row, asks in by_row.items() if len(asks) == repeat}
+    categories: Counter[str] = Counter()
+    differing: list[dict[str, Any]] = []
+    in_all = basis_differs = 0
+    failed_by_code: Counter[str] = Counter()
+    failed_rows = 0
+    for row, asks in complete.items():
+        codes = {a["status"] for a in asks if a["status"] != "ok"}
+        failed = [a for a in asks if a["status"] != "ok"]
+        if failed and len(failed) < repeat:
+            failed_rows += 1
+            failed_by_code.update(codes)
+        for column in task.columns:
+            report = classify_slot(column.kind, [a["targets"][column.header] for a in asks])
+            categories[report["category"]] += 1
+            if report["found_in"] == repeat:
+                in_all += 1
+                basis_differs += report["basis_differs"]
+            if report["category"] == "values_differ":
+                differing.append(
+                    {"row": row, "target": column.header, "asks": repeat}
+                    | {"distinct_values": report["distinct_values"]}
+                )
+            for ask in asks:
+                ask["targets"][column.header]["stability"] = {
+                    "category": report["category"],
+                    "distinct_values": report["distinct_values"],
+                }
+    return {
+        "asks_per_row": repeat,
+        "rows_compared": len(complete),
+        "rows_not_completed": len(by_row) - len(complete),
+        "slots": sum(categories.values()),
+        "always_the_same_value": categories["always_the_same_value"],
+        "values_differ": categories["values_differ"],
+        "sometimes_missing": categories["sometimes_missing"],
+        "never_found": categories["never_found"],
+        "values_differ_detail": differing,
+        "rows_failed_in_some_asks": {"rows": failed_rows, "by_code": dict(failed_by_code)},
+        "found_in_all_asks": {"slots": in_all, "basis_differed_between_asks": basis_differs},
+    }
+
+
+MAX_DIFFERING_SHOWN = 10
+
+
+def print_stability(stability: dict[str, Any]) -> None:
+    n = stability["asks_per_row"]
+    print(
+        f"\nStability over {n} asks per row ({stability['rows_compared']} rows compared, "
+        f"{stability['slots']} target slots): always the same value "
+        f"{stability['always_the_same_value']} | values differ {stability['values_differ']} | "
+        f"sometimes missing {stability['sometimes_missing']} | never found "
+        f"{stability['never_found']}"
+    )
+    if stability["rows_not_completed"]:
+        print(f"Rows not asked {n} times (the run stopped): {stability['rows_not_completed']}")
+    detail = stability["values_differ_detail"]
+    for item in detail[:MAX_DIFFERING_SHOWN]:
+        print(
+            f"  row {item['row']}, {item['target']}: {len(item['distinct_values'])} different "
+            f"values in {item['asks']} asks"
+        )
+    if len(detail) > MAX_DIFFERING_SHOWN:
+        print(f"  ... and {len(detail) - MAX_DIFFERING_SHOWN} more in summary.json")
+    failed = stability["rows_failed_in_some_asks"]
+    codes = f" {failed['by_code']}" if failed["by_code"] else ""
+    print(f"Rows that failed in some asks but not all: {failed['rows']}{codes}")
+    basis = stability["found_in_all_asks"]
+    print(
+        f"Values found in all asks: {basis['slots']}; the basis differed between asks "
+        f"(stated in one, concluded in another) for {basis['basis_differed_between_asks']}"
+    )
 
 
 def summarize_columns(
@@ -780,6 +933,7 @@ def summarize_columns(
     planned: int,
     model: str,
     effort: str | None,
+    repeat: int = 1,
 ) -> dict[str, Any]:
     entries = [
         (entry, row) for row in rows for entry in row["targets"].values() if entry["diagnostic"]
@@ -788,11 +942,12 @@ def summarize_columns(
     reasons = Counter(e["diagnostic"]["reason"] for e, _ in entries if not e["diagnostic"]["found"])
     levels = Counter(m for e in found for m in e["diagnostic"]["link_matches"])
     comparisons = Counter(e.get("comparison") for e, _ in entries if "existing" in e)
+    dropped = Counter(reason for e, _ in entries for _, reason in e["dropped"])
     totals = usage.totals()
     cost = estimate_cost(totals.web_searches, totals.input_tokens, totals.output_tokens, prices)
     seconds = round(sum(r["seconds"] for r in rows), 2)
     asked = len(rows)
-    return {
+    summary: dict[str, Any] = {
         "mode": "columns",
         "workbook": str(args.workbook),
         "settings": {
@@ -805,6 +960,7 @@ def summarize_columns(
             "targets": [{"header": c.header, "kind": c.kind, "unit": c.unit} for c in task.columns],
             "tolerance_percent": args.tolerance,
             "timeout_seconds": args.timeout,
+            "repeat": repeat,
         },
         "task_json": task_json,
         "rows": {
@@ -828,9 +984,11 @@ def summarize_columns(
         "links": {
             "kept_exact": levels["exact"],
             "kept_address": levels["address"],
-            "dropped_not_reported_by_search": sum(
-                e["diagnostic"]["links_dropped"] for e, _ in entries
-            ),
+            "dropped_total": sum(e["diagnostic"]["links_dropped"] for e, _ in entries),
+            "dropped_not_reported": dropped["not_reported"],
+            "dropped_not_a_link": dropped["not_a_link"],
+            "dropped_duplicate": dropped["duplicate"],
+            "dropped_over_limit": dropped["over_limit"],
             "quotes_truncated": sum(e["diagnostic"]["quote_truncated"] for e in found),
         },
         "comparison_with_existing": {
@@ -859,6 +1017,9 @@ def summarize_columns(
             "per_found_value": round(cost / len(found), 4) if found else None,
         },
     }
+    if repeat > 1:
+        summary["stability"] = stability_report(rows, task, repeat)
+    return summary
 
 
 def print_columns_summary(summary: dict[str, Any]) -> None:
@@ -869,8 +1030,10 @@ def print_columns_summary(summary: dict[str, Any]) -> None:
         f"\nConfiguration: {settings['configuration_id']} "
         f"(prompt version {settings['prompt_version']})"
     )
+    repeat = settings.get("repeat", 1)
+    unit = "Asks" if repeat > 1 else "Rows"
     print(
-        f"Rows: asked {rows['asked']} of {rows['planned']} | succeeded {rows['succeeded']} | "
+        f"{unit}: asked {rows['asked']} of {rows['planned']} | succeeded {rows['succeeded']} | "
         f"failed {rows['failed_by_code'] or 0}"
     )
     print(
@@ -881,8 +1044,12 @@ def print_columns_summary(summary: dict[str, Any]) -> None:
     print(f"Found by basis: stated {basis['stated']}, concluded {basis['concluded']}")
     print(
         f"Links: kept {links['kept_exact']} exact + {links['kept_address']} by address | "
-        f"dropped (not reported by the search) {links['dropped_not_reported_by_search']} | "
         f"quotes truncated {links['quotes_truncated']}"
+    )
+    print(
+        f"Links dropped: {links['dropped_total']} (not reported by the search "
+        f"{links['dropped_not_reported']}, not a link {links['dropped_not_a_link']}, "
+        f"duplicate {links['dropped_duplicate']}, over the limit {links['dropped_over_limit']})"
     )
     print(
         f"Against existing cells: compared {compared['compared']} (agree {compared['agree']}, "
@@ -892,14 +1059,18 @@ def print_columns_summary(summary: dict[str, Any]) -> None:
     print(
         f"Usage: {usage['requests']} requests | tokens in/out {usage['input_tokens']}/"
         f"{usage['output_tokens']} | web searches {usage['web_searches']} | "
-        f"{summary['seconds_total']} s in total, {summary['seconds_per_row']} s per row"
+        f"{summary['seconds_total']} s in total, {summary['seconds_per_row']} s per "
+        f"{'ask' if repeat > 1 else 'row'}"
     )
     prices = summary["prices_used"]
     print(
-        f"Estimated cost: {cost['total']} USD in total, {cost['per_row']} per row, "
+        f"Estimated cost: {cost['total']} USD in total, {cost['per_row']} per "
+        f"{'ask' if repeat > 1 else 'row'}, "
         f"{cost['per_found_value']} per found value (at {prices['per_search']} per search, "
         f"{prices['input_per_mtok']}/{prices['output_per_mtok']} per 1M tokens in/out)"
     )
+    if "stability" in summary:
+        print_stability(summary["stability"])
     print("This is one run, one observation: the same request can answer differently next time.")
     print("The cost is an estimate from the --price-* options; it was not compared with the bill.")
 
@@ -967,6 +1138,9 @@ def build_columns_task(
         parser.error(f"The lookup task is not valid: {exc.errors()[0]['msg']}")
 
 
+MAX_REPEAT = 10
+
+
 def run_columns(
     parser: argparse.ArgumentParser,
     args: argparse.Namespace,
@@ -1023,30 +1197,52 @@ def run_columns(
     handler = make_handler(recording, usage)
     prices = Prices(args.price_per_search, args.price_input_per_mtok, args.price_output_per_mtok)
     records: list[dict[str, Any]] = []
+    repeat = args.repeat
+    print(
+        f"This run will make {plural(len(rows) * repeat, 'request')} ({plural(len(rows), 'row')} x "
+        f"{plural(repeat, 'ask')}); a refused request stops it earlier.",
+        flush=True,
+    )
+    stopped = False
     for number, values in rows:
-        row = run_columns_row(
-            handler, usage, task, task_json, number, values, args.tolerance, replies, recording
-        )
-        records.append(row)
-        print_columns_row(task, row)
-        if row["status"] in STOP_CODES:
-            print(f"Stopped after row {number}: {row['status']}: {row['message']}")
-            if row["status"] == "REQUEST_REFUSED":
-                print(
-                    "The API did not accept the request shape. Run with --dry-run to see exactly "
-                    "what is sent."
-                )
-            else:
-                print("Check the key and its access to the model and to web search.")
+        for ask in range(1, repeat + 1):
+            row = run_columns_row(
+                handler,
+                usage,
+                task,
+                task_json,
+                number,
+                values,
+                args.tolerance,
+                replies,
+                recording,
+                ask,
+            )
+            records.append(row)
+            print_columns_row(task, row, repeat)
+            if row["status"] in STOP_CODES:
+                where = f"row {number}" + (f", ask {ask}/{repeat}" if repeat > 1 else "")
+                print(f"Stopped after {where}: {row['status']}: {row['message']}")
+                if row["status"] == "REQUEST_REFUSED":
+                    print(
+                        "The API did not accept the request shape. Run with --dry-run to see "
+                        "exactly what is sent."
+                    )
+                else:
+                    print("Check the key and its access to the model and to web search.")
+                stopped = True
+                break
+        if stopped:
             break
 
     directory = args.out / (datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8])
     directory.mkdir(parents=True, exist_ok=False)
+    summary = summarize_columns(
+        records, task, task_json, usage, prices, args, len(rows) * repeat, model, effort, repeat
+    )
+    # Written after the summary: the stability report adds to each record.
     (directory / "rows.jsonl").write_text(
         "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in records), encoding="utf-8"
-    )
-    summary = summarize_columns(
-        records, task, task_json, usage, prices, args, len(rows), model, effort
     )
     (directory / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -1088,6 +1284,14 @@ def build_parser() -> argparse.ArgumentParser:
         "needs --context-columns, cannot be combined with --answer, --unit or "
         "--expected-column, never skips a cell that holds a value (it is only compared) and "
         "never writes into the workbook",
+    )
+    parser.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Columns mode only (1 to 10, default 1): ask every row N times, one after "
+        "another, and report how stable the answers are. Costs N times as much.",
     )
     parser.add_argument("--tolerance", type=float, default=10.0, help="Percent, for numbers")
     parser.add_argument("--model", default="gpt-6-luna")
@@ -1139,6 +1343,10 @@ def run(argv: Sequence[str] | None = None, client: Any = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    if not 1 <= args.repeat <= MAX_REPEAT:
+        parser.error(f"--repeat must be between 1 and {MAX_REPEAT}")
+    if args.repeat != 1 and not args.target:
+        parser.error("--repeat only applies in columns mode (with --target)")
     if args.target:
         check_columns_options(parser, args)
     args.answer = args.answer or "text"

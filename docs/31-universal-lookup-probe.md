@@ -292,3 +292,101 @@ What follows for the design (recommendations, not built):
 
 Still unanswered: how often such answers are right. That needs a workbook of this kind
 with an expected column checked by hand, which is the benchmark planned as step 6.
+
+## Third run (2026-11-16, by the owner): the application's own request
+
+The probe's columns mode (`--target`) sends the request of
+`providers/web_lookup.py` through the real `WebLookupHandler`: one request per row, a
+strict schema with one answer object per column, and the strict reply reader. Same
+workbook as the second run (eight phones), five target columns: battery capacity
+(number, mAh), IP rating (text), eSIM, microSD and wireless charging (yes/no). Two runs:
+the first three rows, then all eight. Again there is no expected column, so **no value
+was judged**; one pre-filled cell (an IP rating) agreed in both runs.
+
+| What | First 3 rows | All 8 rows |
+| --- | --- | --- |
+| Requests accepted by the API | 3 of 3 | 8 of 8 |
+| Rows with a result | 2 (one `NOTHING_FOUND`) | 8 |
+| Values found | 10 of 15 | 37 of 40 |
+| Found as stated / concluded | 9 / 1 | 34 / 3 |
+| Not found, by reason | `no_reported_link` 5 | `no_value` 3 |
+| Links kept (exact / by address), dropped | 13 / 0, 5 | 41 / 1, 0 |
+| Searches | 4 | 16, 2 per row |
+| Tokens in / out | 43,638 / 1,451 | 153,950 / 3,958 |
+| Time per row | 9.4 s | 9.2 s (6.6 to 13.0 s) |
+| Estimated cost | 1.5 cents per row | 2.2 cents per row, about 0.5 cents per found value |
+
+What the rows show (evidence):
+
+- **The API accepts the request shape** on `gpt-6-luna`: 11 requests, no refusal, no
+  shape failure.
+- **Every column has its own typed value.** Yes/no columns hold `Yes` or `No` and
+  nothing else, which the second run could not deliver.
+- **The model now separates stated from concluded.** The three "No" answers it marked
+  `concluded` rest on a quote that does not mention the feature (a charging type, a
+  list of SIM slots, a list of storage sizes). In the second run answers of this kind
+  were given as plain confident values.
+- **The model now leaves cells empty.** Three cells have no value; the second run
+  answered "No" in all three.
+- **The two rows asked in both runs agree**: 10 of 10 values are the same; the text of
+  one IP rating is worded differently ("IPX5/IPX8 water resistant; IP6X dust proof"
+  against "IPX5/IPX8 and IP6X").
+- **One row was lost in the first run and fine in the second.** All five of its values
+  were dropped because the one link named for each was not among the search results
+  (one search in that request, two in the later one). The run files did not record the
+  link, so it is unknown whether the rule was right to drop it.
+- **"Stated" is sometimes generous.** One "Yes" for wireless charging rests on a line
+  about a charging stand in a declaration of conformity. One battery capacity for a row
+  that says "Europe; do not mix regions" is quoted from the maker's page of another
+  country (for the same model number).
+- **One kept link carried a search-engine tracking parameter** (`?msockid=…`) and
+  matched only at the weaker level.
+- **Twenty rows do not fit the default time limit.** At 9 to 13 s per row, one request
+  at a time, 20 rows take 3 to 4.5 minutes; the default limit of a run is 180 s and the
+  highest is 300 s.
+
+What was changed after this run (in code, not measured yet):
+
+- The reply reader records every link it drops with one reason, and the probe stores
+  and prints them, so the lost row can be explained the next time it happens.
+- Known tracking parameters are ignored when links are compared and removed from the
+  link that is kept. A parameter that can select content (`?sku=…`) still has to match
+  exactly.
+- `--repeat N` asks every row N times and reports where a value is always the same,
+  where it differs and where it is sometimes missing.
+
+### Repeat run (same day): three rows, each asked three times
+
+Run with `--repeat 3` on the first three rows after the changes above: 9 requests, all
+answered, 44 of 45 values found (38 stated, 6 concluded), 20 searches, 10.8 s per
+request (7.0 to 15.7 s), about 2.5 cents per request by estimate.
+
+| Over the three asks of a row | Values (of 15) |
+| --- | --- |
+| Always the same value | 13 |
+| Values differ | 1 |
+| Sometimes missing | 1 |
+| Never found | 0 |
+
+- **The values that differ are one fact in three wordings**: an IP rating given as
+  "IPX5/IPX8, IP6X", "IPX5/IPX8 (water resistance); IP6X (dust protection)" and
+  "IPX5/IPX8 and IP6X". Numbers and yes/no values never differed. A text column is
+  therefore not reproducible to the letter unless the question fixes a form.
+- **The basis never changed between the asks of a row** (14 values found in all three
+  asks). Between runs it did: wireless charging of one phone was "stated" in the
+  morning run (from a support table) and "concluded" in all three asks here.
+- **The one dropped link explains itself.** The model named an article under the path
+  of this phone's support pages. The search had reported that article number under
+  two other paths of the same site in earlier runs, and not under this one here. The
+  address was most likely composed by the model, so the rule did what it is for: the
+  value was left out in that ask and found in the other two.
+- **The row that was lost in the morning was answered three times out of three.** Its
+  loss is still unexplained: one in five asks of that row so far.
+- **One request reported four `web_search_call` items** although the request limits
+  tool calls to three. The probe counts every such item as a paid search; whether all
+  of them are billed is unknown, so the estimate may be too high.
+
+What the application step has to settle: bounded parallel requests or a separate time
+limit for a fallback run. The rule "no reported link, no value" stays as it is: the
+only dropped link seen so far was one the search had not returned.
+

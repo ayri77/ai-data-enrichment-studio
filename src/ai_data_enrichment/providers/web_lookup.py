@@ -19,7 +19,7 @@ import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, Self
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote_plus, urlencode, urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator, model_validator
 
@@ -333,13 +333,61 @@ class WebLookupUsage:
 # --- What the API reported -----------------------------------------------------------
 
 
+# Query parameters that never select content: they say where a visitor came from.
+# Compared case-insensitively; an entry ending in "*" stands for every name that starts
+# with it. Generic names (ref, source, id, sku, lang ...) are deliberately not here: they
+# can select a different page.
+TRACKING_PARAMETERS = (
+    "utm_*",
+    "msockid",
+    "msclkid",
+    "gclid",
+    "gclsrc",
+    "dclid",
+    "gbraid",
+    "wbraid",
+    "gad_source",
+    "fbclid",
+    "igshid",
+    "yclid",
+    "srsltid",
+    "mc_cid",
+    "mc_eid",
+    "_ga",
+    "_gl",
+)
+
+
+def is_tracking_parameter(name: str) -> bool:
+    folded = name.casefold()
+    return any(
+        folded.startswith(entry[:-1]) if entry.endswith("*") else folded == entry
+        for entry in TRACKING_PARAMETERS
+    )
+
+
+def strip_tracking(url: str) -> str:
+    """The same link without tracking parameters; everything else stays as written.
+
+    The text is cut apart, not parsed and rebuilt, so a link without such parameters
+    comes back byte for byte, and the other parameters keep their order and spelling.
+    """
+    rest, hash_sign, fragment = url.partition("#")
+    path, question, query = rest.partition("?")
+    if not question:
+        return url
+    pieces = query.split("&")
+    kept = [p for p in pieces if not is_tracking_parameter(unquote_plus(p.partition("=")[0]))]
+    if len(kept) == len(pieces):
+        return url
+    return path + ("?" + "&".join(kept) if kept else "") + hash_sign + fragment
+
+
 def normalize_url(url: str) -> str:
     """Compare links without the parts that do not change the page."""
     parts = urlsplit(url.strip())
     host = parts.netloc.lower().removeprefix("www.")
-    query = urlencode(
-        [(k, v) for k, v in parse_qsl(parts.query) if not k.lower().startswith("utm_")]
-    )
+    query = urlencode([(k, v) for k, v in parse_qsl(parts.query) if not is_tracking_parameter(k)])
     return urlunsplit((parts.scheme.lower(), host, parts.path.rstrip("/"), query, ""))
 
 

@@ -285,7 +285,8 @@ def test_normalisation_matches_exactly_and_the_reported_form_is_kept() -> None:
 
 def test_a_link_named_without_the_reported_query_is_a_weaker_marked_match() -> None:
     reply = good_reply()
-    tracked = "https://example.org/phone?msockid=1"
+    # A parameter that is not on the tracking list (msockid is, and is an exact match now).
+    tracked = "https://example.org/phone?ref=1"
     reply["value_1"]["sources"] = ["https://example.org/phone"]
     result = parsed(reply, reported=(tracked,))
     assert result.record.slots["value_1"].sources == (tracked,)
