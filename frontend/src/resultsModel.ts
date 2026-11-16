@@ -1,4 +1,5 @@
 import type { AuditReport, EnrichmentPlan, ReviewValue } from "./api";
+import { LOOKUP_CAPABILITY, readLookupTask } from "./fallbackModel";
 
 type Scalar = string | number | boolean;
 export type Cause =
@@ -15,6 +16,12 @@ export type Cause =
     | "too_far"
     | "access"
     | "no_value"
+    // The universal search: what happened to one row's request.
+    | "nothing_found"
+    | "deadline"
+    | "request_refused"
+    | "response_incomplete"
+    | "lookup_access"
     | "other";
 const CAUSES: Record<string, Cause> = {
     AMBIGUOUS: "ambiguous",
@@ -38,7 +45,26 @@ const CAUSES: Record<string, Cause> = {
     ROUTE_TOO_LONG: "too_far",
     SOURCE_ACCESS_DENIED: "access",
     VALUE_NOT_GIVEN: "no_value",
+    NOTHING_FOUND: "nothing_found",
+    DEADLINE_REACHED: "deadline",
+    REQUEST_REFUSED: "request_refused",
+    RESPONSE_INCOMPLETE: "response_incomplete",
 };
+// A code that means something else for the universal search than for the
+// routing service, which is the one that also uses it.
+const LOOKUP_CAUSES: Record<string, Cause> = {
+    SOURCE_ACCESS_DENIED: "lookup_access",
+};
+/** The kind of cause for a failed step's code. */
+export function causeKind(code: string | null, capability: string | null) {
+    return (
+        (capability === LOOKUP_CAPABILITY
+            ? LOOKUP_CAUSES[code ?? ""]
+            : undefined) ??
+        CAUSES[code ?? ""] ??
+        "other"
+    );
+}
 export interface ResultStep {
     stepId: string;
     capability: string | null;
@@ -57,6 +83,11 @@ export interface ResultRow {
     /** Keyed by target column; undefined means the cell stays empty. */
     outputs: Record<string, Scalar | undefined>;
     filled: boolean;
+    /**
+     * Some output cells were written by this run and some were not. A row with
+     * no written cell is empty; a kept or skipped row is neither.
+     */
+    partial: boolean;
     /**
      * The row was left out of the run: every chosen cell already had a value.
      * It is neither filled nor failed, and its outputs are the kept values.
@@ -84,6 +115,15 @@ export interface ResultRow {
     /** The first real failure in the row, not its downstream consequences. */
     cause: { kind: Cause; code: string; subject: string | null } | null;
     steps: ResultStep[];
+    /** The row was filled by the universal search, not by the planner's steps. */
+    lookup: boolean;
+    /**
+     * Values written from a web search, by column: whether a page states the
+     * value or the model concluded it, and how many links it rests on.
+     */
+    found: Record<string, { basis: "stated" | "concluded"; links: number }>;
+    /** The columns whose value the model concluded. */
+    concluded: string[];
 }
 export interface ResultColumn {
     key: string;
@@ -155,7 +195,13 @@ export const outputColumns = (plan: EnrichmentPlan | null): ResultColumn[] =>
     (plan?.outputs ?? []).map((output) => ({
         key: output.target_column,
         label: output.target_column,
-        unit: output.expected_unit,
+        // The universal search keeps a unit in its task, not in the output.
+        unit:
+            output.expected_unit ??
+            readLookupTask(plan)?.columns.find(
+                (column) => column.header === output.target_column,
+            )?.unit ??
+            undefined,
         capability: plan?.steps.find((step) => step.id === output.step_id)
             ?.capability,
         ...(output.value_field === "latitude" ||
@@ -191,6 +237,7 @@ export function resultRows(
             }),
         ),
         filled: false,
+        partial: false,
         skipped: true,
         kept: row.kept_outputs ?? [],
         replaced: {},
@@ -200,7 +247,13 @@ export function resultRows(
         gaps: [],
         cause: null,
         steps: [],
+        lookup: false,
+        found: {},
+        concluded: [],
     }));
+    const lookup = (plan?.steps ?? []).some(
+        (step) => step.capability === LOOKUP_CAPABILITY,
+    );
     const executed: ResultRow[] = (report?.rows ?? []).map((row) => {
         const inputs = row.inputs ?? {};
         const steps: ResultStep[] = (
@@ -220,11 +273,15 @@ export function resultRows(
             // plain one, which is its own "value".
             const field = !step?.ok
                 ? undefined
-                : step.value && typeof step.value === "object"
-                  ? (step.value as Record<string, unknown>)[output.value_field]
-                  : output.value_field === "value"
-                    ? step.value
-                    : undefined;
+                : foundSlots(step.value)
+                  ? foundSlots(step.value)![output.value_field]?.value
+                  : step.value && typeof step.value === "object"
+                    ? (step.value as Record<string, unknown>)[
+                          output.value_field
+                      ]
+                    : output.value_field === "value"
+                      ? step.value
+                      : undefined;
             outputs[output.target_column] = scalar(field) ? field : undefined;
         }
         const subjects = (ids: string[] | undefined) =>
@@ -250,6 +307,19 @@ export function resultRows(
                         value !== undefined &&
                         !(row.kept_outputs ?? []).includes(column),
                 ),
+            partial:
+                Object.keys(outputs).length > 0 &&
+                Object.entries(outputs).some(
+                    ([column, value]) =>
+                        value !== undefined &&
+                        !(row.kept_outputs ?? []).includes(column),
+                ) &&
+                !Object.entries(outputs).every(
+                    ([column, value]) =>
+                        value !== undefined &&
+                        !(row.kept_outputs ?? []).includes(column),
+                ) &&
+                (row.kept_outputs ?? []).length === 0,
             skipped: false,
             kept: row.kept_outputs ?? [],
             replaced: row.replaced_outputs ?? {},
@@ -279,7 +349,7 @@ export function resultRows(
             ),
             cause: failed
                 ? {
-                      kind: CAUSES[failed.errorCode ?? ""] ?? "other",
+                      kind: causeKind(failed.errorCode, failed.capability),
                       code: failed.errorCode ?? "UNKNOWN",
                       subject: subject(
                           planSteps.get(failed.stepId),
@@ -289,6 +359,16 @@ export function resultRows(
                   }
                 : null,
             steps,
+            lookup,
+            found: Object.fromEntries(
+                (row.ai_found ?? []).map((item) => [
+                    item.column,
+                    { basis: item.basis, links: item.links },
+                ]),
+            ),
+            concluded: (row.ai_found ?? [])
+                .filter((item) => item.basis === "concluded")
+                .map((item) => item.column),
         };
     });
     // Sheet order; reports without row numbers keep the order they have.
@@ -298,17 +378,47 @@ export function resultRows(
 }
 
 export type RowFilter =
-    "all" | "filled" | "empty" | "skipped" | "chosen" | "automatic";
+    | "all"
+    | "filled"
+    | "partial"
+    | "empty"
+    | "skipped"
+    | "chosen"
+    | "automatic"
+    | "concluded";
 export function filterRows(rows: ResultRow[], filter: RowFilter) {
     if (filter === "filled") return rows.filter((r) => r.filled);
     // A row that was not looked up is not an empty one: its cells have values.
-    if (filter === "empty") return rows.filter((r) => !r.filled && !r.skipped);
+    if (filter === "partial") return rows.filter((r) => r.partial);
+    if (filter === "empty")
+        return rows.filter((r) => !r.filled && !r.partial && !r.skipped);
     if (filter === "skipped") return rows.filter((r) => r.skipped);
     if (filter === "chosen") return rows.filter((r) => r.chosen.length > 0);
     if (filter === "automatic")
         return rows.filter((r) => r.automatic.length > 0);
+    if (filter === "concluded")
+        return rows.filter((r) => r.concluded.length > 0);
     return rows;
 }
+/** What a universal-search run amounts to, in the numbers the table shows. */
+export interface LookupSummary {
+    /** Rows a request was made for (or would have been: not the skipped ones). */
+    asked: number;
+    /** Values written from a web search. */
+    found: number;
+    /** Of those, the values the model concluded instead of a page stating them. */
+    concluded: number;
+}
+export function lookupSummary(rows: ResultRow[]): LookupSummary {
+    const asked = rows.filter((row) => !row.skipped);
+    const values = asked.flatMap((row) => Object.values(row.found));
+    return {
+        asked: asked.length,
+        found: values.length,
+        concluded: values.filter((item) => item.basis === "concluded").length,
+    };
+}
+
 /** `key` is "row", "status", "in:<column>" or "out:<column>". */
 export interface Sort {
     key: string;
@@ -384,10 +494,34 @@ export function formatValue(
     }).format(value);
     return unit ? `${text} ${unit}` : text;
 }
+/** What a universal-search step returned: one entry per requested column. */
+export interface FoundSlot {
+    value: Scalar | null;
+    basis: "stated" | "concluded" | null;
+    sources: string[];
+    quote: string | null;
+}
+/** The answer of a universal-search step, or null for any other value. */
+export function foundSlots(value: unknown): Record<string, FoundSlot> | null {
+    const slots = (value as { slots?: unknown } | null)?.slots;
+    if (!slots || typeof slots !== "object" || Array.isArray(slots))
+        return null;
+    return slots as Record<string, FoundSlot>;
+}
+
 /** Compact, readable form of a step value for the detail layer. */
 export function describeValue(value: unknown, locale: string): string {
     if (value === null || value === undefined) return "—";
     if (scalar(value)) return formatValue(value, locale);
+    const slots = foundSlots(value);
+    if (slots)
+        return Object.entries(slots)
+            .map(([name, slot]) =>
+                slot.value === null || slot.value === undefined
+                    ? `${name}: —`
+                    : `${name}: ${formatValue(slot.value, locale)}${slot.basis ? ` (${slot.basis})` : ""}`,
+            )
+            .join(" · ");
     const v = value as Record<string, unknown>;
     if (typeof v.latitude === "number" && typeof v.longitude === "number")
         return `${v.latitude.toFixed(4)}, ${v.longitude.toFixed(4)}`;

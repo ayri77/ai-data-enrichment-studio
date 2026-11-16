@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import type { TFunction } from "i18next";
 import { api, type Capability } from "./api";
+import { LOOKUP_CAPABILITY } from "./fallbackModel";
 
 // What a plan may be built from is the server's list, not one kept here: a
 // capability added there is shown without a change to the interface. Null
@@ -65,6 +66,21 @@ export function provenanceLabel(
     // An older server states no kind: a calculation done here still says so.
     if (item.source === "local") return t("provenance.computed");
     return t("overview.source", { source });
+}
+
+/**
+ * Where the values of a capability come from and what stands behind them. The
+ * universal search is not on the server's list of what a plan may be built
+ * from (a plan with it is made by the server alone), so its own wording is
+ * kept here.
+ */
+export function capabilityProvenance(
+    offered: Capability[] | null | undefined,
+    id: string | undefined,
+): Pick<Capability, "source" | "trust"> | undefined {
+    if (id === LOOKUP_CAPABILITY)
+        return { source: "openai_web_search", trust: "ai_found" };
+    return offered?.find((item) => item.id === id);
 }
 
 /** The names of the outside sources a run may ask, each once, in list order. */

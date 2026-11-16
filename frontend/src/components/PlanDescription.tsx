@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { CircleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { PlanDraft } from "../api";
+import { readLookupTask } from "../fallbackModel";
 import { describePlan, type PlanRef } from "../planModel";
 import type { StepOutcome } from "../runModel";
 import { CanDo } from "./CanDo";
@@ -80,6 +81,7 @@ export function PlanDescription({
                 .querySelector(`.plan-steps [data-step="${CSS.escape(id)}"]`)
                 ?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
     };
+    const lookup = readLookupTask(draft.plan, draft.output_columns);
     const reference = (ref: PlanRef) =>
         ref.kind === "column"
             ? t("plan.ref.column", { name: ref.name })
@@ -88,6 +90,16 @@ export function PlanDescription({
               : ref.kind === "literal"
                 ? t("plan.ref.literal", { value: ref.value })
                 : "?";
+    // The universal search is told in words about its question and columns;
+    // its task is never shown as the text it is stored in.
+    if (lookup && draft.kind === "fallback" && lines.length === 1)
+        return (
+            <LookupDescription
+                lookup={lookup}
+                stepId={lines[0].id}
+                outcome={outcomes?.get(lines[0].id)}
+            />
+        );
     return (
         <div className="plan-description">
             {lines.length > 1 && (
@@ -159,16 +171,75 @@ export function PlanDescription({
     );
 }
 
+/** The one step of a universal-search plan, in the words a person would use. */
+function LookupDescription({
+    lookup,
+    stepId,
+    outcome,
+}: {
+    lookup: NonNullable<ReturnType<typeof readLookupTask>>;
+    stepId: string;
+    outcome?: StepOutcome;
+}) {
+    const { t } = useTranslation();
+    return (
+        <div className="plan-description" data-testid="fallback-plan">
+            <p className="muted">{t("plan.perRow")}</p>
+            <ol className="plan-steps">
+                <li data-step={stepId}>
+                    <strong>{t("cap.web_lookup.title")}</strong>
+                    <span className="muted">{t("cap.web_lookup.text")}</span>
+                    <span className="plan-step-inputs">
+                        {t("fallback.plan.question", {
+                            question: lookup.question,
+                        })}
+                    </span>
+                    <span className="plan-step-inputs">
+                        {t("fallback.plan.context", {
+                            columns: lookup.context.join(", "),
+                        })}
+                    </span>
+                    <span className="plan-step-writes">
+                        {t("fallback.plan.fills")}
+                    </span>
+                    <span className="fallback-fills">
+                        {lookup.columns.map((column) => (
+                            <span className="fallback-fill" key={column.header}>
+                                {t("fallback.plan.column", {
+                                    name: column.header,
+                                    letter: column.letter ?? "?",
+                                    kind:
+                                        column.kind === "number" && column.unit
+                                            ? t("fallback.plan.numberUnit", {
+                                                  unit: column.unit,
+                                              })
+                                            : t(
+                                                  `fallback.plan.kind.${column.kind}`,
+                                              ),
+                                })}
+                            </span>
+                        ))}
+                    </span>
+                    {outcome && <StepRows outcome={outcome} />}
+                </li>
+            </ol>
+        </div>
+    );
+}
+
 // The planner answered, but with a refusal instead of a plan. Its reason is
-// the model's own text and is shown as such.
+// the model's own text and is shown as such. What follows the explanation (the
+// offer of another way of working) is the caller's.
 export function PlanRefusal({
     draft,
     maxRows,
     capabilities,
+    children,
 }: {
     draft: PlanDraft;
     maxRows: number;
     capabilities?: string[];
+    children?: ReactNode;
 }) {
     const { t } = useTranslation();
     const status =
@@ -177,21 +248,24 @@ export function PlanRefusal({
             ? draft.planning_status
             : "other";
     return (
-        <div className="plan-problem" data-testid="plan-refusal">
-            <h3>
-                <CircleAlert aria-hidden="true" />
-                {t("plan.refused.title")}
-            </h3>
-            <p>{t(`plan.refused.${status}`)}</p>
-            {draft.reason && (
-                <p>
-                    <span className="muted">{t("plan.modelSays")}</span>{" "}
-                    {draft.reason}
-                </p>
-            )}
-            <CanDo maxRows={maxRows} capabilities={capabilities} />
-            <p>{t("plan.rephrase")}</p>
-        </div>
+        <>
+            <div className="plan-problem" data-testid="plan-refusal">
+                <h3>
+                    <CircleAlert aria-hidden="true" />
+                    {t("plan.refused.title")}
+                </h3>
+                <p>{t(`plan.refused.${status}`)}</p>
+                {draft.reason && (
+                    <p>
+                        <span className="muted">{t("plan.modelSays")}</span>{" "}
+                        {draft.reason}
+                    </p>
+                )}
+                <CanDo maxRows={maxRows} capabilities={capabilities} />
+                <p>{t("plan.rephrase")}</p>
+            </div>
+            {children}
+        </>
     );
 }
 

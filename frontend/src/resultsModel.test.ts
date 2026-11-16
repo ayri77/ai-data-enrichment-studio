@@ -225,6 +225,7 @@ it("reads older reports without source values or row numbers", () => {
 it("filters by outcome and sorts with empty values last in both directions", () => {
     expect(filterRows(rows, "filled").map((r) => r.row)).toEqual([2, 3]);
     expect(filterRows(rows, "empty").map((r) => r.row)).toEqual([4, 5, 6]);
+    expect(filterRows(rows, "partial")).toEqual([]);
     expect(filterRows(rows, "chosen").map((r) => r.row)).toEqual([2]);
     const auto = resultRows(
         {
@@ -602,4 +603,50 @@ it("reads a field the source does not give as an empty cell with its reason", ()
     expect(row.gaps).toEqual([
         { column: "pop", field: "population", subject: "Rome" },
     ]);
+});
+
+it("calls a row partly filled when some output cells were written and some were not", () => {
+    const two: EnrichmentPlan = {
+        ...plan,
+        outputs: [
+            {
+                step_id: "from_city",
+                value_field: "latitude",
+                target_column: "lat",
+            },
+            {
+                step_id: "from_city",
+                value_field: "longitude",
+                target_column: "lon",
+            },
+        ],
+    };
+    const some = (
+        n: number,
+        value: Record<string, number>,
+        geocode: Parameters<typeof record>[2] = ok(value),
+    ) => record(n, "C" + n, geocode, failed("DEPENDENCY_FAILED"));
+    const set = [
+        some(2, { latitude: 1, longitude: 2 }),
+        some(3, { latitude: 1 }),
+        some(4, {}, failed("NOT_FOUND")),
+    ];
+    const rs = resultRows(
+        {
+            rows: set.map((d) => d.row),
+            execution: {
+                provider_requests: {},
+                records: set.map((d) => d.execution),
+            },
+        } as unknown as AuditReport,
+        two,
+    );
+    expect(rs.map((r) => [r.filled, r.partial])).toEqual([
+        [true, false],
+        [false, true],
+        [false, false],
+    ]);
+    expect(filterRows(rs, "partial").map((r) => r.row)).toEqual([3]);
+    expect(filterRows(rs, "empty").map((r) => r.row)).toEqual([4]);
+    expect(filterRows(rs, "filled").map((r) => r.row)).toEqual([2]);
 });

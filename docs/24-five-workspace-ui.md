@@ -30,6 +30,15 @@ The application opens on **Overview**, the first entry of the navigation and not
 
 Limits. The list says what a plan may be built *from*, not which tasks will succeed: whether a task can be planned is still decided by the planner and the validator. The plain wording of the six capabilities is written by hand and can drift from a contract that changes; the Advanced view cannot. Translating the descriptions of future capabilities needs either wording added to the locale files or wording that arrives with the capability ([plug-in design](29-capability-extension-design.md), point 7).
 
+## The universal search
+
+A web lookup by an AI model is the fallback for a task the planner refuses (`unsupported` or `ambiguous`, no plan). It exists only when the server sets `ENRICHMENT_ALLOW_WEB_LOOKUP=1` and has a key (`GET /api/limits`: `web_lookup`); otherwise nothing of it is shown.
+
+- **When it is offered.** Under the planner's refusal on Plan, as "Search the web with AI instead" and a button that opens an inline form (`components/FallbackSearch.tsx`). A plan that failed validation, or a failed planning request, does not offer it. The Overview lists one line about it under "Good to know".
+- **The form.** The question (prefilled with the task), the columns the model may read to identify a row (none preselected; only text and number columns), and for each column to fill a kind (text, number, yes/no) and, for numbers, a unit. A notice above the button says what is sent: the question, the chosen columns' values for each row and the column names go to OpenAI, which searches the web; each row costs a request and a search fee. The sources-in-workbook choice is made here (notes by default) and is fixed in the draft; Run only states it.
+- **Not verified.** Values come from pages found by the model, not from a record. A banner on Plan, Run and Results says so. Results show the basis of each value, "stated on the page" or "concluded by the model"; concluded cells carry a mark and have their own filter, "Concluded by AI". Rows with no value say why (nothing found, time limit, request refused, incomplete answer, source not readable, value not given). Advanced shows requests, tokens, searches and the configuration id.
+- **Review.** A run in which a row found nothing ends as "needs review" with nothing to choose; the page says so and leads on to Results.
+
 ## How a value was obtained
 
 `GET /api/capabilities` gives each capability its source and its kind of trust (`trust`); the interface words them in `provenanceLabel` (`capabilities.ts`), with the texts `provenance.<trust>` and the source names `source.<id>` in the three locale files:

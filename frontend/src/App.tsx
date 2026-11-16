@@ -18,6 +18,7 @@ import { Button } from "./components/ui/button";
 import { CapabilitiesContext, useCapabilities } from "./capabilities";
 import { Advanced, ModeContext } from "./mode";
 import { initialMode, initialTheme, savePreference } from "./preferences";
+import { isFallbackRun } from "./fallbackModel";
 import { useDataset } from "./useDataset";
 import { useLimits } from "./useLimits";
 import { useWorkflow, type Workspace } from "./useWorkflow";
@@ -138,7 +139,10 @@ function Studio({ opening }: { opening: Opening }) {
                                 {t(
                                     mode === "basic" && page === "plan"
                                         ? "ws.planHintBasic"
-                                        : `ws.${page}Hint`,
+                                        : page === "review" &&
+                                            isFallbackRun(w.job, w.plan)
+                                          ? "fallback.reviewHint"
+                                          : `ws.${page}Hint`,
                                 )}
                             </p>
                         </div>
@@ -185,6 +189,7 @@ function Studio({ opening }: { opening: Opening }) {
                             <OverviewWorkspace
                                 maxRows={limits.maxRows}
                                 capabilities={limits.capabilities}
+                                webLookup={limits.webLookup}
                                 samples={d.dataset ? [] : d.samples}
                                 busy={w.busy || !!d.busy}
                                 onStart={() => open("dataset")}
@@ -203,7 +208,9 @@ function Studio({ opening }: { opening: Opening }) {
                                 }
                             />
                         )}
-                        {page === "plan" && <PlanWorkspace w={w} />}
+                        {page === "plan" && (
+                            <PlanWorkspace w={w} preview={d.preview} />
+                        )}
                         {page === "execution" && (
                             <ExecutionWorkspace w={w} onStartOver={startOver} />
                         )}

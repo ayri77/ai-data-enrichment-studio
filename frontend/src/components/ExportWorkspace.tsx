@@ -9,7 +9,12 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { isTerminal } from "../api";
-import { provenanceLabel, useOffered } from "../capabilities";
+import {
+    capabilityProvenance,
+    provenanceLabel,
+    useOffered,
+} from "../capabilities";
+import { isFallbackRun } from "../fallbackModel";
 import { useAdvanced } from "../mode";
 import type { Workflow } from "../useWorkflow";
 import {
@@ -18,6 +23,7 @@ import {
     filterRows,
     formatValue,
     inputColumns,
+    lookupSummary,
     outputColumns,
     resultRows,
     sortRows,
@@ -28,6 +34,7 @@ import {
 } from "../resultsModel";
 import { Button } from "./ui/button";
 import { Back, EmptyState, ModeNotice, StartOver } from "./WorkspaceViews";
+import { FallbackBanner } from "./FallbackSearch";
 
 function SortHeader({
     label,
@@ -99,10 +106,21 @@ function Note({ row, w }: { row: ResultRow; w: Workflow }) {
             ) : (
                 <span
                     className={
-                        row.filled ? "outcome-success" : "outcome-failure"
+                        row.filled
+                            ? "outcome-success"
+                            : row.partial
+                              ? "outcome-partial"
+                              : "outcome-failure"
                     }
+                    data-testid="row-label"
                 >
-                    {t(row.filled ? "results.filled" : "results.empty")}
+                    {t(
+                        row.filled
+                            ? "results.filled"
+                            : row.partial
+                              ? "results.partial"
+                              : "results.empty",
+                    )}
                 </span>
             )}
             {Object.entries(row.replaced).map(([column, old]) => (
@@ -146,12 +164,14 @@ function Note({ row, w }: { row: ResultRow; w: Workflow }) {
                         className="result-cause"
                         data-testid="result-gap"
                     >
-                        {t("results.cause.no_value", {
-                            field: t(`plan.field.${gap.field}`, {
-                                defaultValue: gap.field,
-                            }),
-                            subject: gap.subject ?? t("results.thisRow"),
-                        })}
+                        {row.lookup
+                            ? t("results.lookupGap", { column: gap.column })
+                            : t("results.cause.no_value", {
+                                  field: t(`plan.field.${gap.field}`, {
+                                      defaultValue: gap.field,
+                                  }),
+                                  subject: gap.subject ?? t("results.thisRow"),
+                              })}
                     </span>
                 ))}
             {!row.filled && row.kept.length === 0 && row.cause && (
@@ -262,7 +282,7 @@ function Stats({
                     formatValue(value, locale, column.unit, column.digits);
                 const how = provenanceLabel(
                     t,
-                    offered?.find((item) => item.id === column.capability),
+                    capabilityProvenance(offered, column.capability),
                 );
                 return (
                     <li key={column.key}>
@@ -328,12 +348,28 @@ function ResultTable({ w }: { w: Workflow }) {
     // The provenance filters and the one for rows that were not looked up
     // appear only when such rows exist.
     const filters = (
-        ["all", "filled", "empty", "skipped", "chosen", "automatic"] as const
+        [
+            "all",
+            "filled",
+            "partial",
+            "empty",
+            "skipped",
+            "chosen",
+            "automatic",
+            "concluded",
+        ] as const
     ).filter(
         (key) =>
-            (key !== "chosen" && key !== "automatic" && key !== "skipped") ||
+            (key !== "chosen" &&
+                key !== "automatic" &&
+                key !== "skipped" &&
+                key !== "partial" &&
+                key !== "concluded") ||
             filterRows(rows, key).length > 0,
     );
+    const lookup = isFallbackRun(w.job, w.plan) || rows.some((r) => r.lookup);
+    const summary = lookupSummary(rows);
+    const spend = w.report?.web_lookup;
     const onSort = (key: string) =>
         setSort((old) => ({
             key,
@@ -344,6 +380,32 @@ function ResultTable({ w }: { w: Workflow }) {
     const span = inputs.length + outputs.length + (advanced ? 3 : 2);
     return (
         <>
+            {lookup && (
+                <div
+                    className="fallback-summary"
+                    data-testid="fallback-summary"
+                >
+                    <FallbackBanner done />
+                    <p>
+                        {t("results.lookup.summary", {
+                            asked: summary.asked,
+                            found: summary.found,
+                            concluded: summary.concluded,
+                        })}
+                    </p>
+                    {advanced && spend && (
+                        <p className="muted mono" data-testid="fallback-spend">
+                            {t("results.lookup.spend", {
+                                requests: spend.requests,
+                                input: spend.input_tokens,
+                                output: spend.output_tokens,
+                                searches: spend.web_searches,
+                                configuration: spend.configuration_id,
+                            })}
+                        </p>
+                    )}
+                </div>
+            )}
             <div className="result-toolbar">
                 <div
                     className="result-filter"
@@ -423,6 +485,7 @@ function ResultTable({ w }: { w: Workflow }) {
                                     data-skipped={row.skipped}
                                     data-chosen={row.chosen.length > 0}
                                     data-automatic={row.automatic.length > 0}
+                                    data-concluded={row.concluded.length > 0}
                                 >
                                     <td className="mono">
                                         {row.row ?? row.recordId}
@@ -466,10 +529,12 @@ function ResultTable({ w }: { w: Workflow }) {
                                                     {t("results.keptCell")}
                                                 </td>
                                             );
+                                        const basis = row.found[column.key];
                                         return (
                                             <td
                                                 key={column.key}
                                                 className="result-value"
+                                                data-basis={basis?.basis}
                                                 title={
                                                     value === undefined
                                                         ? undefined
@@ -482,6 +547,23 @@ function ResultTable({ w }: { w: Workflow }) {
                                                     column.unit,
                                                     column.digits,
                                                 )}
+                                                {basis &&
+                                                    value !== undefined && (
+                                                        <span
+                                                            className="basis-mark"
+                                                            data-testid="basis-mark"
+                                                            title={t(
+                                                                "results.lookup.links",
+                                                                {
+                                                                    count: basis.links,
+                                                                },
+                                                            )}
+                                                        >
+                                                            {t(
+                                                                `fallback.basis.${basis.basis}`,
+                                                            )}
+                                                        </span>
+                                                    )}
                                             </td>
                                         );
                                     })}
@@ -641,7 +723,13 @@ export function ExportWorkspace({
                     )}
                     <p className="muted">{t("ws.exportDetail")}</p>
                     {w.job?.status === "needs_review" && (
-                        <p className="notice">{t("workflow.unresolved")}</p>
+                        <p className="notice">
+                            {t(
+                                isFallbackRun(w.job, w.plan)
+                                    ? "fallback.unresolved"
+                                    : "workflow.unresolved",
+                            )}
+                        </p>
                     )}
                     {w.job && isTerminal(w.job.status) && (
                         <StartOver w={w} onStartOver={onStartOver} />

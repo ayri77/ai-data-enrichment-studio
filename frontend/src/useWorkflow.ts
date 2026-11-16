@@ -14,6 +14,7 @@ import {
     type SourcesInWorkbook,
 } from "./api";
 import { columnLetter, parseRange } from "./range";
+import { buildFallbackRequest, type FallbackForm } from "./fallbackModel";
 import { DEMO_LIMITS, type Limits } from "./useLimits";
 import { validMappings, type OutputTarget } from "./workflowModel";
 import { defaultRunCount, runRows } from "./tableModel";
@@ -39,6 +40,7 @@ export type Workspace = "dataset" | "plan" | "execution" | "review" | "export";
 /** A request the interface waits for; each has its own wording. */
 export type Operation =
     | "plan"
+    | "fallback"
     | "check"
     | "prepared"
     | "validate"
@@ -95,7 +97,8 @@ export function useWorkflow(
             }
         }
     }
-    const { maxRows, maxTimeout, capabilities } = options.limits ?? DEMO_LIMITS;
+    const { maxRows, maxTimeout, capabilities, webLookup } =
+        options.limits ?? DEMO_LIMITS;
     const [workspace, setWorkspace] = useState<Workspace>("dataset");
     const [instruction, setInstruction] = useState("");
     const [mapping, setMapping] = useState<OutputTarget[]>([
@@ -378,6 +381,43 @@ export function useWorkflow(
             if (options.implicitConsent) setNetwork(true);
             setPlan(draft);
             setWorkspace("plan");
+        }
+    }
+    /**
+     * Ask the server for the universal-search plan instead of the planner's.
+     * A refusal is returned, not raised: it belongs next to the form that
+     * was sent, and the plan that could not be built stays on the screen until
+     * a new one replaces it.
+     */
+    async function createFallback(
+        form: FallbackForm,
+    ): Promise<{ code: string; message: string } | null> {
+        if (!webLookup || !preview || !withinBounds || !mappingValid || locked)
+            return null;
+        const revision = generation.current;
+        try {
+            const draft = await api.createFallbackPlan(
+                buildFallbackRequest({
+                    preview,
+                    range: taken?.range,
+                    mapping,
+                    existingOutputs,
+                    form,
+                }),
+            );
+            if (mounted.current && revision === generation.current) {
+                invalidate();
+                // Consent is what a run needs; pressing the button in Basic gives it.
+                if (options.implicitConsent) setNetwork(true);
+                setPlan(draft);
+                setWorkspace("plan");
+            }
+            return null;
+        } catch (err) {
+            return {
+                code: code(err),
+                message: err instanceof WorkspaceApiError ? err.message : "",
+            };
         }
     }
     async function validate() {
@@ -681,6 +721,8 @@ export function useWorkflow(
         canRun,
         action,
         create,
+        createFallback,
+        webLookup,
         validate,
         approve,
         run,
