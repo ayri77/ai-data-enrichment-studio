@@ -355,7 +355,38 @@ What was changed after this run (in code, not measured yet):
 - `--repeat N` asks every row N times and reports where a value is always the same,
   where it differs and where it is sometimes missing.
 
+### Repeat run (same day): three rows, each asked three times
+
+Run with `--repeat 3` on the first three rows after the changes above: 9 requests, all
+answered, 44 of 45 values found (38 stated, 6 concluded), 20 searches, 10.8 s per
+request (7.0 to 15.7 s), about 2.5 cents per request by estimate.
+
+| Over the three asks of a row | Values (of 15) |
+| --- | --- |
+| Always the same value | 13 |
+| Values differ | 1 |
+| Sometimes missing | 1 |
+| Never found | 0 |
+
+- **The values that differ are one fact in three wordings**: an IP rating given as
+  "IPX5/IPX8, IP6X", "IPX5/IPX8 (water resistance); IP6X (dust protection)" and
+  "IPX5/IPX8 and IP6X". Numbers and yes/no values never differed. A text column is
+  therefore not reproducible to the letter unless the question fixes a form.
+- **The basis never changed between the asks of a row** (14 values found in all three
+  asks). Between runs it did: wireless charging of one phone was "stated" in the
+  morning run (from a support table) and "concluded" in all three asks here.
+- **The one dropped link explains itself.** The model named an article under the path
+  of this phone's support pages. The search had reported that article number under
+  two other paths of the same site in earlier runs, and not under this one here. The
+  address was most likely composed by the model, so the rule did what it is for: the
+  value was left out in that ask and found in the other two.
+- **The row that was lost in the morning was answered three times out of three.** Its
+  loss is still unexplained: one in five asks of that row so far.
+- **One request reported four `web_search_call` items** although the request limits
+  tool calls to three. The probe counts every such item as a paid search; whether all
+  of them are billed is unknown, so the estimate may be too high.
+
 What the application step has to settle: bounded parallel requests or a separate time
-limit for a fallback run. The rule "no reported link, no value" stays as it is until
-dropped links have been seen.
+limit for a fallback run. The rule "no reported link, no value" stays as it is: the
+only dropped link seen so far was one the search had not returned.
 
