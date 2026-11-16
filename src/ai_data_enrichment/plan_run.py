@@ -5,6 +5,7 @@ import json
 import logging
 import multiprocessing
 import os
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass
@@ -21,10 +22,19 @@ from fastapi.responses import FileResponse, JSONResponse
 from openai import OpenAI
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.cell import column_index_from_string
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 from starlette.concurrency import run_in_threadpool
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from ai_data_enrichment.capabilities.fallback import (
+    FallbackPlanError,
+    FallbackRequest,
+    FallbackTarget,
+    build_fallback_plan,
+    fallback_registry,
+    is_fallback_plan,
+)
+from ai_data_enrichment.domain.dataset_profile import DatasetProfile
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan
 from ai_data_enrichment.execution.job_models import JobExecutionResult, classify_row_outcome
 from ai_data_enrichment.ingestion.excel_profiler import profile_worksheet
@@ -34,14 +44,19 @@ from ai_data_enrichment.plan_run_worker import (
     MAX_PLAN_STEPS,
     MAX_PROVIDER_REQUESTS,
     MAX_RUN_ROWS,
+    ApiFactory,
     ExecutorFactory,
+    LookupSettings,
     MountainPolicy,
     RunTask,
     builtin_registry,
     execute_workbook,
     live_executor,
+    lookup_deadline_seconds,
     offered_descriptions,
+    openai_api,
     progress_slots,
+    read_lookup_usage,
     read_progress,
 )
 from ai_data_enrichment.planning.llm_planner import (
@@ -51,6 +66,7 @@ from ai_data_enrichment.planning.llm_planner import (
 )
 from ai_data_enrichment.planning.model_catalog import model_client as catalog_client
 from ai_data_enrichment.provider_settings import ProviderConfiguration
+from ai_data_enrichment.providers.web_lookup import configuration_id
 from ai_data_enrichment.resolution.input_errors import MAX_NAME_LENGTH
 from ai_data_enrichment.resolution.models import (
     ResolutionJobReport,
@@ -89,10 +105,24 @@ from ai_data_enrichment.usage import UsageLog
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy, PlanValidator
 from ai_data_enrichment.workspace_errors import WorkspaceError
 
+LOOKUP_NUMBERS = ("requests", "input_tokens", "output_tokens", "web_searches")
 MAX_PLANS = 32
 MAX_JOBS = 16
 MAX_PLAN_BYTES = 64 * 1024
 TERMINAL = {"completed", "needs_review", "failed", "cancelled", "timed_out"}
+# The model and effort of the web lookup fallback. The model may be changed in the
+# environment; the effort is fixed, as it was in the measurements of the lookup.
+WEB_LOOKUP_DEFAULT_MODEL = "gpt-6-luna"
+WEB_LOOKUP_REASONING_EFFORT = "low"
+# A model id is one short word: it is counted in the usage summary and named in the audit.
+_MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}")
+# A draft made by the planner (or brought along) has no "kind"; one the server built for
+# the web lookup fallback says so. The kind is part of what the fingerprint covers.
+FALLBACK_KIND = "fallback"
+# What a draft gains after its fingerprint was made; everything else is covered by it.
+_AFTER_FINGERPRINT = frozenset(
+    {"plan_id", "fingerprint", "status", "created_at", "approved_at", "validation"}
+)
 
 
 class PlanBodyLimit:
@@ -105,7 +135,7 @@ class PlanBodyLimit:
         if (
             scope["type"] != "http"
             or scope.get("method") != "POST"
-            or not scope["path"].startswith("/api/plans")
+            or not scope["path"].startswith(("/api/plans", "/api/fallback-plans"))
         ):
             await self.app(scope, receive, send)
             return
@@ -139,16 +169,34 @@ def timestamp() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def draft_fingerprint(draft: dict) -> str:
+    """The fingerprint of what a draft was made of: the request, the plan and its origin."""
+    covered = {key: value for key, value in draft.items() if key not in _AFTER_FINGERPRINT}
+    return sha256(json.dumps(covered, sort_keys=True).encode()).hexdigest()
+
+
 @dataclass(frozen=True)
 class PlanRunSettings:
     allow_network: bool = False
     llm_model: str | None = None
+    # The universal-search fallback: every row costs a model request and a search fee.
+    allow_web_lookup: bool = False
+    web_lookup_model: str = WEB_LOOKUP_DEFAULT_MODEL
+
+    def __post_init__(self) -> None:
+        if not _MODEL_ID.fullmatch(self.web_lookup_model):
+            raise ValueError("The web lookup model must be one short model id.")
 
     @classmethod
     def from_environment(cls) -> "PlanRunSettings":
+        model = (os.getenv("ENRICHMENT_WEB_LOOKUP_MODEL") or "").strip()
+        if model and not _MODEL_ID.fullmatch(model):
+            raise RuntimeError("ENRICHMENT_WEB_LOOKUP_MODEL must be one short model id.")
         return cls(
             allow_network=os.getenv("ENRICHMENT_ALLOW_NETWORK") == "1",
             llm_model=os.getenv("OPENAI_MODEL") or None,
+            allow_web_lookup=os.getenv("ENRICHMENT_ALLOW_WEB_LOOKUP") == "1",
+            web_lookup_model=model or WEB_LOOKUP_DEFAULT_MODEL,
         )
 
 
@@ -167,6 +215,36 @@ class PlanRequest(BaseModel):
     existing_outputs: Literal["keep", "replace"] = "keep"
     # Whether the result workbook says where each written value came from: not at
     # all, in a note on each written cell, or on an added worksheet.
+    sources_in_workbook: Literal["none", "notes", "sheet"] = "none"
+
+
+class FallbackTargetBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    column: str = Field(min_length=1, max_length=200)
+    kind: Literal["text", "number", "yes_no"]
+    unit: str | None = Field(default=None, max_length=200)
+
+
+class FallbackPlanRequest(BaseModel):
+    """Ask for the universal-search plan: what to find for each row, and where to write it.
+
+    Only structure and size are checked here; what a lookup task may hold is checked by
+    ``FallbackRequest`` and ``build_fallback_plan``. There is no plan, no kind and no
+    model in the body: the server builds the plan and sets the kind.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    dataset_id: str = Field(min_length=1, max_length=64)
+    sheet_name: str = Field(min_length=1, max_length=31)
+    range_ref: str = Field(min_length=1, max_length=32)
+    question: str = Field(min_length=1, max_length=4000)
+    context_columns: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
+        min_length=1, max_length=100
+    )
+    targets: list[FallbackTargetBody] = Field(min_length=1, max_length=100)
+    # As in a plan request: each column to fill, existing or new, and its column letter.
+    output_columns: dict[str, str] = Field(min_length=1, max_length=20)
+    existing_outputs: Literal["keep", "replace"] = "keep"
     sources_in_workbook: Literal["none", "notes", "sheet"] = "none"
 
 
@@ -259,8 +337,11 @@ class PlanRunService:
         offline_executor_factory: ExecutorFactory | None,
         provider: ProviderConfiguration,
         usage: UsageLog | None = None,
+        offline_lookup_api: ApiFactory | None = None,
     ) -> None:
         self.datasets, self.lock, self.settings = datasets, lock, settings
+        # Trusted injection for tests: made inside the worker in place of the real client.
+        self.offline_lookup_api = offline_lookup_api
         self.provider = provider
         # Counted events of this workspace: kinds and numbers, never content.
         self.usage = usage or UsageLog()
@@ -429,17 +510,81 @@ class PlanRunService:
             )
         return path
 
+    def lookup_available(self) -> bool:
+        """Whether a fallback plan could be created and run now: no promise about a request."""
+        return (
+            self.settings.allow_web_lookup
+            and self.provider.key_present
+            and not self._lookup_without_stand_in()
+            and (self.settings.allow_network or self.offline_executor_factory is not None)
+        )
+
+    def _lookup_without_stand_in(self) -> bool:
+        """An application assembled offline (tests) that was given no stand-in client.
+
+        Its runs skip the network gate, so a lookup would reach the real service; it is
+        refused instead. A normally started server has no offline executor and is not
+        affected.
+        """
+        return self.offline_executor_factory is not None and self.offline_lookup_api is None
+
+    def lookup_gate(self) -> None:
+        """Refuse the web lookup unless it is switched on and the server has a key for it.
+
+        The key is the planner's: the one in the environment or given in the provider
+        settings. The planner's model is not needed, the lookup has its own.
+        """
+        if not self.settings.allow_web_lookup or self._lookup_without_stand_in():
+            raise WorkspaceError(
+                "web_lookup_disabled", "The universal search is not enabled on this server.", 403
+            )
+        if not self.provider.key_present:
+            raise WorkspaceError(
+                "web_lookup_no_key", "The universal search needs an OpenAI API key on the server."
+            )
+
+    @staticmethod
+    def plan_gate(draft: dict, plan: EnrichmentPlan) -> None:
+        """A plan with the web lookup is a fallback draft and nothing else is.
+
+        Whatever the draft says, the plan decides: a draft of another kind, or one whose
+        kind and plan do not agree, is not run, validated or approved.
+        """
+        kind = draft.get("kind", "planner")
+        if kind not in ("planner", FALLBACK_KIND) or is_fallback_plan(plan) != (
+            kind == FALLBACK_KIND
+        ):
+            raise WorkspaceError(
+                "web_lookup_plan_refused",
+                "A plan that searches the web can only be made by the universal search.",
+            )
+
     def validate(self, draft: dict) -> dict:
         path = self.source(draft)
         if draft["plan"] is None:
             return {"valid": False, "errors": [{"code": "no_plan", "message": "No ready plan."}]}
         plan = EnrichmentPlan.model_validate(draft["plan"])
+        try:
+            self.plan_gate(draft, plan)
+        except WorkspaceError as exc:
+            return {"valid": False, "errors": [{"code": exc.code, "message": exc.message}]}
         selection = TableSelection(draft["sheet_name"], draft["range_ref"])
         profile = profile_worksheet(
             path, selection.sheet_name, draft["dataset_id"], selection=selection
         )
+        try:
+            registry = (
+                fallback_registry(plan, profile.columns)
+                if draft.get("kind") == FALLBACK_KIND
+                else builtin_registry()
+            )
+        except FallbackPlanError as exc:
+            return {
+                "valid": False,
+                "errors": [{"code": "fallback_plan_invalid", "message": str(exc)}],
+            }
         validation = (
-            PlanValidator(builtin_registry(), profile, _validation_policy(draft["output_columns"]))
+            PlanValidator(registry, profile, _validation_policy(draft["output_columns"]))
             .validate(plan, instruction=draft["instruction"])
             .model_dump(mode="json")
         )
@@ -470,7 +615,8 @@ class PlanRunService:
             validation["contract_valid"] = False
         return validation
 
-    def create_plan(self, body: PlanRequest) -> dict:
+    def _selected_table(self, body: PlanRequest) -> tuple[Path, DatasetProfile]:
+        """The workbook and the profile of the selected table, within the run's limits."""
         path = self.datasets.get(body.dataset_id)
         if path is None:
             raise WorkspaceError("dataset_not_found", "Upload the workbook again.", 404)
@@ -488,6 +634,63 @@ class PlanRunService:
             raise WorkspaceError(
                 "invalid_selection", "Select a valid table with 1–20 data rows within A:CV."
             ) from exc
+        return path, profile
+
+    def _store_draft(
+        self,
+        body: PlanRequest,
+        path: Path,
+        plan: EnrichmentPlan | None,
+        *,
+        decision: str,
+        reason: str | None,
+        planning_attempts: list,
+        source: str,
+        kind: str | None = None,
+    ) -> dict:
+        """Make, fingerprint, validate and keep the draft; the same for every kind."""
+        draft = {
+            **body.model_dump(mode="json", exclude={"allow_network", "plan"}),
+            "plan": plan.model_dump(mode="json") if plan else None,
+            "source_sha256": sha256(path.read_bytes()).hexdigest(),
+            "planning_status": decision,
+            "reason": reason,
+            "planning_attempts": planning_attempts,
+            # Only a fallback draft has a kind; it is inside what the fingerprint covers.
+            **({"kind": kind} if kind else {}),
+        }
+        fingerprint = draft_fingerprint(draft)
+        draft.update(
+            plan_id=uuid4().hex,
+            fingerprint=fingerprint,
+            status="draft",
+            created_at=timestamp(),
+            approved_at=None,
+        )
+        draft["validation"] = self.validate(draft)
+        self.plans[draft["plan_id"]] = draft
+        self.usage.record(
+            "plan",
+            # Asked from the model, brought along (an example or a saved plan), or built
+            # by the server for the web lookup.
+            source=source,
+            status=decision,
+            valid=bool(draft["validation"]["valid"]),
+            attempts=len(planning_attempts),
+            steps=len(plan.steps) if plan else 0,
+            outputs=len(body.output_columns),
+            capabilities=sorted({step.capability for step in plan.steps}) if plan else [],
+        )
+        return draft
+
+    def create_plan(self, body: PlanRequest) -> dict:
+        if body.plan is not None and is_fallback_plan(body.plan):
+            # Wherever a plan comes from, the web lookup only comes from its own route.
+            raise WorkspaceError(
+                "web_lookup_plan_refused",
+                "A plan that searches the web can only be made by the universal search.",
+            )
+        path, profile = self._selected_table(body)
         plan = body.plan
         decision, reason = "ready", None
         planning_attempts = []
@@ -522,36 +725,63 @@ class PlanRunService:
                 raise WorkspaceError(
                     "planning_failed", "The model could not return a usable planning response.", 502
                 ) from exc
-        draft = {
-            **body.model_dump(mode="json", exclude={"allow_network", "plan"}),
-            "plan": plan.model_dump(mode="json") if plan else None,
-            "source_sha256": sha256(path.read_bytes()).hexdigest(),
-            "planning_status": decision,
-            "reason": reason,
-            "planning_attempts": planning_attempts,
-        }
-        fingerprint = sha256(json.dumps(draft, sort_keys=True).encode()).hexdigest()
-        draft.update(
-            plan_id=uuid4().hex,
-            fingerprint=fingerprint,
-            status="draft",
-            created_at=timestamp(),
-            approved_at=None,
-        )
-        draft["validation"] = self.validate(draft)
-        self.plans[draft["plan_id"]] = draft
-        self.usage.record(
-            "plan",
-            # Asked from the model, or brought along (an example or a saved plan).
+            if plan is not None and is_fallback_plan(plan):
+                # Not reachable while the planner is not offered the capability; kept so
+                # that what the model returns can never become a lookup plan.
+                self.usage.record("plan_failed", attempts=len(planning_attempts))
+                raise WorkspaceError(
+                    "web_lookup_plan_refused",
+                    "A plan that searches the web can only be made by the universal search.",
+                )
+        return self._store_draft(
+            body,
+            path,
+            plan,
+            decision=decision,
+            reason=reason,
+            planning_attempts=planning_attempts,
             source="model" if body.plan is None else "supplied",
-            status=decision,
-            valid=bool(draft["validation"]["valid"]),
-            attempts=len(planning_attempts),
-            steps=len(plan.steps) if plan else 0,
-            outputs=len(body.output_columns),
-            capabilities=sorted({step.capability for step in plan.steps}) if plan else [],
         )
-        return draft
+
+    def create_fallback_plan(self, body: FallbackPlanRequest) -> dict:
+        """The one-step universal-search plan the server builds, kept as a draft."""
+        self.lookup_gate()
+        # The same request fields and the same checks of the table as a normal plan.
+        as_plan_request = PlanRequest(
+            dataset_id=body.dataset_id,
+            sheet_name=body.sheet_name,
+            range_ref=body.range_ref,
+            instruction=body.question,
+            output_columns=body.output_columns,
+            existing_outputs=body.existing_outputs,
+            sources_in_workbook=body.sources_in_workbook,
+        )
+        path, profile = self._selected_table(as_plan_request)
+        try:
+            request = FallbackRequest(
+                question=body.question,
+                context_columns=tuple(body.context_columns),
+                targets=tuple(
+                    FallbackTarget(column=item.column, kind=item.kind, unit=item.unit)
+                    for item in body.targets
+                ),
+            )
+            plan = build_fallback_plan(request, profile.columns)
+        except ValidationError as exc:
+            message = str(exc.errors()[0]["msg"]).removeprefix("Value error, ")
+            raise WorkspaceError("fallback_plan_invalid", message) from None
+        except FallbackPlanError as exc:
+            raise WorkspaceError("fallback_plan_invalid", str(exc)) from None
+        return self._store_draft(
+            as_plan_request,
+            path,
+            plan,
+            decision="ready",
+            reason=None,
+            planning_attempts=[],
+            source="fallback",
+            kind=FALLBACK_KIND,
+        )
 
     def _routes(self) -> None:
         router = self.router
@@ -569,6 +799,9 @@ class PlanRunService:
                 "default_timeout_seconds": DEFAULT_TIMEOUT_SECONDS,
                 # What a plan may use here; a road distance only with its key.
                 "capabilities": sorted(spec.id for spec in builtin_registry().list_all()),
+                # Whether the universal search can be asked for here: switched on, with a
+                # key and, for a live run, the network gate open.
+                "web_lookup": self.lookup_available(),
             }
 
         @router.get("/capabilities")
@@ -621,6 +854,14 @@ class PlanRunService:
             async with self.lock:
                 self.make_room_for_plan()
                 return await run_in_threadpool(self.create_plan, body)
+
+        @router.post("/fallback-plans", status_code=201)
+        async def create_fallback(body: FallbackPlanRequest):
+            async with self.lock:
+                # Before anything is dropped or read.
+                self.lookup_gate()
+                self.make_room_for_plan()
+                return await run_in_threadpool(self.create_fallback_plan, body)
 
         @router.get("/plans/{plan_id}")
         async def read(plan_id: str):
@@ -967,6 +1208,20 @@ class PlanRunService:
         if draft["status"] != "approved":
             raise WorkspaceError("approval_required", "Explicitly approve this plan first.", 409)
         source = self.source(draft)
+        plan = EnrichmentPlan.model_validate(draft["plan"])
+        # What was approved is what runs: the draft must still be what its fingerprint
+        # covers (request, plan and kind), and the kind must agree with the plan.
+        if draft["fingerprint"] != draft_fingerprint(draft):
+            raise WorkspaceError("approval_mismatch", "Approve the displayed fingerprint.", 409)
+        self.plan_gate(draft, plan)
+        fallback = draft.get("kind") == FALLBACK_KIND
+        if fallback:
+            # Switched off, or the key removed, since the draft was made: not run.
+            self.lookup_gate()
+            if resume_selections is not None or previous_job_id is not None:
+                raise WorkspaceError(
+                    "review_not_available", "This job has nothing left to review.", 409
+                )
         if self.offline_executor_factory is None:
             self.network_gate(body.allow_network)
         if any(job["status"] not in TERMINAL for job in self.jobs.values()):
@@ -995,11 +1250,27 @@ class PlanRunService:
             "progress": None,
             "artifacts": {},
             "execution_mode": "offline_fixture" if self.offline_executor_factory else "live",
-            "timeout_seconds": body.timeout_seconds,
+            # A fallback run has the longest limit a run may have unless the request names
+            # a shorter one: its rows are asked one after another and each takes seconds.
+            "timeout_seconds": (
+                MAX_TIMEOUT_SECONDS
+                if fallback and "timeout_seconds" not in body.model_fields_set
+                else body.timeout_seconds
+            ),
             # A resume is a new job; the earlier job and its report stay untouched.
             "previous_job_id": previous_job_id,
             "review_decisions": decisions,
+            **({"kind": FALLBACK_KIND} if fallback else {}),
         }
+        lookup = None
+        if fallback:
+            lookup = LookupSettings(
+                model=self.settings.web_lookup_model,
+                reasoning_effort=WEB_LOOKUP_REASONING_EFFORT,
+                api_key=SecretStr(self.provider.api_key() or ""),
+                deadline_seconds=lookup_deadline_seconds(job["timeout_seconds"]),
+                api_factory=self.offline_lookup_api or openai_api,
+            )
         if assistance is not None:
             self.assistance[job_id] = assistance
         task = RunTask(
@@ -1009,7 +1280,7 @@ class PlanRunService:
             source_sha256=draft["source_sha256"],
             directory=directory,
             selection=TableSelection(draft["sheet_name"], draft["range_ref"]),
-            plan=EnrichmentPlan.model_validate(draft["plan"]),
+            plan=plan,
             output_columns=dict(draft["output_columns"]),
             mountain_policy=draft["mountain_resolution_policy"],
             # Drafts made before the option existed keep what they had.
@@ -1018,6 +1289,7 @@ class PlanRunService:
             resume_selections=resume_selections,
             previous_job_id=previous_job_id,
             reuse_directory=reuse_directory,
+            lookup=lookup,
         )
         self.jobs[job_id] = job
         self.selections[job_id] = dict(resume_selections or {})
@@ -1038,7 +1310,9 @@ class PlanRunService:
         # Two counters the worker writes and this side only reads: how far the
         # run is. Results still arrive only through the worker's files.
         step_ids = [step.id for step in task.plan.steps]
-        counters = context.Array("i", progress_slots(len(step_ids)), lock=False)
+        counters = context.Array(
+            "i", progress_slots(len(step_ids), lookup=task.lookup is not None), lock=False
+        )
         process = context.Process(
             target=execute_workbook,
             args=(task, self.offline_executor_factory or live_executor, counters),
@@ -1131,6 +1405,13 @@ class PlanRunService:
                         "empty_outputs": source_rows.get(record.record_id, {}).get(
                             "empty_outputs", {}
                         ),
+                        # A fallback run: the values written from a web search, each
+                        # as its column, its basis and its number of links.
+                        **(
+                            {"ai_found": source_rows.get(record.record_id, {}).get("ai_found", [])}
+                            if task.lookup is not None
+                            else {}
+                        ),
                     }
                     for record in result.records
                 ]
@@ -1160,6 +1441,21 @@ class PlanRunService:
                     status="cancelled",
                     error={"code": "cancelled", "message": "Run stopped; results discarded."},
                 )
+            # What a lookup run asked of the API, whatever became of the run: what the
+            # worker reported, or else the numbers it had shared when it stopped.
+            spent: dict | None = None
+            if task.lookup is not None:
+                reported = execution.get("web_lookup")
+                spent = {
+                    "configuration_id": configuration_id(
+                        task.lookup.model, task.lookup.reasoning_effort
+                    ),
+                    **(
+                        {key: int(reported[key]) for key in LOOKUP_NUMBERS}
+                        if reported
+                        else read_lookup_usage(counters, len(step_ids))
+                    ),
+                }
             job["finished_at"] = timestamp()
             if job["status"] not in {"completed", "needs_review"}:
                 execution = {}
@@ -1182,6 +1478,7 @@ class PlanRunService:
                     "max_requests_per_provider": MAX_PROVIDER_REQUESTS,
                 },
                 **execution,
+                **({"web_lookup": spent} if spent else {}),
             }
             (task.directory / "report.json").write_text(
                 json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -1190,6 +1487,17 @@ class PlanRunService:
             public_job.update(job)
             finished = execution.get("execution") or {}
             metrics = job["metrics"] or {}
+            if task.lookup is not None and spent and spent["requests"]:
+                # Failed requests, and those of a run that was stopped, are counted too.
+                self.usage.record(
+                    "model",
+                    purpose="web_lookup",
+                    model=task.lookup.model,
+                    requests=spent["requests"],
+                    input_tokens=spent["input_tokens"],
+                    output_tokens=spent["output_tokens"],
+                    web_searches=spent["web_searches"],
+                )
             self.usage.record(
                 "run_finished",
                 status=job["status"],

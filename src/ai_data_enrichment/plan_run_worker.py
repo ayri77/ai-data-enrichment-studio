@@ -4,30 +4,40 @@ import json
 import logging
 from collections.abc import Callable, Mapping, MutableSequence, Sequence
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
+from time import monotonic
 from typing import Any, Literal
 
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.cell import column_index_from_string
+from pydantic import SecretStr
 
 from ai_data_enrichment.capabilities.bindings import BINDINGS, Trust, binding_for
 from ai_data_enrichment.capabilities.definitions import offered_capabilities
+from ai_data_enrichment.capabilities.fallback import fallback_registry, is_fallback_plan
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan, required_input_columns
 from ai_data_enrichment.execution.job_executor import JobExecutor
+from ai_data_enrichment.execution.models import FoundRecord
 from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
 from ai_data_enrichment.execution.step_tally import OUTCOME_KINDS, StepTally
+from ai_data_enrichment.ingestion.excel_profiler import profile_worksheet
 from ai_data_enrichment.ingestion.excel_records import read_input_batch
 from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.orchestration.excel_runner import ExcelEnrichmentRunner
-from ai_data_enrichment.orchestration.live_executor import build_live_executor
+from ai_data_enrichment.orchestration.live_executor import WebLookupOptions, build_live_executor
 from ai_data_enrichment.output.excel_output_mapping import EMPTY_FIELD_CODE, empty_output_fields
 from ai_data_enrichment.output.provenance import SourcesMode
 from ai_data_enrichment.providers.http_transport import JsonTransport
 from ai_data_enrichment.providers.openrouteservice import routing_key
 from ai_data_enrichment.providers.request_policy import ProviderRequestPolicy
+from ai_data_enrichment.providers.web_lookup import (
+    WebLookupClient,
+    WebLookupUsage,
+    configuration_id,
+)
 from ai_data_enrichment.resolution.resume import OtherName, ResumeSelection
 from ai_data_enrichment.resolution.sqlite_cache import SQLiteResolutionCache
 from ai_data_enrichment.run_limits import (
@@ -47,6 +57,16 @@ ExecutorFactory = Callable[..., JobExecutor]
 ResumeSelections = Mapping[tuple[str, str], ResumeSelection | OtherName]
 Reuse = tuple[SQLiteOperationCache, SQLiteResolutionCache]
 MAX_PLAN_STEPS = 12
+# Called INSIDE the worker with the model key; returns the object whose
+# ``responses.create(**kwargs)`` the web lookup calls. Trusted application injection
+# only (a test passes a fake that never leaves the process); never from a request.
+ApiFactory = Callable[[str], WebLookupClient]
+# One lookup request may take this long; the OpenAI client is told the same.
+LOOKUP_REQUEST_SECONDS = 30.0
+# What a run keeps back from its time limit: starting the worker, writing the workbook
+# and the files, and the supervisor's own look. The lookup starts no request that
+# could end after the limit minus this.
+FINISH_RESERVE_SECONDS = 20.0
 __all__ = ["MAX_PLAN_STEPS", "MAX_PROVIDER_REQUESTS", "MAX_RUN_ROWS"]
 
 
@@ -130,6 +150,40 @@ def live_executor(
     )
 
 
+def openai_api(api_key: str) -> WebLookupClient:
+    """The real client, made in the worker: one attempt per request, no retries."""
+    # Imported here: only a lookup run needs it, and it would slow the start of every run.
+    from openai import OpenAI
+
+    return OpenAI(
+        api_key=api_key,
+        base_url="https://api.openai.com/v1",
+        timeout=LOOKUP_REQUEST_SECONDS,
+        max_retries=0,
+    )
+
+
+def lookup_deadline_seconds(timeout_seconds: float) -> float:
+    """How long after its own start a worker may begin lookup requests."""
+    return max(timeout_seconds - FINISH_RESERVE_SECONDS, 0.0)
+
+
+@dataclass(frozen=True)
+class LookupSettings:
+    """What a worker needs to run the web lookup fallback.
+
+    The key is a ``SecretStr`` and is not part of ``repr``; it reaches the worker through
+    the process arguments only and is never written anywhere.
+    """
+
+    model: str
+    reasoning_effort: str
+    api_key: SecretStr = field(repr=False)
+    # Seconds after the worker's own start after which no request is begun.
+    deadline_seconds: float
+    api_factory: ApiFactory = openai_api
+
+
 @dataclass(frozen=True)
 class RunTask:
     job_id: str
@@ -151,6 +205,8 @@ class RunTask:
     # Where the runs of one plan keep what a source confirmed, so that a later
     # run of the same plan does not ask for it again.
     reuse_directory: Path | None = None
+    # Set only for a fallback plan the server built; None for every other plan.
+    lookup: LookupSettings | None = None
 
 
 # Shared progress: finished rows, all rows, a sequence number, then three counts
@@ -158,9 +214,45 @@ class RunTask:
 PROGRESS_HEADER = 3
 
 
-def progress_slots(step_count: int) -> int:
+# After the step counts of a lookup run: requests, input tokens, output tokens and
+# web searches so far. Numbers only; they survive a worker that is stopped.
+LOOKUP_SLOTS = 4
+_INT_MAX = 2**31 - 1
+
+
+def progress_slots(step_count: int, *, lookup: bool = False) -> int:
     """How many integers the shared progress of a plan with this many steps needs."""
-    return PROGRESS_HEADER + len(OUTCOME_KINDS) * step_count
+    return PROGRESS_HEADER + len(OUTCOME_KINDS) * step_count + (LOOKUP_SLOTS if lookup else 0)
+
+
+def read_lookup_usage(shared: Sequence[int], step_count: int) -> dict[str, int]:
+    """What a lookup run had spent when it stopped, from the shared numbers.
+
+    Read after the worker is gone, so no sequence number is consulted: at worst the last
+    request is counted without its tokens.
+    """
+    start = PROGRESS_HEADER + len(OUTCOME_KINDS) * step_count
+    names = ("requests", "input_tokens", "output_tokens", "web_searches")
+    return {name: int(shared[start + offset]) for offset, name in enumerate(names)}
+
+
+class MirroredUsage(WebLookupUsage):
+    """Counts of the lookup's requests, also written to the shared numbers after each one."""
+
+    def __init__(self, shared: MutableSequence[int] | None, start: int) -> None:
+        super().__init__()
+        self._shared, self._start = shared, start
+
+    def add(self, *, input_tokens: int = 0, output_tokens: int = 0, web_searches: int = 0) -> None:
+        super().add(
+            input_tokens=input_tokens, output_tokens=output_tokens, web_searches=web_searches
+        )
+        if self._shared is None:
+            return
+        totals = self.totals()
+        numbers = (totals.requests, totals.input_tokens, totals.output_tokens, totals.web_searches)
+        for offset, number in enumerate(numbers):
+            self._shared[self._start + offset] = min(number, _INT_MAX)
 
 
 def read_progress(
@@ -185,6 +277,58 @@ def read_progress(
     return None if shared[2] != before else (done, total, steps)
 
 
+def _close(api: object) -> None:
+    """Close what the factory made, where it can be closed; never raises."""
+    close = getattr(api, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            logging.getLogger(__name__).warning("Closing the lookup client failed")
+
+
+def lookup_numbers(usage: WebLookupUsage) -> dict[str, int]:
+    totals = usage.totals()
+    return {
+        "requests": totals.requests,
+        "input_tokens": totals.input_tokens,
+        "output_tokens": totals.output_tokens,
+        "web_searches": totals.web_searches,
+    }
+
+
+def _found_values(
+    task: RunTask,
+    job_result: Any,
+    row_by_record_id: Mapping[str, int],
+    kept: Sequence[str],
+) -> dict[str, list[dict[str, Any]]]:
+    """For each record, the values written from a web search: column, basis, link count.
+
+    No link, value or quote is repeated: those are in the step evidence and the provenance.
+    A cell that kept its earlier value, and a column nothing was found for, are not listed.
+    """
+    found: dict[str, list[dict[str, Any]]] = {}
+    for record in job_result.records:
+        row = row_by_record_id[record.record_id]
+        results = {step.step_id: step.result for step in record.row_result.steps}
+        entries: list[dict[str, Any]] = []
+        for output in task.plan.outputs:
+            result = results.get(output.step_id)
+            letter = task.output_columns[output.target_column]
+            cell = f"{get_column_letter(column_index_from_string(letter))}{row}"
+            if result is None or not isinstance(result.value, FoundRecord) or cell in kept:
+                continue
+            slot = result.value.slots.get(output.value_field)
+            if slot is None or slot.value is None:
+                continue
+            entries.append(
+                {"column": output.target_column, "basis": slot.basis, "links": len(slot.sources)}
+            )
+        found[record.record_id] = entries
+    return found
+
+
 def execute_workbook(
     task: RunTask,
     factory: ExecutorFactory,
@@ -206,7 +350,10 @@ def execute_workbook(
     how far the run is. They are counts, carry no result and are never used to
     decide anything.
     """
+    started = monotonic()
     tally = StepTally(step.id for step in task.plan.steps)
+    lookup = task.lookup
+    usage: WebLookupUsage = WebLookupUsage()
 
     def report(done: int, total: int) -> None:
         assert progress is not None
@@ -224,22 +371,56 @@ def execute_workbook(
         if sha256(task.source_path.read_bytes()).hexdigest() != task.source_sha256:
             raise ValueError("Source changed")
         capabilities = frozenset(step.capability for step in task.plan.steps)
+        # A plan with the web lookup runs with the lookup's own registry and options, and
+        # only then; no other plan may, and a fallback plan may not run without them.
+        if is_fallback_plan(task.plan) != (lookup is not None):
+            raise ValueError("The web lookup is run for a fallback plan only.")
         options: dict[str, Any] = {}
         if task.resume_selections:
             options["resume_selections"] = task.resume_selections
         with ExitStack() as opened:
-            if task.reuse_directory is not None:
-                options["reuse"] = (
-                    opened.enter_context(
-                        SQLiteOperationCache(task.reuse_directory / "values.sqlite")
-                    ),
-                    opened.enter_context(
-                        SQLiteResolutionCache(task.reuse_directory / "entities.sqlite")
+            if lookup is not None:
+                profile = profile_worksheet(
+                    task.source_path,
+                    task.selection.sheet_name,
+                    task.dataset_id,
+                    selection=task.selection,
+                )
+                registry = fallback_registry(task.plan, profile.columns)
+                usage = MirroredUsage(
+                    progress, PROGRESS_HEADER + len(OUTCOME_KINDS) * len(task.plan.steps)
+                )
+                # The client is made here, from the key this process was given.
+                api = lookup.api_factory(lookup.api_key.get_secret_value())
+                opened.callback(_close, api)
+                executor = build_live_executor(
+                    registry,
+                    max_rows=MAX_RUN_ROWS,
+                    web_lookup=WebLookupOptions(
+                        api=api,
+                        model=lookup.model,
+                        reasoning_effort=lookup.reasoning_effort,
+                        usage=usage,
+                        timeout_seconds=LOOKUP_REQUEST_SECONDS,
+                        # From this process's own start, on its own clock.
+                        deadline=started + lookup.deadline_seconds,
                     ),
                 )
+            else:
+                registry = builtin_registry()
+                if task.reuse_directory is not None:
+                    options["reuse"] = (
+                        opened.enter_context(
+                            SQLiteOperationCache(task.reuse_directory / "values.sqlite")
+                        ),
+                        opened.enter_context(
+                            SQLiteResolutionCache(task.reuse_directory / "entities.sqlite")
+                        ),
+                    )
+                executor = factory(capabilities, task.mountain_policy, MAX_RUN_ROWS, **options)
             runner = ExcelEnrichmentRunner(
-                registry=builtin_registry(),
-                executor=factory(capabilities, task.mountain_policy, MAX_RUN_ROWS, **options),
+                registry=registry,
+                executor=executor,
                 max_rows=MAX_RUN_ROWS,
                 validation_policy=PlanValidationPolicy(max_steps=MAX_PLAN_STEPS),
             )
@@ -279,7 +460,12 @@ def execute_workbook(
         # Output cells left empty because the source holds no value for the field
         # (its step succeeded): per record, the column, the field and why.
         gaps = empty_output_fields(task.plan, result.job_result)
-        payload = {
+        found_values = (
+            _found_values(task, result.job_result, batch.row_by_record_id, result.preserved_cells)
+            if lookup is not None
+            else {}
+        )
+        payload: dict[str, Any] = {
             "execution": result.job_result.model_dump(mode="json"),
             "source_rows": {
                 record.record_id: {
@@ -301,6 +487,13 @@ def execute_workbook(
                         target: {"field": field, "code": EMPTY_FIELD_CODE}
                         for target, field in gaps.get(record.record_id, {}).items()
                     },
+                    # A lookup run only: each value written from a model's web search,
+                    # as its column, its basis and how many links it rests on.
+                    **(
+                        {"ai_found": found_values.get(record.record_id, [])}
+                        if lookup is not None
+                        else {}
+                    ),
                 }
                 for record in batch.records
             },
@@ -354,9 +547,24 @@ def execute_workbook(
             for step in record["row_result"]["steps"]:
                 if step["result"]["status"] == "failure":
                     step["result"]["message"] = "Operation could not produce a verified value."
+        if lookup is not None:
+            # Numbers only: what the run asked of the API, failed requests included.
+            payload["web_lookup"] = {
+                "configuration_id": configuration_id(lookup.model, lookup.reasoning_effort),
+                **lookup_numbers(usage),
+            }
         (task.directory / "execution.json").write_text(json.dumps(payload), encoding="utf-8")
-    except Exception:
-        logging.getLogger(__name__).exception("Workbook worker failed")
+    except Exception as exc:
+        if lookup is None:
+            logging.getLogger(__name__).exception("Workbook worker failed")
+        else:
+            # No traceback: a library's message could quote the request, and with it the key.
+            secret = lookup.api_key.get_secret_value()
+            logging.getLogger(__name__).error(
+                "Workbook worker failed (%s): %s",
+                type(exc).__name__,
+                str(exc).replace(secret, "[key]") if secret else str(exc),
+            )
         # Unexpected exceptions must not leak paths, credentials or raw responses.
         (task.directory / "error.json").write_text(
             json.dumps({"code": "execution_failed", "message": "The workbook run failed."}),

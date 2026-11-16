@@ -30,7 +30,7 @@ from ai_data_enrichment.ingestion.profiling_limits import ProfilingLimits
 from ai_data_enrichment.ingestion.table_rows import read_table_rows
 from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.plan_run import PlanBodyLimit, PlanRunService, PlanRunSettings
-from ai_data_enrichment.plan_run_worker import ExecutorFactory, builtin_registry
+from ai_data_enrichment.plan_run_worker import ApiFactory, ExecutorFactory, builtin_registry
 from ai_data_enrichment.planning.llm_planner import PlanCompletionClient
 from ai_data_enrichment.provider_settings import ProviderConfiguration, configuration_router
 from ai_data_enrichment.run_limits import MAX_TABLE_CELLS, MAX_TABLE_ROWS
@@ -170,6 +170,7 @@ def create_app(
     local_browser_configuration: bool = False,
     offline_plan_client: PlanCompletionClient | None = None,
     offline_executor_factory: ExecutorFactory | None = None,
+    offline_lookup_api: ApiFactory | None = None,
     access_code: str | None = None,
     access_codes: Mapping[str, str] | None = None,
     admin_code: str | None = None,
@@ -183,8 +184,9 @@ def create_app(
     second maps a label to the code of one visitor, so that what is used can be
     counted per visitor. `admin_code` opens the usage summary and nothing else;
     without it there is no such route. `usage_lines` also writes each counted
-    event to standard output. `static_dir` serves the built frontend from the
-    same origin. All are unset for the local launcher.
+    event to standard output. `offline_lookup_api` stands in, inside the run worker, for
+    the model client of the universal search (tests only). `static_dir` serves the
+    built frontend from the same origin. All are unset for the local launcher.
     """
     datasets: dict[str, Path] = {}
     lock = asyncio.Lock()
@@ -203,6 +205,7 @@ def create_app(
         offline_executor_factory,
         provider,
         usage,
+        offline_lookup_api,
     )
 
     @asynccontextmanager
@@ -218,6 +221,7 @@ def create_app(
 
     app = FastAPI(title="Data Enrichment Workspace", lifespan=lifespan)
     app.state.usage = usage
+    app.state.plan_run = plan_run
     app.add_middleware(PlanBodyLimit)
     app.include_router(plan_run.router)
     app.include_router(
