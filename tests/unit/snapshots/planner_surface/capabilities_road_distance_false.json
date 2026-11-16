@@ -1,0 +1,166 @@
+[
+  {
+    "description": "Resolve geographical coordinates",
+    "id": "geocode",
+    "inputs": {
+      "administrative_area": {
+        "description": "Optional state, province or administrative region",
+        "required": false,
+        "type": "Text"
+      },
+      "city": {
+        "description": "City name",
+        "required": true,
+        "type": "Text"
+      },
+      "country": {
+        "description": "Country name",
+        "required": true,
+        "type": "Text"
+      }
+    },
+    "output": {
+      "description": "Resolved coordinates of the matched place, with its population (a count) and timezone (an IANA name such as Europe/Berlin) when the source records them. A field the source does not give stays empty; the others are still written.",
+      "fields": {
+        "latitude": "Number",
+        "longitude": "Number",
+        "population": "Number",
+        "timezone": "Text"
+      },
+      "type": "GeoPoint"
+    },
+    "parameters": {
+      "required_role": {
+        "allowed_values": [
+          "country_capital"
+        ],
+        "description": "Optional hard constraint requiring the resolved location to have a verified country-capital administrative role. Omit this parameter for literal-city lookup without a role restriction; null is not a valid value.",
+        "required": false,
+        "type": "Text"
+      }
+    },
+    "version": "1.2"
+  },
+  {
+    "description": "Resolve entity reference",
+    "id": "resolve_entity",
+    "inputs": {
+      "country": {
+        "description": "Country context for mountain entity resolution. Accepts a single country name or slash-separated country names (e.g. 'Nepal/China'). For multiple countries, the resolver verifies that the mountain belongs to at least one listed country using Wikidata country claims. Unknown country names cause an error. The original country value is preserved.",
+        "required": true,
+        "type": "Text"
+      },
+      "name": {
+        "description": "Entity name",
+        "required": true,
+        "type": "Text"
+      }
+    },
+    "output": {
+      "description": "Resolved entity reference",
+      "fields": {},
+      "type": "EntityRef"
+    },
+    "parameters": {
+      "entity_type": {
+        "allowed_values": [
+          "mountain"
+        ],
+        "description": "Entity type",
+        "required": true,
+        "type": "Text"
+      }
+    },
+    "version": "1.0"
+  },
+  {
+    "description": "Resolve property value",
+    "id": "lookup_property",
+    "inputs": {
+      "entity": {
+        "description": "Entity reference",
+        "required": true,
+        "type": "EntityRef"
+      }
+    },
+    "output": {
+      "description": "Mountain elevation in metres (m). The current Wikidata provider returns a successful Quantity with unit='m' only when the source elevation is explicitly expressed in metres. Unsupported units produce an UNSUPPORTED_UNIT failure; missing or ambiguous values also produce explicit failures. No unit conversion is performed.",
+      "fields": {
+        "unit": "Text",
+        "value": "Number"
+      },
+      "type": "Quantity"
+    },
+    "parameters": {
+      "property": {
+        "allowed_values": [
+          "elevation"
+        ],
+        "description": "Property",
+        "required": true,
+        "type": "Text"
+      }
+    },
+    "version": "1.0"
+  },
+  {
+    "description": "Calculate the shortest geodesic distance between two geographic points along the Earth's surface (often called straight-line or as-the-crow-flies distance), not road or driving distance.",
+    "id": "geodesic_distance",
+    "inputs": {
+      "point_a": {
+        "description": "First geographic point",
+        "required": true,
+        "type": "GeoPoint"
+      },
+      "point_b": {
+        "description": "Second geographic point",
+        "required": true,
+        "type": "GeoPoint"
+      }
+    },
+    "output": {
+      "description": "Geodesic distance",
+      "fields": {
+        "unit": "Text",
+        "value": "Number"
+      },
+      "type": "Quantity"
+    },
+    "parameters": {
+      "unit": {
+        "allowed_values": [
+          "km"
+        ],
+        "description": "Distance unit",
+        "required": true,
+        "type": "Text"
+      }
+    },
+    "version": "1.0"
+  },
+  {
+    "description": "Divide one quantity by another quantity of the same unit, to say how many times the first is larger than the second (for example a road distance over a straight-line distance). The result is a plain number without a unit. Fails when the units differ or the second quantity is zero; no unit is converted.",
+    "id": "ratio",
+    "inputs": {
+      "denominator": {
+        "description": "Quantity to divide by, in the same unit",
+        "required": true,
+        "type": "Quantity"
+      },
+      "numerator": {
+        "description": "Quantity to divide",
+        "required": true,
+        "type": "Quantity"
+      }
+    },
+    "output": {
+      "description": "Ratio of the two quantities, without a unit",
+      "fields": {
+        "value": "Number"
+      },
+      "type": "Number"
+    },
+    "parameters": {},
+    "version": "1.0"
+  }
+]
