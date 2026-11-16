@@ -81,8 +81,8 @@ export interface Capability {
     /** Where the values come from: a source id, or "local" for a calculation. */
     source: string;
     /**
-     * What stands behind the values: "computed", "record", "resolved_name" or
-     * "service". A later server may say more; absent from an older one.
+     * What stands behind the values: "computed", "record", "resolved_name",
+     * "service" or "ai_found". A later server may say more; absent from an older one.
      */
     trust?: string;
     inputs: Record<string, CapabilityField>;

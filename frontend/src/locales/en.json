@@ -673,6 +673,7 @@
     "provenance.record": "Read from a record of {{source}}",
     "provenance.resolved_name": "Found by name in {{source}} and matched to one of its records",
     "provenance.service": "Calculated by {{source}}; there is no record to check it against",
+    "provenance.ai_found": "Found by an AI web search, not verified",
     "overview.contract.inputs": "Inputs",
     "overview.contract.parameters": "Parameters",
     "overview.contract.output": "Output",

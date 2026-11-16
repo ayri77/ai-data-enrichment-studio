@@ -20,6 +20,7 @@ from openpyxl.comments import Comment
 from ai_data_enrichment.capabilities.bindings import Trust, find_binding
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan
 from ai_data_enrichment.execution.job_models import JobExecutionResult
+from ai_data_enrichment.execution.models import FoundRecord
 
 SourcesMode = Literal["none", "notes", "sheet"]
 
@@ -42,6 +43,7 @@ TRUST_WORDS: Mapping[str, str] = {
     Trust.RECORD: "read from a record of the source",
     Trust.RESOLVED_NAME: "a name matched to a record of the source",
     Trust.SERVICE: "calculated by an outside service; there is no record to check it against",
+    Trust.AI_FOUND: "found by an AI web search, not verified",
 }
 # What a source is called to a reader; an id without a name is shown as it is.
 SOURCE_NAMES: Mapping[str, str] = {
@@ -49,6 +51,12 @@ SOURCE_NAMES: Mapping[str, str] = {
     "open-meteo": "Open-Meteo",
     "wikidata": "Wikidata",
     "openrouteservice": "openrouteservice (OpenStreetMap data)",
+    "openai_web_search": "OpenAI web search",
+}
+# How a found value rests on its page, in plain words.
+BASIS_WORDS: Mapping[str, str] = {
+    "stated": "stated on the page",
+    "concluded": "concluded by the model, not stated on the page",
 }
 
 
@@ -63,6 +71,10 @@ class CellProvenance:
     source: str
     reference: str
     trust: str
+    # Only for a value found by an AI web search: "stated" or "concluded", and
+    # the passage quoted from the page. Empty for every other kind of cell.
+    basis: str = ""
+    quote: str = ""
 
 
 def source_name(source_id: str) -> str:
@@ -96,7 +108,16 @@ def build_cell_provenance(
                 continue
             capability = capability_of[output.step_id]
             binding = find_binding(capability)
-            references = [item.reference for item in results[output.step_id].evidence]
+            result = results[output.step_id]
+            references = [item.reference for item in result.evidence]
+            basis, quote = "", ""
+            if isinstance(result.value, FoundRecord):
+                # A found value rests on its own links, not on the step's evidence.
+                slot = result.value.slots.get(output.value_field)
+                if slot is None or slot.value is None:
+                    continue
+                references = list(slot.sources)
+                basis, quote = slot.basis or "", slot.quote or ""
             items.append(
                 (
                     row,
@@ -109,6 +130,8 @@ def build_cell_provenance(
                         source=binding.source_id if binding else "",
                         reference="; ".join(references),
                         trust=binding.trust.value if binding else "",
+                        basis=basis,
+                        quote=quote,
                     ),
                 )
             )
@@ -120,7 +143,26 @@ def note_text(entry: CellProvenance) -> str:
     if entry.reference:
         lines.append(f"Reference: {entry.reference}")
     lines.append(f"Kind of trust: {trust_words(entry.trust) if entry.trust else 'unknown'}")
+    if entry.basis:
+        lines.append(f"Basis: {BASIS_WORDS.get(entry.basis, entry.basis)}")
+    if entry.quote:
+        lines.append(f"Quote: {entry.quote}")
     return "\n".join(lines)
+
+
+def sheet_trust(entry: CellProvenance) -> str:
+    """The "Kind of trust" cell; a found value carries its basis here."""
+    words = trust_words(entry.trust)
+    if entry.basis:
+        return f"{words} ({BASIS_WORDS.get(entry.basis, entry.basis)})"
+    return words
+
+
+def sheet_reference(entry: CellProvenance) -> str:
+    """The "Reference" cell; a found value's quote follows its links."""
+    if entry.quote:
+        return f"{entry.reference} | Quote: {entry.quote}" if entry.reference else entry.quote
+    return entry.reference
 
 
 def free_sheet_name(existing: Sequence[str]) -> str:
@@ -154,7 +196,7 @@ def annotate_workbook(
             sheet = workbook[sheet_name]
             for entry in entries:
                 comment = Comment(note_text(entry), NOTE_AUTHOR)
-                comment.width, comment.height = 320, 90
+                comment.width, comment.height = 320, 90 if not entry.basis else 150
                 # An earlier note on a written cell gives way to this one.
                 sheet[entry.cell].comment = comment
         else:
@@ -169,8 +211,8 @@ def annotate_workbook(
                         entry.value,
                         entry.capability,
                         source_name(entry.source),
-                        entry.reference,
-                        trust_words(entry.trust),
+                        sheet_reference(entry),
+                        sheet_trust(entry),
                     ]
                 )
             # Text that starts with "=" stays text.

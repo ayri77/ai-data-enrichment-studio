@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel
 
-from ai_data_enrichment.execution.models import OperationResult
+from ai_data_enrichment.execution.models import FoundRecord, OperationResult
 
 
 def field_is_empty(result: OperationResult, value_field: str) -> bool:
@@ -16,6 +16,9 @@ def field_is_empty(result: OperationResult, value_field: str) -> bool:
     value = result.value
     if result.status != "success" or not isinstance(value, BaseModel):
         return False
+    if isinstance(value, FoundRecord):
+        slot = value.slots.get(value_field)
+        return slot is not None and slot.value is None
     return value_field in type(value).model_fields and getattr(value, value_field) is None
 
 
@@ -35,6 +38,15 @@ def project_operation_field(
         if value_field != "value":
             raise ValueError(f"Unsupported output field: {value_field}")
         return value
+
+    # A found record answers per slot; a slot without a value has nothing to project.
+    if isinstance(value, FoundRecord):
+        slot = value.slots.get(value_field)
+        if slot is None:
+            raise ValueError(f"Unsupported output field: {value_field}")
+        if slot.value is None:
+            raise ValueError(f"No value found for output field: {value_field}")
+        return slot.value
 
     # Structured runtime values must be Pydantic models.
     if isinstance(value, BaseModel):

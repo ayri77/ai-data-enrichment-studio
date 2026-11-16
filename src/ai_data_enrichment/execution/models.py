@@ -1,5 +1,6 @@
 """Typed runtime values and execution results."""
 
+from math import isfinite
 from typing import Literal, Self
 
 from pydantic import (
@@ -105,8 +106,61 @@ class Evidence(BaseModel):
         return value
 
 
+class FoundValue(BaseModel):
+    """One value a model found on the web for one target column, or "not found".
+
+    The value is never checked against a record: ``basis`` says whether a page
+    stated it or the model concluded it. ``value`` is None when nothing was found.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    # Text or a number (yes/no is written as text); None means "not found".
+    value: StrictStr | StrictFloat | None
+    # Required with a value, absent without one.
+    basis: Literal["stated", "concluded"] | None
+    # Links of the pages this value rests on, as the model reported them.
+    sources: tuple[StrictStr, ...] = ()
+    # A short passage of a page that carries the value, when there is one.
+    quote: StrictStr | None = None
+    unit: StrictStr | None = None
+
+    @model_validator(mode="after")
+    def validate_found_value(self) -> Self:
+        """Tie the basis to the value and reject blank or non-finite content."""
+        if self.value is None:
+            if self.basis is not None:
+                raise ValueError("A value that was not found cannot have a basis")
+        else:
+            if self.basis is None:
+                raise ValueError("A found value must say whether it was stated or concluded")
+            if isinstance(self.value, str) and not self.value.strip():
+                raise ValueError("A text value must not be blank")
+            if isinstance(self.value, float) and not isfinite(self.value):
+                raise ValueError("A numeric value must be finite")
+        if any(not link.strip() for link in self.sources):
+            raise ValueError("Source links must not be blank")
+        if self.quote is not None and not self.quote.strip():
+            raise ValueError("A quote must not be blank")
+        if self.unit is not None and not self.unit.strip():
+            raise ValueError("A unit must not be blank")
+        return self
+
+
+class FoundRecord(BaseModel):
+    """What one web search answered for one row: a ``FoundValue`` per slot.
+
+    The slots are named ``value_1`` ... ``value_N``; the plan's output mapping
+    decides which column each one fills.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    slots: dict[Identifier, FoundValue] = Field(min_length=1)
+
+
 # All value types currently supported by the execution layer.
-RuntimeValue = GeoPoint | EntityRef | Quantity | str | StrictFloat
+RuntimeValue = GeoPoint | EntityRef | Quantity | FoundRecord | str | StrictFloat
 
 
 class OperationResult(BaseModel):

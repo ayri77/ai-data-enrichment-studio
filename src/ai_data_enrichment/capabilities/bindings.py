@@ -31,6 +31,8 @@ class Trust(StrEnum):
     RESOLVED_NAME = "resolved_name"
     # Computed by an outside service; there is no record to open and check.
     SERVICE = "service"
+    # Found by a model with a web search and not checked against any record.
+    AI_FOUND = "ai_found"
 
 
 def _parameters(*items: dict[str, str]) -> tuple[Mapping[str, str], ...]:
@@ -144,8 +146,24 @@ BINDINGS: tuple[CapabilityBinding, ...] = (
     ),
 )
 
+# Bound only where a user starts the fallback, never offered to the planner and
+# never part of ``BINDINGS``: the executor assembly and the run worker iterate
+# that table and must not see it. The lookup helpers below do.
+FALLBACK_BINDINGS: tuple[CapabilityBinding, ...] = (
+    CapabilityBinding(
+        capability_id="web_lookup",
+        source_id="openai_web_search",
+        trust=Trust.AI_FOUND,
+        # A model's answer is never stored in the persistent value cache.
+        reusable=False,
+        always_bound=False,
+        # Needs the OpenAI key of the installation; nothing without it.
+        requires_key=True,
+    ),
+)
+
 _BY_ID: Mapping[str, CapabilityBinding] = MappingProxyType(
-    {binding.capability_id: binding for binding in BINDINGS}
+    {binding.capability_id: binding for binding in (*BINDINGS, *FALLBACK_BINDINGS)}
 )
 
 

@@ -59,6 +59,7 @@ export function provenanceLabel(
         case "record":
         case "resolved_name":
         case "service":
+        case "ai_found":
             return t(`provenance.${item.trust}`, { source });
     }
     // An older server states no kind: a calculation done here still says so.
