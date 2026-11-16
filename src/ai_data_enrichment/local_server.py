@@ -6,6 +6,7 @@ Access codes are a matter of the hosted entry point and are not read here.
 """
 
 import argparse
+from dataclasses import replace
 
 import uvicorn
 
@@ -27,9 +28,9 @@ def main() -> None:
         parser.error(str(error))
     app = create_app(
         admin_code=admin,
-        settings=PlanRunSettings(
-            allow_network=args.allow_network or defaults.allow_network, llm_model=defaults.llm_model
-        ),
+        # Every setting of the environment is kept; only the network gate can also be
+        # opened by the flag. Naming the fields one by one here once dropped a new one.
+        settings=replace(defaults, allow_network=args.allow_network or defaults.allow_network),
         local_browser_configuration=True,
     )
     uvicorn.run(app, host="127.0.0.1", port=8010, proxy_headers=False)

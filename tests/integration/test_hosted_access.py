@@ -437,3 +437,47 @@ def test_the_local_launcher_offers_the_usage_summary_with_an_admin_code(
     monkeypatch.setenv("ENRICHMENT_ADMIN_CODE", "short")
     with pytest.raises(SystemExit):
         local_server.main()
+
+
+def test_the_local_launcher_keeps_every_setting_of_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The launcher once rebuilt the settings from two named fields, so the switch of
+    # the universal search never reached a locally started server.
+    from ai_data_enrichment import local_server
+    from ai_data_enrichment.plan_run import PlanRunSettings
+
+    started: dict = {}
+    monkeypatch.setattr(local_server.uvicorn, "run", lambda app, **options: started.update(app=app))
+    monkeypatch.delenv("ENRICHMENT_ADMIN_CODE", raising=False)
+    monkeypatch.delenv("ENRICHMENT_ALLOW_NETWORK", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-not-a-real-key-for-this-test")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-4.1-mini")
+    monkeypatch.setenv("ENRICHMENT_ALLOW_WEB_LOOKUP", "1")
+    monkeypatch.setenv("ENRICHMENT_WEB_LOOKUP_MODEL", "gpt-4.1-mini")
+
+    monkeypatch.setattr("sys.argv", ["local_server", "--allow-network"])
+    local_server.main()
+    settings = started["app"].state.plan_run.settings
+    assert settings == PlanRunSettings(
+        allow_network=True,
+        llm_model="gpt-4.1-mini",
+        allow_web_lookup=True,
+        web_lookup_model="gpt-4.1-mini",
+    )
+    with TestClient(started["app"]) as client:
+        assert client.get("/api/limits").json()["web_lookup"] is True
+
+    # Without the flag the network gate stays shut, and the search is not offered.
+    monkeypatch.setattr("sys.argv", ["local_server"])
+    local_server.main()
+    assert started["app"].state.plan_run.settings.allow_network is False
+    with TestClient(started["app"]) as client:
+        assert client.get("/api/limits").json()["web_lookup"] is False
+
+    # Not switched on: not offered, whatever else is set.
+    monkeypatch.delenv("ENRICHMENT_ALLOW_WEB_LOOKUP")
+    monkeypatch.setattr("sys.argv", ["local_server", "--allow-network"])
+    local_server.main()
+    with TestClient(started["app"]) as client:
+        assert client.get("/api/limits").json()["web_lookup"] is False
