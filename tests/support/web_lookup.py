@@ -97,3 +97,29 @@ class FakeApi:
         if isinstance(item, Exception):
             raise item
         return item
+
+
+def empty_reply() -> dict[str, Any]:
+    """The reply for ``mixed_task`` in which nothing was found for any slot."""
+    return {"value_1": slot(unit=None), "value_2": slot(), "value_3": slot()}
+
+
+class RowApi(FakeApi):
+    """A fake API object whose answer depends on the request: ``choose(kwargs) -> response``.
+
+    Every call is recorded. ``choose`` sees the keyword arguments of ``responses.create``;
+    the row's values are in ``kwargs["input"]``.
+    """
+
+    def __init__(self, choose: Any, *, api_key: str = "sk-test-secret") -> None:
+        super().__init__()
+        self._choose = choose
+        # Like the OpenAI client, the object carries the key; nothing may copy it out.
+        self.api_key = api_key
+
+    def create(self, **kwargs: Any) -> Any:
+        self.calls.append(kwargs)
+        item = self._choose(kwargs)
+        if isinstance(item, Exception):
+            raise item
+        return item

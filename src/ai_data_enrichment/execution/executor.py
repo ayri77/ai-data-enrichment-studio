@@ -1,6 +1,6 @@
 """Execute a validated enrichment DAG for one dataset row."""
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from math import isfinite
 
 from ai_data_enrichment.domain.enrichment_plan import (
@@ -71,8 +71,17 @@ def _resolve_input(
 class DAGExecutor:
     """Run registered capability handlers in dependency order for one row."""
 
-    def __init__(self, handlers: Mapping[str, CapabilityHandler]) -> None:
+    def __init__(
+        self,
+        handlers: Mapping[str, CapabilityHandler],
+        *,
+        partial_input_capabilities: Collection[str] = frozenset(),
+    ) -> None:
+        """``partial_input_capabilities`` names capabilities whose steps run even when
+        some bound columns hold no value: the handler then receives only the inputs
+        that have one. Everything else keeps failing with ``MISSING_VALUE``."""
         self._handlers = dict(handlers)
+        self._partial = frozenset(partial_input_capabilities)
 
     def execute_row(
         self,
@@ -136,12 +145,13 @@ class DAGExecutor:
                 continue
 
             # A cell that holds only spaces is as empty as one that holds nothing.
+            partial = step.capability in self._partial
             missing_values = [
                 reference.name
                 for reference in step.inputs.values()
                 if isinstance(reference, ColumnReference) and _is_empty(row[reference.name])
             ]
-            if missing_values:
+            if missing_values and not partial:
                 record_outcome(
                     step.id,
                     OperationResult(
@@ -169,6 +179,12 @@ class DAGExecutor:
                 resolved_inputs = {
                     name: _resolve_input(reference, row, completed)
                     for name, reference in step.inputs.items()
+                    # Only a partial step gets here with an empty cell: it is left out.
+                    if not (
+                        partial
+                        and isinstance(reference, ColumnReference)
+                        and _is_empty(row[reference.name])
+                    )
                 }
             except UnsupportedLiteralError as exc:
                 record_outcome(

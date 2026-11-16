@@ -1,6 +1,6 @@
 """Execute a validated DAG across bounded source-independent input records."""
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from uuid import uuid4
 
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan, StepOutputReference
@@ -63,6 +63,7 @@ class JobExecutor:
         resolution_cache: SQLiteResolutionCache | None = None,
         approved_resolution_services: Mapping[tuple[str, str], ApprovedResolutionService]
         | None = None,
+        partial_input_capabilities: Collection[str] = frozenset(),
     ) -> None:
         self._handlers = dict(handlers)
         self._selected_providers = dict(selected_providers)
@@ -79,6 +80,8 @@ class JobExecutor:
         self._resolution_policies = dict(resolution_policies or {})
         self._resolution_cache = resolution_cache
         self._approved_resolution_services = dict(approved_resolution_services or {})
+        # Capabilities whose steps run with the inputs that have a value (see DAGExecutor).
+        self._partial_input_capabilities = frozenset(partial_input_capabilities)
 
     def audited_resolution(self, capability: str) -> tuple[ResolutionService, ResolutionPolicy]:
         """The audited lookup of one capability and the policy it decides under.
@@ -349,7 +352,9 @@ class JobExecutor:
             )
         # Row/step-scoped approved handlers take precedence over shared
         # capability handlers. The DAG itself stays provider-agnostic.
-        executor = DAGExecutor(wrapped_handlers)
+        executor = DAGExecutor(
+            wrapped_handlers, partial_input_capabilities=self._partial_input_capabilities
+        )
 
         results: list[RecordExecution] = []
         statuses = {"success": 0, "partial": 0, "failure": 0}
