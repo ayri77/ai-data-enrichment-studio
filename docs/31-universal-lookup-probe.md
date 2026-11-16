@@ -326,8 +326,8 @@ What the rows show (evidence):
   `concluded` rest on a quote that does not mention the feature (a charging type, a
   list of SIM slots, a list of storage sizes). In the second run answers of this kind
   were given as plain confident values.
-- **The model now leaves cells empty.** Three cells have no value where the second run
-  answered "No" for two of them.
+- **The model now leaves cells empty.** Three cells have no value; the second run
+  answered "No" in all three.
 - **The two rows asked in both runs agree**: 10 of 10 values are the same; the text of
   one IP rating is worded differently ("IPX5/IPX8 water resistant; IP6X dust proof"
   against "IPX5/IPX8 and IP6X").
