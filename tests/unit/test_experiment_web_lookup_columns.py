@@ -313,7 +313,11 @@ def test_full_run(
     assert summary["links"] == {
         "kept_exact": 9,
         "kept_address": 1,
-        "dropped_not_reported_by_search": 1,
+        "dropped_total": 1,
+        "dropped_not_reported": 1,
+        "dropped_not_a_link": 0,
+        "dropped_duplicate": 0,
+        "dropped_over_limit": 0,
         "quotes_truncated": 1,
     }
     assert summary["comparison_with_existing"] == {
