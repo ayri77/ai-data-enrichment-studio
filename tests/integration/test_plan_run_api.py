@@ -962,6 +962,8 @@ def test_limits_state_what_one_run_accepts(client, monkeypatch):
             "ratio",
             "resolve_entity",
         ],
+        # Off unless the server switches the universal search on (and has a key for it).
+        "web_lookup": False,
     }
     # A road distance is listed only where its source is configured.
     monkeypatch.setenv("OPENROUTESERVICE_API_KEY", "key-for-the-offline-fixture")

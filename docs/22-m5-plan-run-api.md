@@ -77,6 +77,7 @@ provide the dataset ID and actual worksheet/range; the range includes headers.
 | What a plan may use | `GET /api/capabilities` | Every capability registered on this installation, in the order the planner is shown them: its contract (`id`, `version`, `description`, `inputs`, `parameters`, `output`), `source` — the id of the source its values come from, or `local` for a calculation — and `trust`, the kind of trust behind its values as a lowercase word: `computed` (calculated here), `record` (read from an identified record of the source), `resolved_name` (a name matched to a record of the source) or `service` (calculated by an outside service, with no record to check it against). `source` and `trust` are not part of the contract the planner is shown; a client must treat a `trust` it does not know as "unknown kind". `GET /api/limits` carries the same ids with the bounds of one run |
 | Task ideas from the model | `POST /api/task-ideas` | 200; up to three tasks that could be asked for with the selected table, in the language asked for; plans and writes nothing |
 | Create draft | `POST /api/plans` | 201; generate with `LLMPlanner`, or validate a supplied `plan` |
+| Create a universal-search draft | `POST /api/fallback-plans` | 201, the same draft as above with `"kind": "fallback"`; off unless the server switches it on (see "The universal search" below) |
 | Read draft | `GET /api/plans/{plan_id}` | Plan JSON, binding, fingerprint, decision and validation |
 | Validate | `POST /api/plans/{plan_id}/validate` | Semantic DAG/type/parameter checks and explicit column bindings |
 | Approve | `POST /api/plans/{plan_id}/approve` | Requires `approved: true` and exact displayed `fingerprint` |
@@ -295,6 +296,94 @@ the run does not fail: the workbook holds the values without notes or sheet, the
 exception is logged on the server, and the audit says `"applied": false`. The
 failed step is never half done: the workbook is replaced only by a complete,
 reopened file.
+
+### The universal search (fallback)
+
+For a task no registered capability covers, a plan of one step, `web_lookup`, asks a
+model with web search for several columns of each row (`capabilities/fallback.py`,
+`providers/web_lookup*.py`; what a measurement of the idea showed is in
+[the universal lookup probe](31-universal-lookup-probe.md)). **It is off by default and
+not verified by a live run:** every test of this route and of the worker uses a fake
+client inside the worker process; no request to the OpenAI API has been made through it.
+Every row costs one model request with web search, so model tokens and a search fee, and
+the values are the model's claims, not records.
+
+**Switching it on.** `ENRICHMENT_ALLOW_WEB_LOOKUP=1` (any other value is off),
+`ENRICHMENT_WEB_LOOKUP_MODEL` (default `gpt-6-luna`, one short model id; reasoning effort
+`low` is fixed in code) and the server's OpenAI key, the planner's: from the environment
+or the provider settings. A run is also a live run: the server's network gate and the
+request's own consent apply as for every run. `GET /api/limits` gains one boolean,
+`web_lookup`: true only with the setting on, a key, and the network gate open (or an
+offline server). Nothing else in that answer changes, and the planner, the plan repair,
+the suggested tasks and `GET /api/capabilities` never mention the capability.
+
+**Route.** `POST /api/fallback-plans`, body (extra fields are a 422):
+
+```json
+{
+  "dataset_id": "<uploaded-id>", "sheet_name": "Mountains", "range_ref": "A1:D7",
+  "question": "Find facts about this mountain.",
+  "context_columns": ["Mountain", "Country", "Rank"],
+  "targets": [{"column": "Height", "kind": "number", "unit": "m"},
+              {"column": "Climbed in winter", "kind": "yes_no"}],
+  "output_columns": {"Height": "E", "Climbed in winter": "F"},
+  "existing_outputs": "keep", "sources_in_workbook": "notes"
+}
+```
+
+`output_columns`, `existing_outputs`, `sources_in_workbook` and the range mean what they
+mean in a plan request, and the table is checked and profiled by the same code (up to the
+same rows and columns). The answer is the draft of `POST /api/plans`, with
+`"kind": "fallback"` and the one-step plan the server built; its `assumptions` say that
+each value is found by an AI model with web search, one request per row, and is not
+verified. Approval, run, progress, review, download and the report use the existing routes.
+Refusals: `web_lookup_disabled` (403, setting off, nothing is read or stored),
+`web_lookup_no_key` (422), `fallback_plan_invalid` (422, with the reason in `message`:
+a column that does not exist, a type that does not fit, a task too long, and so on),
+`invalid_selection`, `dataset_not_found`, `request_too_large` (413, 64 KiB) as for a plan.
+
+**The kind.** A planner draft has no `kind`; a fallback draft has `"fallback"`. Only the
+server sets it, and it is inside what the fingerprint covers. A plan with `web_lookup` is
+refused (`web_lookup_plan_refused`, 422) wherever a plan could enter on the normal path: a
+supplied `plan`, what the planner returns, and a stored draft whose kind does not agree
+with its plan. Before a run the draft's fingerprint is computed again from what is stored,
+so a draft changed after approval is refused (`approval_mismatch`). A run is refused when
+the setting was switched off or the key removed after the draft was made.
+
+**The run.** One request per row, one after another (nothing runs in parallel), each with a
+30 second timeout, no retries, and the same row limit as every run. The job's time limit is
+`max_timeout_seconds` unless the run request names `timeout_seconds`. The worker begins no
+request that could end later than 20 seconds before that limit (counted from its own
+start, which comes a little after the supervisor's); the rows not asked then fail with `DEADLINE_REACHED`, and every row answered
+before is kept and written, so the job ends as an ordinary finished run, not as `timed_out`.
+The key is handed to the worker process with its task and the client is made there; it is
+never written to a file, a log line, the audit or an error.
+
+**The audit.** A fallback job and its report have `"kind": "fallback"`. The report also has
+
+```json
+"web_lookup": {"configuration_id": "openai-web-lookup-p1-gpt-6-luna-low",
+               "requests": 5, "input_tokens": 5000, "output_tokens": 1000, "web_searches": 10}
+```
+
+(numbers only; failed requests are counted; present for every terminal job of this kind,
+from the shared counters when the worker did not finish) and each entry of `rows` has
+`ai_found`: for each value written from the search, `{"column", "basis": "stated" |
+"concluded", "links": <number>}`. The links themselves are in the step evidence and in the
+provenance, not repeated. A cell that kept its earlier value and a column nothing was found
+for are not listed. `step_provenance` names `web_lookup`, source `openai_web_search`, trust
+`ai_found`. Operation codes of the lookup are `NOTHING_FOUND`, `DEADLINE_REACHED`,
+`REQUEST_REFUSED` and `RESPONSE_INCOMPLETE` among others; the interface has no texts for
+them yet. The job status rules are unchanged: a run in which every row had a value written
+is `completed`; a row with `NOTHING_FOUND` is a failed row, so the job is `needs_review`,
+although there is nothing to decide in Review (resume is refused for such a job).
+
+**The usage summary.** The spend is one `model` event with `purpose: "web_lookup"`, the
+model, `requests`, `input_tokens`, `output_tokens` and `web_searches`; `GET /api/usage`
+sums `web_searches` per visitor beside the other numbers. A run that times out, is
+cancelled or whose worker dies still records the requests that had returned (the worker
+copies the four numbers to shared memory after each request); a request still in flight
+when the worker is stopped cannot be counted, although the provider may bill it.
 
 ## Review and resume
 

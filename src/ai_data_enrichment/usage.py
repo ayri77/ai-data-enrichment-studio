@@ -67,6 +67,8 @@ def _blank() -> dict[str, Any]:
         "model_requests": 0,
         "input_tokens": 0,
         "output_tokens": 0,
+        # Searches the web lookup's model made, as the provider reported them.
+        "web_searches": 0,
         "source_requests": {},
     }
 
@@ -135,6 +137,7 @@ class UsageLog:
             visitor["model_requests"] += int(event.get("requests") or 0)
             visitor["input_tokens"] += int(event.get("input_tokens") or 0)
             visitor["output_tokens"] += int(event.get("output_tokens") or 0)
+            visitor["web_searches"] += int(event.get("web_searches") or 0)
 
     def summary(self) -> dict[str, Any]:
         """Totals since the process started, per visitor, and the latest events."""

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- The universal search can be asked for through the API and the run worker, no interface
+  yet: `POST /api/fallback-plans` makes a draft with `"kind": "fallback"` and one step,
+  `web_lookup`, which asks a model with web search for several columns of each row; approval,
+  run, review, download and the audit use the existing routes. It is off unless the server sets
+  `ENRICHMENT_ALLOW_WEB_LOOKUP=1` (and has a key); `GET /api/limits` gains `web_lookup`. Each
+  row costs one model request and a search fee; the report gains `web_lookup` (requests, tokens,
+  searches) and `ai_found` per row, and the usage summary a `web_lookup` model event and
+  `web_searches`. A plan with `web_lookup` is refused on the normal route, from the planner
+  and as a supplied plan. Tested only against a fake client: no live run has been made.
 - The kind of trust behind a value is now shown instead of staying in the code:
   `GET /api/capabilities` gains `trust` (`computed`, `record`, `resolved_name`,
   `service`) beside `source`, and the audit report gains `step_provenance`
