@@ -61,6 +61,8 @@ export function useWorkflow(
     sample: Sample | null = null,
     options: {
         limits?: Limits;
+        /** Reads the server's limits again (they depend on the provider settings). */
+        refreshLimits?: () => Promise<void>;
         /** Basic mode: pressing the button is the consent, with no checkbox. */
         implicitConsent?: boolean;
         /**
@@ -77,6 +79,8 @@ export function useWorkflow(
     const providerRevision = useRef(0);
     function setProvider(next: ProviderReadiness) {
         providerRevision.current++;
+        // Saved or cleared: the limits (web search, capabilities) may differ now.
+        void options.refreshLimits?.();
         if (mounted.current) {
             setProviderState(next);
             setProviderError(false);
@@ -381,6 +385,15 @@ export function useWorkflow(
             if (options.implicitConsent) setNetwork(true);
             setPlan(draft);
             setWorkspace("plan");
+            // The refusal view offers the search only where the server says
+            // so, and that depends on a key that may have been entered after
+            // the page opened. Not awaited: the block may appear a moment later.
+            if (
+                !draft.plan &&
+                (draft.planning_status === "unsupported" ||
+                    draft.planning_status === "ambiguous")
+            )
+                void options.refreshLimits?.();
         }
     }
     /**

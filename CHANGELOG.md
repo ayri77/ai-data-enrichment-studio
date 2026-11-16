@@ -28,6 +28,10 @@
 - A measurement script, `scripts/experiment_web_lookup.py`, with a probe workbook and
   [a note](docs/31-universal-lookup-probe.md), tests whether a model with web search can fill
   a column for tasks no registered capability covers. It is not part of the application.
+- The interface reads `GET /api/limits` again after the provider settings are saved or the
+  key is removed, and after the planner refuses a task, so the search offer no longer needs
+  a page reload when the key is entered after the page was opened. The last known limits stay
+  when the request fails.
 
 ## 0.3.0 — beta (2026-11-15)
 
