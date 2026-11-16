@@ -42,7 +42,7 @@ function Studio({ opening }: { opening: Opening }) {
         "details" | "settings" | null
     >(null);
     const heading = useRef<HTMLHeadingElement>(null);
-    const limits = useLimits();
+    const { limits, refresh: refreshLimits } = useLimits();
     const capabilities = useCapabilities();
     // The overview stands beside the steps: opening it leaves the work as it is.
     const [overview, setOverview] = useState(opening === "overview");
@@ -60,6 +60,7 @@ function Studio({ opening }: { opening: Opening }) {
         d.sample,
         {
             limits,
+            refreshLimits,
             implicitConsent: mode === "basic",
             tableKey: `${d.dataset?.dataset_id ?? ""}:${d.sheet}`,
         },

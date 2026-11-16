@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 
 /** What one run accepts. The demo's bounds apply until the server answers. */
@@ -29,32 +29,54 @@ export const DEMO_LIMITS: Limits = {
     webLookup: false,
 };
 
-export function useLimits(): Limits {
+const sameLimits = (a: Limits, b: Limits) =>
+    a.maxRows === b.maxRows &&
+    a.maxTimeout === b.maxTimeout &&
+    a.maxTableRows === b.maxTableRows &&
+    a.maxTableCells === b.maxTableCells &&
+    a.webLookup === b.webLookup &&
+    a.capabilities.length === b.capabilities.length &&
+    a.capabilities.every((id, i) => id === b.capabilities[i]);
+
+/**
+ * What the server accepts, read when the page opens and again on request
+ * (`refresh`): the server's answer depends on settings a person can change
+ * meanwhile, such as the model key. The last known value stays on an error,
+ * an unchanged answer keeps the same object (no re-render), and an answer that
+ * arrives after a newer request, or after unmount, is dropped.
+ */
+export function useLimits(): { limits: Limits; refresh: () => Promise<void> } {
     const [limits, setLimits] = useState(DEMO_LIMITS);
-    useEffect(() => {
-        let active = true;
-        void (async () => {
-            try {
-                const stated = await api.limits();
-                if (active && stated)
-                    setLimits({
-                        maxRows: stated.max_run_rows,
-                        maxTimeout: stated.max_timeout_seconds,
-                        maxTableRows:
-                            stated.max_table_rows ?? DEMO_LIMITS.maxTableRows,
-                        maxTableCells:
-                            stated.max_table_cells ?? DEMO_LIMITS.maxTableCells,
-                        capabilities:
-                            stated.capabilities ?? DEMO_LIMITS.capabilities,
-                        webLookup: stated.web_lookup === true,
-                    });
-            } catch {
-                // The demo's bounds stay; the server still checks every value.
-            }
-        })();
-        return () => {
-            active = false;
-        };
+    const latest = useRef(0);
+    const mounted = useRef(true);
+    const refresh = useCallback(async () => {
+        const request = ++latest.current;
+        try {
+            const stated = await api.limits();
+            if (!mounted.current || request !== latest.current || !stated)
+                return;
+            const next: Limits = {
+                maxRows: stated.max_run_rows,
+                maxTimeout: stated.max_timeout_seconds,
+                maxTableRows: stated.max_table_rows ?? DEMO_LIMITS.maxTableRows,
+                maxTableCells:
+                    stated.max_table_cells ?? DEMO_LIMITS.maxTableCells,
+                capabilities: stated.capabilities ?? DEMO_LIMITS.capabilities,
+                webLookup: stated.web_lookup === true,
+            };
+            setLimits((current) =>
+                sameLimits(current, next) ? current : next,
+            );
+        } catch {
+            // The last known bounds stay; the server still checks every value.
+        }
     }, []);
-    return limits;
+    useEffect(() => {
+        mounted.current = true;
+        void refresh();
+        return () => {
+            mounted.current = false;
+        };
+    }, [refresh]);
+    return { limits, refresh };
 }

@@ -27,6 +27,8 @@ vi.mock("./api", async (original) => ({
         sampleWorkbook: vi.fn(),
         samplePlan: vi.fn(),
         providerSettings: vi.fn(),
+        configureProvider: vi.fn(),
+        removeProviderKey: vi.fn(),
         upload: vi.fn(),
         preview: vi.fn(),
         remove: vi.fn(),
@@ -229,6 +231,78 @@ it("does not offer it where the server cannot do it", async () => {
         expect(screen.getByTestId("plan-refusal")).toBeVisible();
         unmount();
     }
+});
+it("offers the search after a refusal when the key came after the page was loaded", async () => {
+    vi.mocked(api.limits).mockResolvedValueOnce(limits(false));
+    vi.mocked(api.limits).mockResolvedValue(limits(true));
+    render(<App opening="dataset" />);
+    await refusedTask();
+    expect(await screen.findByTestId("fallback-offer")).toBeVisible();
+    expect(api.limits).toHaveBeenCalledTimes(2);
+});
+it("reads the limits again after the provider settings are saved or cleared", async () => {
+    vi.mocked(api.limits).mockResolvedValueOnce(limits(false));
+    vi.mocked(api.limits).mockResolvedValue(limits(true));
+    const current = await api.providerSettings();
+    vi.mocked(api.configureProvider).mockResolvedValue(current);
+    vi.mocked(api.removeProviderKey).mockResolvedValue({
+        ...current,
+        key_present: false,
+    });
+    localStorage.setItem("enrichment.mode", "advanced");
+    render(<App opening="dataset" />);
+    await waitFor(() => expect(api.limits).toHaveBeenCalledTimes(1));
+    await userEvent.click(button("ws.providerSettings"));
+    await userEvent.click(button("provider.apply"));
+    await screen.findByText(t("provider.saved"));
+    await waitFor(() => expect(api.limits).toHaveBeenCalledTimes(2));
+    await userEvent.click(button("provider.remove"));
+    await screen.findByText(t("provider.removed"));
+    await waitFor(() => expect(api.limits).toHaveBeenCalledTimes(3));
+});
+it("does not read the limits again when the settings could not be saved", async () => {
+    vi.mocked(api.configureProvider).mockRejectedValue(
+        new WorkspaceApiError("request_failed", "failed"),
+    );
+    localStorage.setItem("enrichment.mode", "advanced");
+    render(<App opening="dataset" />);
+    await waitFor(() => expect(api.limits).toHaveBeenCalledTimes(1));
+    await userEvent.click(button("ws.providerSettings"));
+    await userEvent.click(button("provider.apply"));
+    await waitFor(() => expect(api.configureProvider).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(api.limits).toHaveBeenCalledTimes(1);
+});
+it("keeps the previous limits when the refresh fails", async () => {
+    vi.mocked(api.limits).mockResolvedValueOnce(limits(true));
+    vi.mocked(api.limits).mockRejectedValue(new Error("offline"));
+    render(<App opening="dataset" />);
+    await refusedTask();
+    expect(await screen.findByTestId("fallback-offer")).toBeVisible();
+    expect(api.limits).toHaveBeenCalledTimes(2);
+});
+it("does not read the limits again after an ordinary plan", async () => {
+    vi.mocked(api.createPlan).mockResolvedValue({
+        ...fallbackDraft,
+        kind: undefined,
+        plan: { ...lookupPlan, steps: [] },
+    });
+    render(<App opening="dataset" />);
+    await userEvent.upload(
+        screen.getByLabelText("Upload Excel workbook"),
+        new File(["x"], "mountains.xlsx"),
+    );
+    await screen.findByLabelText(t("ws.fillColumn"));
+    fireEvent.change(screen.getByLabelText("Enrichment instruction"), {
+        target: { value: "Anything" },
+    });
+    await userEvent.selectOptions(
+        screen.getByLabelText(t("ws.fillColumn")),
+        "E",
+    );
+    await userEvent.click(button("ws.buildPlan"));
+    await screen.findByTestId("validation");
+    expect(api.limits).toHaveBeenCalledTimes(1);
 });
 it("does not offer it for any other state of the plan", async () => {
     vi.mocked(api.createPlan).mockResolvedValue({
