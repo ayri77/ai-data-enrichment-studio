@@ -17,6 +17,11 @@ import { columnLetter, parseRange } from "./range";
 import {
     buildFallbackRequest,
     couldOfferFallback,
+    defaultFallbackForm,
+    fallbackOffer,
+    formProblems,
+    readFallbackSwitch,
+    saveFallbackSwitch,
     type FallbackForm,
 } from "./fallbackModel";
 import { DEMO_LIMITS, type Limits } from "./useLimits";
@@ -56,6 +61,17 @@ export type Operation =
     | "ideas"
     | "cancel"
     | "download";
+/** What the planner answered when the search plan took its place. */
+export interface PlannerAnswer {
+    draft: PlanDraft;
+    /** Whether the person's switch or a press of the button asked for the search. */
+    by: "switch" | "button";
+}
+/** A refusal of the request for the search plan. */
+export interface SearchRefusal {
+    code: string;
+    message: string;
+}
 export function useWorkflow(
     preview: Preview | null,
     sourceKey: string,
@@ -142,6 +158,20 @@ export function useWorkflow(
         : null;
     const [timeout, setTimeout] = useState("180");
     const [plan, setPlan] = useState<PlanDraft | null>(null);
+    // The person's choice to search the web with AI where the system has no
+    // source for the task; remembered in this browser. The server's own switch
+    // still decides whether it can be used at all.
+    const [autoSearch, setAutoSearchState] = useState(readFallbackSwitch);
+    function setAutoSearch(on: boolean) {
+        saveFallbackSwitch(on);
+        setAutoSearchState(on);
+    }
+    // The planner's answer, kept while the search plan stands in its place, and
+    // why the search plan could not be built when it could not.
+    const [planner, setPlanner] = useState<PlannerAnswer | null>(null);
+    const [searchRefusal, setSearchRefusal] = useState<SearchRefusal | null>(
+        null,
+    );
     const [job, setJob] = useState<Job | null>(null);
     const [report, setReport] = useState<AuditReport | null>(null);
     // Candidates a person can choose between, and the choices made so far.
@@ -280,6 +310,8 @@ export function useWorkflow(
         generation.current++;
         archive();
         setPlan(null);
+        setPlanner(null);
+        setSearchRefusal(null);
         setJob(null);
         setReport(null);
         setReview(null);
@@ -387,13 +419,50 @@ export function useWorkflow(
             // Consent given by pressing the button stays given if the user
             // switches to Advanced, where it is a ticked checkbox.
             if (options.implicitConsent) setNetwork(true);
+            // With the switch on, a task the planner has no plan for goes on to
+            // the search at once; the view says so while it is built.
+            const search =
+                autoSearch &&
+                webLookup &&
+                !supplied &&
+                fallbackOffer(draft, true) !== null;
+            if (search) setOperation({ kind: "fallback", since: Date.now() });
             setPlan(draft);
             setWorkspace("plan");
             // The refusal view and the view of a plan that failed the check
             // offer the search only where the server says so, and that depends
             // on a key that may have been entered after the page opened. Not awaited: the block may appear a moment later.
             if (couldOfferFallback(draft)) void options.refreshLimits?.();
+            if (search) {
+                const refusal = await searchWeb("switch", draft);
+                if (
+                    refusal &&
+                    mounted.current &&
+                    revision === generation.current
+                )
+                    setSearchRefusal(refusal);
+            }
         }
+    }
+    /**
+     * Ask for the search plan with the defaults, for the task the planner has
+     * no plan for. A refusal is returned, not raised.
+     */
+    async function searchWeb(
+        by: PlannerAnswer["by"],
+        origin: PlanDraft | null = plan && !plan.kind ? plan : null,
+    ): Promise<SearchRefusal | null> {
+        if (!preview) return null;
+        const form = defaultFallbackForm(instruction, mapping, preview);
+        // Nothing to identify a row by: the form says so and asks for a choice.
+        if (formProblems(form, mapping, preview).includes("context"))
+            return { code: "fallback_plan_invalid", message: "" };
+        return createFallback(form, by, origin);
+    }
+    /** The button: the same as the switch does, for this task. */
+    async function searchInstead() {
+        const refusal = await searchWeb("button");
+        if (mounted.current) setSearchRefusal(refusal);
     }
     /**
      * Ask the server for the universal-search plan instead of the planner's.
@@ -403,7 +472,9 @@ export function useWorkflow(
      */
     async function createFallback(
         form: FallbackForm,
-    ): Promise<{ code: string; message: string } | null> {
+        by: PlannerAnswer["by"] = "button",
+        origin: PlanDraft | null = plan && !plan.kind ? plan : null,
+    ): Promise<SearchRefusal | null> {
         if (!webLookup || !preview || !withinBounds || !mappingValid || locked)
             return null;
         const revision = generation.current;
@@ -418,10 +489,14 @@ export function useWorkflow(
                 }),
             );
             if (mounted.current && revision === generation.current) {
+                // The planner's answer is what the notice and "what the planner
+                // answered" show; it outlives a rebuilt search plan.
+                const kept = origin ? { draft: origin, by } : planner;
                 invalidate();
                 // Consent is what a run needs; pressing the button in Basic gives it.
                 if (options.implicitConsent) setNetwork(true);
                 setPlan(draft);
+                setPlanner(kept);
                 setWorkspace("plan");
             }
             return null;
@@ -734,6 +809,11 @@ export function useWorkflow(
         action,
         create,
         createFallback,
+        searchInstead,
+        autoSearch,
+        setAutoSearch,
+        planner,
+        searchRefusal,
         webLookup,
         validate,
         approve,

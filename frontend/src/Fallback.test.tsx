@@ -11,6 +11,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import App from "./App";
 import { api, WorkspaceApiError, type PlanDraft, type Preview } from "./api";
 import i18n from "./i18n";
+import { readFallbackSwitch } from "./fallbackModel";
 import {
     fallbackDraft,
     lookupJob,
@@ -202,36 +203,6 @@ async function refusedTask(view = "plan-refusal") {
     await userEvent.click(button("ws.buildPlan"));
     await screen.findByTestId(view);
 }
-const open = () => userEvent.click(button("fallback.open"));
-const context = () => within(screen.getByTestId("fallback-context"));
-const targets = () => within(screen.getByTestId("fallback-targets"));
-const choose = (name: string) =>
-    userEvent.click(
-        context().getByRole("checkbox", { name: new RegExp(`^${name}`) }),
-    );
-
-it("offers the search below the explanation when the planner could not build a plan", async () => {
-    render(<App opening="dataset" />);
-    await refusedTask();
-    const offer = await screen.findByTestId("fallback-offer");
-    expect(within(offer).getByRole("heading")).toHaveTextContent(
-        "Search the web with AI instead",
-    );
-    expect(offer).toHaveTextContent(t("fallback.text"));
-    // After the explanation and the list of what the system can do, and apart from them.
-    const refusal = screen.getByTestId("plan-refusal");
-    expect(
-        refusal.compareDocumentPosition(offer) &
-            Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(refusal).not.toContainElement(offer);
-    // A button first; the form is not open and it is not a dialog.
-    expect(screen.queryByTestId("fallback-form")).not.toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    await open();
-    expect(screen.getByTestId("fallback-form")).toBeVisible();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-});
 it("offers it for an ambiguous task too", async () => {
     vi.mocked(api.createPlan).mockResolvedValue({
         ...refused,
@@ -357,25 +328,520 @@ it("does not offer it for any other state of the plan", async () => {
     expect(screen.queryByTestId("fallback-offer")).not.toBeInTheDocument();
 });
 
-it("starts with nothing chosen and the task the person wrote", async () => {
+const SWITCH = "enrichment.fallbackSearch";
+const switchOn = () => localStorage.setItem(SWITCH, "on");
+const change = () => userEvent.click(button("fallback.change.open"));
+const context = () => within(screen.getByTestId("fallback-context"));
+const targets = () => within(screen.getByTestId("fallback-targets"));
+const choose = (name: string) =>
+    userEvent.click(
+        context().getByRole("checkbox", { name: new RegExp(`^${name}`) }),
+    );
+const switchBox = () => screen.getByLabelText(t("fallback.switch.label"));
+async function uploadTable() {
+    await userEvent.upload(
+        screen.getByLabelText("Upload Excel workbook"),
+        new File(["x"], "mountains.xlsx"),
+    );
+    await screen.findByLabelText(t("ws.fillColumn"));
+}
+// What the page asks of the server for the task of these tests, without a choice
+// of the person: the task, the columns to fill in order, a number where the
+// column holds numbers, every other text or number column to identify the row.
+const defaultRequest = {
+    dataset_id: "source",
+    sheet_name: "Sheet1",
+    range_ref: "A1:G11",
+    question: refused.instruction,
+    context_columns: ["Mountain", "Country", "Rank"],
+    targets: [
+        { column: "Height", kind: "number" },
+        { column: "First ascent", kind: "text" },
+        { column: "Climbed in winter", kind: "text" },
+    ],
+    output_columns: {
+        Height: "E",
+        "First ascent": "F",
+        "Climbed in winter": "G",
+    },
+    existing_outputs: "keep",
+    sources_in_workbook: "notes",
+};
+const searchPlan: PlanDraft = {
+    ...fallbackDraft,
+    plan_id: "plan-changed",
+    fingerprint: "d".repeat(64),
+};
+// A plan the planner built and the check passed.
+const ordinary: PlanDraft = {
+    ...fallbackDraft,
+    kind: undefined,
+    plan: { ...lookupPlan, steps: [] },
+};
+// The search plan, built at once because the switch is on.
+async function toPlan() {
+    switchOn();
+    render(<App opening="dataset" />);
+    await refusedTask("fallback-plan");
+}
+
+// --- The switch --------------------------------------------------------------------
+
+it("offers one switch where the task is written, only where the server has the search", async () => {
+    for (const stated of [limits(false), limits()]) {
+        vi.mocked(api.limits).mockResolvedValue(stated);
+        const { unmount } = render(<App opening="dataset" />);
+        await uploadTable();
+        await waitFor(() => expect(api.limits).toHaveBeenCalled());
+        expect(
+            screen.queryByLabelText(t("fallback.switch.label")),
+        ).not.toBeInTheDocument();
+        unmount();
+        vi.mocked(api.limits).mockClear();
+    }
+    vi.mocked(api.limits).mockResolvedValue(limits(true));
+    render(<App opening="dataset" />);
+    await uploadTable();
+    const box = await screen.findByLabelText(t("fallback.switch.label"));
+    // Off to begin with, with the three facts under it.
+    expect(box).not.toBeChecked();
+    expect(screen.getByTestId("fallback-switch")).toHaveTextContent(
+        t("fallback.switch.hint"),
+    );
+    // Under the task and the columns to fill, above the number of rows.
+    expect(
+        screen.getByLabelText(t("ws.fillColumn")).compareDocumentPosition(box) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+        box.compareDocumentPosition(screen.getByTestId("run-rows")) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+});
+it("remembers the switch in this browser", async () => {
+    const { unmount } = render(<App opening="dataset" />);
+    await uploadTable();
+    await userEvent.click(
+        await screen.findByLabelText(t("fallback.switch.label")),
+    );
+    expect(switchBox()).toBeChecked();
+    expect(readFallbackSwitch()).toBe(true);
+    unmount();
+    render(<App opening="dataset" />);
+    await uploadTable();
+    expect(
+        await screen.findByLabelText(t("fallback.switch.label")),
+    ).toBeChecked();
+    await userEvent.click(switchBox());
+    expect(switchBox()).not.toBeChecked();
+    expect(readFallbackSwitch()).toBe(false);
+});
+it("takes a storage that cannot be read as off, and still lets the switch be used", async () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+        throw new Error("blocked");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+        throw new Error("blocked");
+    });
+    render(<App opening="dataset" />);
+    await uploadTable();
+    const box = await screen.findByLabelText(t("fallback.switch.label"));
+    expect(box).not.toBeChecked();
+    await userEvent.click(box);
+    expect(switchBox()).toBeChecked();
+    vi.restoreAllMocks();
+});
+it("shows the switch in Advanced as well", async () => {
+    localStorage.setItem("enrichment.mode", "advanced");
+    render(<App opening="dataset" />);
+    await userEvent.upload(
+        screen.getByLabelText("Upload Excel workbook"),
+        new File(["x"], "mountains.xlsx"),
+    );
+    await userEvent.click(button("previewAction"));
+    expect(
+        await screen.findByLabelText(t("fallback.switch.label")),
+    ).not.toBeChecked();
+});
+
+// --- With the switch on ------------------------------------------------------------
+
+it("with the switch on, builds the search plan at once for a task the planner refuses, and shows it as the plan", async () => {
+    await toPlan();
+    // One request for the planner, then one for the search, with the defaults.
+    expect(api.createPlan).toHaveBeenCalledTimes(1);
+    expect(api.createFallbackPlan).toHaveBeenCalledTimes(1);
+    expect(api.createFallbackPlan).toHaveBeenCalledWith(defaultRequest);
+    // At the top, in plain words, why and what happened instead.
+    const notice = screen.getByTestId("fallback-auto-notice");
+    expect(notice).toHaveTextContent(t("fallback.auto.refused"));
+    expect(notice).toHaveTextContent("The first ascent is not in the sources.");
+    expect(notice).toHaveTextContent(t("fallback.auto.bySwitch"));
+    expect(screen.getByTestId("fallback-banner")).toBeVisible();
+    // The columns that are sent, and the way to change them.
+    expect(screen.getByTestId("fallback-sent")).toHaveTextContent(
+        t("fallback.sent", { columns: "Mountain, Country" }),
+    );
+    expect(button("fallback.change.open")).toBeEnabled();
+    // Approving this plan is the consent: the button is there, nothing was run.
+    expect(button("ws.approveRun")).toBeEnabled();
+    expect(api.approvePlan).not.toHaveBeenCalled();
+    expect(api.startRun).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("fallback-offer")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("fallback-form")).not.toBeInTheDocument();
+    expect(screen.getByTestId("validation")).toHaveTextContent(
+        t("plan.checked"),
+    );
+});
+it("says that the search plan is being built, in place of the refusal", async () => {
+    let finish: (draft: PlanDraft) => void = () => undefined;
+    vi.mocked(api.createFallbackPlan).mockReturnValue(
+        new Promise((resolve) => (finish = resolve)),
+    );
+    switchOn();
+    render(<App opening="dataset" />);
+    await refusedTask("fallback-progress");
+    expect(screen.getByTestId("fallback-progress")).toHaveTextContent(
+        t("fallback.auto.building"),
+    );
+    expect(screen.queryByTestId("plan-refusal")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("fallback-offer")).not.toBeInTheDocument();
+    finish(fallbackDraft);
+    expect(await screen.findByTestId("fallback-plan")).toBeVisible();
+    expect(screen.queryByTestId("fallback-progress")).not.toBeInTheDocument();
+});
+it("does the same when the planner's plan fails the check, and says so", async () => {
+    vi.mocked(api.createPlan).mockResolvedValue(invalidPlan);
+    switchOn();
+    render(<App opening="dataset" />);
+    await refusedTask("fallback-plan");
+    expect(api.createFallbackPlan).toHaveBeenCalledTimes(1);
+    expect(api.createFallbackPlan).toHaveBeenCalledWith(defaultRequest);
+    const notice = screen.getByTestId("fallback-auto-notice");
+    expect(notice).toHaveTextContent(t("fallback.auto.invalid"));
+    expect(notice).not.toHaveTextContent(t("fallback.auto.refused"));
+    expect(notice).toHaveTextContent(t("fallback.auto.bySwitch"));
+    expect(button("ws.approveRun")).toBeEnabled();
+    // What the planner answered is behind a fold: its messages, not its plan.
+    const answer = screen.getByTestId("fallback-planner");
+    expect(answer).not.toHaveAttribute("open");
+    await userEvent.click(within(answer).getByText(t("fallback.planner.show")));
+    expect(within(answer).getByTestId("plan-invalid")).toBeVisible();
+    expect(answer).toHaveTextContent(
+        "Enrichment plan must contain at least one step",
+    );
+});
+it("does not use the search when the planner built a plan that passed the check", async () => {
+    vi.mocked(api.createPlan).mockResolvedValue(ordinary);
+    switchOn();
+    render(<App opening="dataset" />);
+    await refusedTask("validation");
+    expect(api.createFallbackPlan).not.toHaveBeenCalled();
+    expect(
+        screen.queryByTestId("fallback-auto-notice"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("fallback-planner")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("fallback-offer")).not.toBeInTheDocument();
+});
+it("does not search for another reason than the planner's refusal", async () => {
+    vi.mocked(api.createPlan).mockResolvedValue({
+        ...refused,
+        planning_status: "other",
+    });
+    switchOn();
     render(<App opening="dataset" />);
     await refusedTask();
-    await open();
+    expect(api.createFallbackPlan).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("fallback-offer")).not.toBeInTheDocument();
+});
+it("does not search where the server cannot, whatever the browser remembers", async () => {
+    vi.mocked(api.limits).mockResolvedValue(limits(false));
+    switchOn();
+    render(<App opening="dataset" />);
+    await refusedTask();
+    expect(api.createFallbackPlan).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("fallback-offer")).not.toBeInTheDocument();
+    expect(screen.getByTestId("plan-refusal")).toBeVisible();
+});
+it("shows the planner's refusal and the form when the search plan cannot be built", async () => {
+    vi.mocked(api.createFallbackPlan).mockRejectedValueOnce(
+        new WorkspaceApiError(
+            "fallback_plan_invalid",
+            "The column 'Rank' is not usable.",
+            422,
+        ),
+    );
+    switchOn();
+    render(<App opening="dataset" />);
+    await refusedTask();
+    const form = await screen.findByTestId("fallback-form");
+    expect(api.createFallbackPlan).toHaveBeenCalledTimes(1);
+    // The planner's view as before, the server's message, and the form to fix it.
+    expect(screen.getByTestId("plan-refusal")).toBeVisible();
+    expect(
+        screen.queryByTestId("fallback-auto-notice"),
+    ).not.toBeInTheDocument();
+    const alert = within(form).getByRole("alert");
+    expect(alert).toHaveAttribute("data-error-code", "fallback_plan_invalid");
+    expect(alert).toHaveTextContent(t("error.fallback_plan_invalid"));
+    expect(alert).toHaveTextContent("The column 'Rank' is not usable.");
+    // The form starts from what was sent.
     expect(screen.getByLabelText(t("fallback.question"))).toHaveValue(
         refused.instruction,
     );
-    for (const box of context().getAllByRole("checkbox"))
-        expect(box).not.toBeChecked();
-    // Without a column that identifies the row nothing can be sent.
-    expect(button("fallback.build")).toBeDisabled();
+    for (const name of ["Mountain", "Country", "Rank"])
+        expect(
+            context().getByRole("checkbox", { name: new RegExp(`^${name}`) }),
+        ).toBeChecked();
+    // Fixed and sent again: the plan appears, asked for by the person.
+    await choose("Rank");
+    await userEvent.click(button("fallback.build"));
+    expect(await screen.findByTestId("fallback-plan")).toBeVisible();
+    expect(api.createFallbackPlan).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.createFallbackPlan).mock.calls[1][0]).toEqual({
+        ...defaultRequest,
+        context_columns: ["Mountain", "Country"],
+    });
+    expect(screen.getByTestId("fallback-auto-notice")).toHaveTextContent(
+        t("fallback.auto.byButton"),
+    );
+});
+it("asks for a column that identifies the row when the table has none to propose", async () => {
+    vi.mocked(api.preview).mockResolvedValue({
+        ...preview,
+        range_ref: "A1:B11",
+        profile: {
+            ...preview.profile,
+            columns: [column("Born", "Date"), column("Height", "Number", 10)],
+        },
+    });
+    switchOn();
+    render(<App opening="dataset" />);
+    await uploadTable();
+    fireEvent.change(screen.getByLabelText("Enrichment instruction"), {
+        target: { value: refused.instruction },
+    });
+    await userEvent.selectOptions(
+        screen.getByLabelText(t("ws.fillColumn")),
+        "B",
+    );
+    await userEvent.click(button("ws.buildPlan"));
+    const form = await screen.findByTestId("fallback-form");
+    // Nothing is sent to the server for it.
+    expect(api.createFallbackPlan).not.toHaveBeenCalled();
+    expect(within(form).getByRole("alert")).toHaveAttribute(
+        "data-error-code",
+        "fallback_plan_invalid",
+    );
     expect(screen.getByTestId("fallback-need")).toHaveTextContent(
         t("fallback.need.context"),
     );
+    expect(button("fallback.build")).toBeDisabled();
 });
-it("keeps the columns to fill and the other kinds of column out of the choice", async () => {
+
+// --- With the switch off -----------------------------------------------------------
+
+it("offers one button and one checkbox under the explanation when the planner could not build a plan", async () => {
     render(<App opening="dataset" />);
     await refusedTask();
-    await open();
+    const offer = await screen.findByTestId("fallback-offer");
+    expect(screen.getByTestId("fallback-lead")).toHaveTextContent(
+        t("fallback.text"),
+    );
+    // After the explanation and the list of what the system can do, and apart from them.
+    const refusal = screen.getByTestId("plan-refusal");
+    expect(
+        refusal.compareDocumentPosition(offer) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(refusal).not.toContainElement(offer);
+    // One button, one checkbox, no form, no dialog.
+    const inside = within(offer);
+    expect(inside.getAllByRole("button")).toHaveLength(1);
+    expect(inside.getByRole("button")).toHaveAccessibleName(
+        t("fallback.searchNow"),
+    );
+    expect(inside.getAllByRole("checkbox")).toHaveLength(1);
+    expect(inside.getByLabelText(t("fallback.autoNext"))).not.toBeChecked();
+    expect(screen.queryByTestId("fallback-form")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(api.createFallbackPlan).not.toHaveBeenCalled();
+});
+it("builds the same search plan as the switch would when the button is pressed", async () => {
+    render(<App opening="dataset" />);
+    await refusedTask();
+    await userEvent.click(button("fallback.searchNow"));
+    expect(await screen.findByTestId("fallback-plan")).toBeVisible();
+    expect(api.createFallbackPlan).toHaveBeenCalledTimes(1);
+    expect(api.createFallbackPlan).toHaveBeenCalledWith(defaultRequest);
+    const notice = screen.getByTestId("fallback-auto-notice");
+    expect(notice).toHaveTextContent(t("fallback.auto.refused"));
+    expect(notice).toHaveTextContent(t("fallback.auto.byButton"));
+    expect(notice).not.toHaveTextContent(t("fallback.auto.bySwitch"));
+    // Pressing it is not switching it on.
+    expect(readFallbackSwitch()).toBe(false);
+    expect(button("ws.approveRun")).toBeEnabled();
+});
+it("waits with the button disabled while the search plan is built", async () => {
+    let finish: (draft: PlanDraft) => void = () => undefined;
+    vi.mocked(api.createFallbackPlan).mockReturnValue(
+        new Promise((resolve) => (finish = resolve)),
+    );
+    render(<App opening="dataset" />);
+    await refusedTask();
+    await userEvent.click(button("fallback.searchNow"));
+    await screen.findByTestId("fallback-progress");
+    finish(fallbackDraft);
+    expect(await screen.findByTestId("fallback-plan")).toBeVisible();
+});
+it("turns the switch on from the checkbox, without building anything yet, and uses it for the next plan", async () => {
+    render(<App opening="dataset" />);
+    await refusedTask();
+    await userEvent.click(screen.getByLabelText(t("fallback.autoNext")));
+    expect(readFallbackSwitch()).toBe(true);
+    expect(api.createFallbackPlan).not.toHaveBeenCalled();
+    expect(screen.getByTestId("plan-refusal")).toBeVisible();
+    // The same switch is the one on the task step.
+    await nav("dataset");
+    expect(
+        await screen.findByLabelText(t("fallback.switch.label")),
+    ).toBeChecked();
+    await userEvent.click(button("ws.buildPlan"));
+    expect(await screen.findByTestId("fallback-plan")).toBeVisible();
+    expect(api.createFallbackPlan).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("fallback-auto-notice")).toHaveTextContent(
+        t("fallback.auto.bySwitch"),
+    );
+});
+
+// --- Changing what is sent ---------------------------------------------------------
+
+it("opens the form from the plan with the choices of this plan, not the defaults", async () => {
+    await toPlan();
+    expect(screen.queryByTestId("fallback-form")).not.toBeInTheDocument();
+    await change();
+    expect(screen.getByTestId("fallback-form")).toBeVisible();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // The plan has Mountain and Country (not Rank), a unit and three kinds.
+    expect(screen.getByLabelText(t("fallback.question"))).toHaveValue(
+        "Find when each mountain was first climbed",
+    );
+    const box = (name: string) =>
+        context().getByRole("checkbox", { name: new RegExp(`^${name}`) });
+    expect(box("Mountain")).toBeChecked();
+    expect(box("Country")).toBeChecked();
+    expect(box("Rank")).not.toBeChecked();
+    const kind = (name: string) =>
+        targets().getByLabelText(t("fallback.kind", { name }));
+    expect(kind("Height")).toHaveValue("number");
+    expect(kind("First ascent")).toHaveValue("text");
+    expect(kind("Climbed in winter")).toHaveValue("yes_no");
+    expect(
+        targets().getByLabelText(t("fallback.unit", { name: "Height" })),
+    ).toHaveValue("m");
+    expect(
+        within(screen.getByTestId("fallback-form")).getByLabelText(
+            t("sources.title"),
+        ),
+    ).toHaveValue("notes");
+    // The plan stays on the screen meanwhile.
+    expect(screen.getByTestId("fallback-plan")).toBeVisible();
+    // It can be closed again without a change.
+    await userEvent.click(button("fallback.change.cancel"));
+    expect(screen.queryByTestId("fallback-form")).not.toBeInTheDocument();
+    expect(api.createFallbackPlan).toHaveBeenCalledTimes(1);
+});
+it("builds the plan again from the saved choices and returns to the plan", async () => {
+    await toPlan();
+    vi.mocked(api.createFallbackPlan).mockResolvedValue(searchPlan);
+    await change();
+    await choose("Country");
+    await userEvent.selectOptions(
+        targets().getByLabelText(t("fallback.kind", { name: "First ascent" })),
+        "yes_no",
+    );
+    await userEvent.selectOptions(
+        targets().getByLabelText(t("fallback.kind", { name: "Height" })),
+        "text",
+    );
+    fireEvent.change(screen.getByLabelText(t("fallback.question")), {
+        target: { value: "When was it first climbed?" },
+    });
+    await userEvent.click(button("fallback.change.save"));
+    await waitFor(() =>
+        expect(api.createFallbackPlan).toHaveBeenCalledTimes(2),
+    );
+    expect(vi.mocked(api.createFallbackPlan).mock.calls[1][0]).toEqual({
+        ...defaultRequest,
+        question: "When was it first climbed?",
+        context_columns: ["Mountain"],
+        targets: [
+            { column: "Height", kind: "text" },
+            { column: "First ascent", kind: "yes_no" },
+            { column: "Climbed in winter", kind: "yes_no" },
+        ],
+    });
+    // Back on the plan view with the new plan, the notice and the planner's answer.
+    await waitFor(() =>
+        expect(screen.queryByTestId("fallback-form")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("fallback-plan")).toBeVisible();
+    expect(screen.getByTestId("fallback-auto-notice")).toHaveTextContent(
+        t("fallback.auto.bySwitch"),
+    );
+    expect(screen.getByTestId("fallback-planner")).toBeInTheDocument();
+    await userEvent.click(button("ws.approveRun"));
+    expect(api.approvePlan).toHaveBeenCalledWith(
+        "plan-changed",
+        searchPlan.fingerprint,
+    );
+});
+it("keeps the plan and the entered choices when the new plan is refused", async () => {
+    await toPlan();
+    vi.mocked(api.createFallbackPlan).mockRejectedValueOnce(
+        new WorkspaceApiError("fallback_plan_invalid", "Not usable.", 422),
+    );
+    await change();
+    await userEvent.selectOptions(
+        targets().getByLabelText(t("fallback.kind", { name: "First ascent" })),
+        "yes_no",
+    );
+    await userEvent.click(button("fallback.change.save"));
+    const alert = await within(screen.getByTestId("fallback-form")).findByRole(
+        "alert",
+    );
+    expect(alert).toHaveTextContent("Not usable.");
+    expect(
+        targets().getByLabelText(t("fallback.kind", { name: "First ascent" })),
+    ).toHaveValue("yes_no");
+    expect(screen.getByTestId("fallback-plan")).toBeVisible();
+    expect(button("ws.approveRun")).toBeEnabled();
+});
+it("shows what the planner answered again, read-only, after the search plan took its place", async () => {
+    await toPlan();
+    const answer = screen.getByTestId("fallback-planner");
+    expect(answer).not.toHaveAttribute("open");
+    expect(screen.getByTestId("plan-refusal")).not.toBeVisible();
+    await userEvent.click(within(answer).getByText(t("fallback.planner.show")));
+    expect(answer).toHaveAttribute("open");
+    const refusal = within(answer).getByTestId("plan-refusal");
+    expect(refusal).toBeVisible();
+    expect(refusal).toHaveTextContent(
+        "The first ascent is not in the sources.",
+    );
+    expect(refusal).toHaveTextContent(t("plan.refused.unsupported"));
+    // Nothing to press in it.
+    expect(within(answer).queryByRole("button")).not.toBeInTheDocument();
+    expect(
+        within(answer).queryByTestId("fallback-offer"),
+    ).not.toBeInTheDocument();
+});
+
+// --- The form -----------------------------------------------------------------------
+
+it("keeps the columns to fill and the other kinds of column out of the choice", async () => {
+    await toPlan();
+    await change();
     const box = (name: string) =>
         context().getByRole("checkbox", { name: new RegExp(`^${name}`) });
     // The columns to fill cannot identify a row, and say why.
@@ -394,15 +860,10 @@ it("keeps the columns to fill and the other kinds of column out of the choice", 
         expect(box(name)).toBeEnabled();
 });
 it("asks for the kind of each column to fill, and for a unit only of a number", async () => {
-    render(<App opening="dataset" />);
-    await refusedTask();
-    await open();
+    await toPlan();
+    await change();
     const kind = (name: string) =>
         targets().getByLabelText(t("fallback.kind", { name }));
-    // A column of numbers is proposed as Number, any other as Text.
-    expect(kind("Height")).toHaveValue("number");
-    expect(kind("First ascent")).toHaveValue("text");
-    expect(kind("Climbed in winter")).toHaveValue("text");
     expect(
         [...(kind("Height") as HTMLSelectElement).options].map((o) => o.text),
     ).toEqual(["Text", "Number", "Yes/No"]);
@@ -413,16 +874,16 @@ it("asks for the kind of each column to fill, and for a unit only of a number", 
     await userEvent.selectOptions(kind("Height"), "yes_no");
     expect(unit("Height")).not.toBeInTheDocument();
     await userEvent.selectOptions(kind("Height"), "number");
-    expect(unit("Height")).toHaveValue("");
+    // The unit that was there is still there.
+    expect(unit("Height")).toHaveValue("m");
     // No letters or slots anywhere in what the person reads.
     expect(screen.getByTestId("fallback-form")).not.toHaveTextContent(
         /value_\d|ctx_\d/,
     );
 });
-it("says what leaves the server and what it costs, with the numbers of the page", async () => {
-    render(<App opening="dataset" />);
-    await refusedTask();
-    await open();
+it("needs a column that identifies the row, and says what leaves the server and what it costs", async () => {
+    await toPlan();
+    await change();
     const notice = screen.getByTestId("fallback-notice");
     expect(notice).toHaveTextContent(t("fallback.notice.requests"));
     expect(notice).toHaveTextContent(t("fallback.notice.sends"));
@@ -430,157 +891,65 @@ it("says what leaves the server and what it costs, with the numbers of the page"
     expect(notice).toHaveTextContent(t("fallback.notice.rows", { rows: 10 }));
     expect(notice).toHaveTextContent(t("fallback.notice.cost"));
     expect(notice).toHaveTextContent(t("fallback.notice.unverified"));
-    // Above the button, which is the last thing in the form.
     expect(
-        notice.compareDocumentPosition(button("fallback.build")) &
+        notice.compareDocumentPosition(button("fallback.change.save")) &
             Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+    await choose("Mountain");
+    await choose("Country");
+    expect(button("fallback.change.save")).toBeDisabled();
+    expect(screen.getByTestId("fallback-need")).toHaveTextContent(
+        t("fallback.need.context"),
+    );
 });
-it("preselects the cell notes, with the reason, and lets the person change them", async () => {
-    render(<App opening="dataset" />);
-    await refusedTask();
-    await open();
-    const form = within(screen.getByTestId("fallback-form"));
-    const sources = form.getByLabelText(t("sources.title"));
-    expect(sources).toHaveValue("notes");
-    expect(form.getByText(t("fallback.sourcesWhy"))).toBeVisible();
+it("lets the person change where the links go", async () => {
+    await toPlan();
+    await change();
+    const sources = within(screen.getByTestId("fallback-form")).getByLabelText(
+        t("sources.title"),
+    );
+    expect(screen.getByText(t("fallback.sourcesWhy"))).toBeVisible();
     await userEvent.selectOptions(sources, "sheet");
     expect(sources).toHaveValue("sheet");
 });
-
-it("sends the choices with the same table and columns as the failed request, and shows the plan", async () => {
-    render(<App opening="dataset" />);
-    await refusedTask();
-    await open();
-    await choose("Country");
-    await choose("Mountain");
-    await userEvent.type(
-        targets().getByLabelText(t("fallback.unit", { name: "Height" })),
-        "m",
-    );
-    await userEvent.selectOptions(
-        targets().getByLabelText(
-            t("fallback.kind", { name: "Climbed in winter" }),
-        ),
-        "yes_no",
-    );
-    fireEvent.change(screen.getByLabelText(t("fallback.question")), {
-        target: { value: "When was it first climbed?" },
-    });
-    expect(button("fallback.build")).toBeEnabled();
-    await userEvent.click(button("fallback.build"));
-    await waitFor(() =>
-        expect(api.createFallbackPlan).toHaveBeenCalledTimes(1),
-    );
-    expect(api.createFallbackPlan).toHaveBeenCalledWith({
-        dataset_id: "source",
-        sheet_name: "Sheet1",
-        range_ref: "A1:G11",
-        question: "When was it first climbed?",
-        context_columns: ["Mountain", "Country"],
-        targets: [
-            { column: "Height", kind: "number", unit: "m" },
-            { column: "First ascent", kind: "text" },
-            { column: "Climbed in winter", kind: "yes_no" },
-        ],
-        output_columns: {
-            Height: "E",
-            "First ascent": "F",
-            "Climbed in winter": "G",
-        },
-        existing_outputs: "keep",
-        sources_in_workbook: "notes",
-    });
-    // The draft becomes the current one: the same view now shows the plan.
-    expect(await screen.findByTestId("fallback-plan")).toBeVisible();
-    expect(screen.queryByTestId("fallback-offer")).not.toBeInTheDocument();
-    // No model made an assumption here: the sentence is headed by how the
-    // values are obtained.
-    expect(
-        screen.getByRole("heading", { name: t("fallback.howObtained") }),
-    ).toBeVisible();
-    expect(
-        screen.queryByRole("heading", { name: t("workflow.assumptions") }),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByTestId("plan-refusal")).not.toBeInTheDocument();
-});
-it("waits with the button disabled and a progress mark", async () => {
+it("waits with the button disabled and a progress mark while the plan is built again", async () => {
+    await toPlan();
     let finish: (draft: PlanDraft) => void = () => undefined;
     vi.mocked(api.createFallbackPlan).mockReturnValue(
         new Promise((resolve) => (finish = resolve)),
     );
-    render(<App opening="dataset" />);
-    await refusedTask();
-    await open();
-    await choose("Mountain");
-    await userEvent.click(button("fallback.build"));
-    await waitFor(() => expect(button("fallback.build")).toBeDisabled());
-    expect(button("fallback.build").querySelector(".spin")).not.toBeNull();
-    finish(fallbackDraft);
-    expect(await screen.findByTestId("fallback-plan")).toBeVisible();
-});
-it("shows a refusal next to the form with the server's message, and keeps what was entered", async () => {
-    vi.mocked(api.createFallbackPlan).mockRejectedValueOnce(
-        new WorkspaceApiError(
-            "fallback_plan_invalid",
-            "The column 'Born' has date values; only text and number columns can identify a row.",
-            422,
-        ),
-    );
-    render(<App opening="dataset" />);
-    await refusedTask();
-    await open();
-    await choose("Country");
-    fireEvent.change(screen.getByLabelText(t("fallback.question")), {
-        target: { value: "Something else" },
-    });
-    await userEvent.selectOptions(
-        targets().getByLabelText(t("fallback.kind", { name: "First ascent" })),
-        "yes_no",
-    );
-    await userEvent.click(button("fallback.build"));
-    const alert = await within(screen.getByTestId("fallback-form")).findByRole(
-        "alert",
-    );
-    expect(alert).toHaveAttribute("data-error-code", "fallback_plan_invalid");
-    expect(alert).toHaveTextContent(t("error.fallback_plan_invalid"));
-    expect(alert).toHaveTextContent(
-        "only text and number columns can identify a row",
-    );
-    // Not as the banner of the page, and nothing was lost.
-    expect(screen.getAllByRole("alert")).toHaveLength(1);
-    expect(screen.getByLabelText(t("fallback.question"))).toHaveValue(
-        "Something else",
-    );
-    expect(context().getByRole("checkbox", { name: /^Country/ })).toBeChecked();
+    await change();
+    await userEvent.click(button("fallback.change.save"));
+    await waitFor(() => expect(button("fallback.change.save")).toBeDisabled());
     expect(
-        targets().getByLabelText(t("fallback.kind", { name: "First ascent" })),
-    ).toHaveValue("yes_no");
-    expect(button("fallback.build")).toBeEnabled();
-    // The refusal of the planner is still what the page shows.
-    expect(screen.getByTestId("plan-refusal")).toBeVisible();
+        button("fallback.change.save").querySelector(".spin"),
+    ).not.toBeNull();
+    // The plan itself stays; the progress text is for a task without a plan.
+    expect(screen.queryByTestId("fallback-progress")).not.toBeInTheDocument();
+    finish(searchPlan);
+    await waitFor(() =>
+        expect(screen.queryByTestId("fallback-form")).not.toBeInTheDocument(),
+    );
 });
 it("speaks the other languages too", async () => {
-    render(<App opening="dataset" />);
-    await refusedTask();
+    await toPlan();
     await userEvent.selectOptions(screen.getByLabelText(t("language")), "uk");
-    expect(screen.getByTestId("fallback-offer")).toHaveTextContent(
-        "Натомість шукати в інтернеті за допомогою ШІ",
+    const notice = screen.getByTestId("fallback-auto-notice");
+    expect(notice).toHaveTextContent("Планувальник не знайшов");
+    expect(notice).toHaveTextContent("Оскільки ви ввімкнули пошук в інтернеті");
+    expect(screen.getByTestId("fallback-sent")).toHaveTextContent(
+        "Значення цих стовпців надсилаються до OpenAI для кожного рядка: Mountain, Country.",
     );
-    await open();
+    await change();
     expect(screen.getByTestId("fallback-notice")).toHaveTextContent("OpenAI");
+    await userEvent.selectOptions(screen.getByLabelText(t("language")), "de");
+    expect(screen.getByTestId("fallback-auto-notice")).toHaveTextContent(
+        "Weil Sie die Websuche eingeschaltet haben",
+    );
 });
 
 // --- The plan, the run, the results ---------------------------------------------------
 
-async function toPlan() {
-    render(<App opening="dataset" />);
-    await refusedTask();
-    await open();
-    await choose("Mountain");
-    await userEvent.click(button("fallback.build"));
-    await screen.findByTestId("fallback-plan");
-}
 it("tells the plan of the search in words, without its stored form, and warns", async () => {
     await toPlan();
     const plan = screen.getByTestId("fallback-plan");
@@ -611,6 +980,7 @@ it("tells the plan of the search in words, without its stored form, and warns", 
 });
 it("keeps the plan of the search in the graph, with its stored form, in Advanced", async () => {
     localStorage.setItem("enrichment.mode", "advanced");
+    switchOn();
     render(<App opening="dataset" />);
     await userEvent.upload(
         screen.getByLabelText("Upload Excel workbook"),
@@ -624,15 +994,29 @@ it("keeps the plan of the search in the graph, with its stored form, in Advanced
         screen.getByLabelText("Output column 1", { exact: true }),
         "E",
     );
+    expect(switchBox()).toBeChecked();
     await userEvent.click(screen.getByLabelText(t("workflow.network")));
     await userEvent.click(button("ws.buildPlan"));
-    await screen.findByTestId("plan-refusal");
-    await open();
-    await choose("Mountain");
-    await userEvent.click(button("fallback.build"));
+    // At once, with no further press: the same plan as in Basic.
     expect(await screen.findByTestId("fallback-banner")).toBeVisible();
+    expect(api.createFallbackPlan).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(api.createFallbackPlan).mock.calls[0][0]).toMatchObject({
+        question: refused.instruction,
+        context_columns: ["Mountain", "Country", "Rank", "Climbed in winter"],
+        targets: [{ column: "Height", kind: "number" }],
+        output_columns: { Height: "E" },
+        sources_in_workbook: "notes",
+    });
     expect(screen.getByRole("region", { name: t("ws.graph") })).toBeVisible();
     expect(screen.getAllByText("web_lookup")[0]).toBeVisible();
+    // The notice, the columns that are sent and the way to change them.
+    expect(screen.getByTestId("fallback-auto-notice")).toHaveTextContent(
+        t("fallback.auto.bySwitch"),
+    );
+    expect(screen.getByTestId("fallback-sent")).toBeVisible();
+    await change();
+    expect(screen.getByTestId("fallback-form")).toBeVisible();
+    expect(screen.getByTestId("fallback-planner")).toBeInTheDocument();
 });
 it("approves and runs the search with the banner and the reason for the notes", async () => {
     await toPlan();
@@ -747,6 +1131,7 @@ it("offers no filter of concluded values when there are none", async () => {
 });
 it("gives Advanced the numbers of the run and the configuration", async () => {
     localStorage.setItem("enrichment.mode", "advanced");
+    localStorage.setItem(SWITCH, "on");
     render(<App opening="dataset" />);
     await userEvent.upload(
         screen.getByLabelText("Upload Excel workbook"),
@@ -762,10 +1147,7 @@ it("gives Advanced the numbers of the run and the configuration", async () => {
     );
     await userEvent.click(screen.getByLabelText(t("workflow.network")));
     await userEvent.click(button("ws.buildPlan"));
-    await screen.findByTestId("plan-refusal");
-    await open();
-    await choose("Mountain");
-    await userEvent.click(button("fallback.build"));
+    await screen.findByTestId("fallback-banner");
     await userEvent.click(
         await screen.findByRole("button", { name: t("ws.approveContinue") }),
     );
@@ -875,7 +1257,7 @@ it("mentions the search on the overview only when the server has it", async () =
 });
 
 // The planner handed over a plan the check refused.
-it("offers the search below the validator's messages when the planner's plan failed the check", async () => {
+it("offers the short block below the validator's messages when the planner's plan failed the check", async () => {
     vi.mocked(api.createPlan).mockResolvedValue(invalidPlan);
     render(<App opening="dataset" />);
     await refusedTask("plan-invalid");
@@ -893,55 +1275,35 @@ it("offers the search below the validator's messages when the planner's plan fai
             Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(invalid).not.toContainElement(offer);
-    // The lead-in of this case, not that of a refusal.
+    // The lead-in of this case, shortened, with the advice kept.
     expect(screen.getByTestId("fallback-lead")).toHaveTextContent(
         t("fallback.invalidText"),
     );
     expect(offer).not.toHaveTextContent(t("fallback.text"));
+    expect(within(offer).getAllByRole("button")).toHaveLength(1);
+    expect(within(offer).getAllByRole("checkbox")).toHaveLength(1);
+    expect(screen.queryByTestId("fallback-form")).not.toBeInTheDocument();
     expect(screen.queryByTestId("plan-refusal")).not.toBeInTheDocument();
 });
 it("builds the same request from the invalid view as from a refusal", async () => {
-    const fill = async () => {
-        await open();
-        await choose("Mountain");
-        await choose("Country");
-        await userEvent.click(button("fallback.build"));
-        await waitFor(() => expect(api.createFallbackPlan).toHaveBeenCalled());
-        return vi.mocked(api.createFallbackPlan).mock.calls[0][0];
-    };
     render(<App opening="dataset" />);
     await refusedTask();
-    const fromRefusal = await fill();
+    await userEvent.click(button("fallback.searchNow"));
+    await waitFor(() => expect(api.createFallbackPlan).toHaveBeenCalled());
+    const fromRefusal = vi.mocked(api.createFallbackPlan).mock.calls[0][0];
     cleanup();
     vi.mocked(api.createFallbackPlan).mockClear();
     vi.mocked(api.createPlan).mockResolvedValue(invalidPlan);
     render(<App opening="dataset" />);
     await refusedTask("plan-invalid");
-    await screen.findByTestId("fallback-offer");
-    // Nothing is preselected among the identifying columns; the task is the question.
-    await open();
-    expect(screen.getByLabelText(t("fallback.question"))).toHaveValue(
-        refused.instruction,
-    );
-    for (const box of context().getAllByRole("checkbox"))
-        expect(box).not.toBeChecked();
-    cleanup();
-    vi.mocked(api.createFallbackPlan).mockClear();
-    render(<App opening="dataset" />);
-    await refusedTask("plan-invalid");
-    await screen.findByTestId("fallback-offer");
-    const fromInvalid = await fill();
+    await userEvent.click(button("fallback.searchNow"));
+    await waitFor(() => expect(api.createFallbackPlan).toHaveBeenCalled());
+    const fromInvalid = vi.mocked(api.createFallbackPlan).mock.calls[0][0];
     expect(fromInvalid).toEqual(fromRefusal);
-    expect(fromInvalid).toMatchObject({
-        dataset_id: "source",
-        sheet_name: "Sheet1",
-        range_ref: "A1:G11",
-        output_columns: {
-            Height: "E",
-            "First ascent": "F",
-            "Climbed in winter": "G",
-        },
-    });
+    expect(fromInvalid).toEqual(defaultRequest);
+    expect(await screen.findByTestId("fallback-auto-notice")).toHaveTextContent(
+        t("fallback.auto.invalid"),
+    );
 });
 it("does not offer it for an invalid plan where the server cannot do it", async () => {
     vi.mocked(api.limits).mockResolvedValue(limits(false));

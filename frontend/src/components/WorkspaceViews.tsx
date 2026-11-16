@@ -30,7 +30,15 @@ import { Button } from "./ui/button";
 import { ProviderSettings } from "./ProviderSettings";
 import { PlanGraph } from "./PlanGraph";
 import { PlanDescription, PlanInvalid, PlanRefusal } from "./PlanDescription";
-import { FallbackBanner, FallbackSearch } from "./FallbackSearch";
+import {
+    FallbackBanner,
+    FallbackOffer,
+    FallbackPlanExtras,
+    FallbackPlanNotice,
+    FallbackProgress,
+    FallbackSwitch,
+    PlannerAnswerView,
+} from "./FallbackSearch";
 import {
     isFallbackDraft,
     isFallbackRun,
@@ -661,6 +669,7 @@ export function DatasetConfiguration({
                             {t("workflow.addMapping")}
                         </Button>
                     )}
+                    <FallbackSwitch w={w} />
                     <RunRows w={w} preview={preview} />
                     <ExistingOutputs w={w} preview={preview} />
                     <SourcesInWorkbookChoice w={w} />
@@ -840,8 +849,16 @@ export function PlanWorkspace({
     // A long instruction would push the rest of the summary off the screen.
     const long = !advanced && (draft?.instruction.length ?? 0) > 220;
     const offer = fallbackOffer(draft, w.webLookup);
-    const refusalOffer = offer === "refused";
-    const invalidOffer = offer === "invalid" ? offer : null;
+    // The search plan is being built for a task the planner had no plan for.
+    const searching =
+        w.operation?.kind === "fallback" && !!draft && !draft.kind;
+    const search = isFallbackDraft(draft);
+    const banner = search ? (
+        <div className="fallback-banner-row">
+            {w.planner && <FallbackPlanNotice planner={w.planner} />}
+            <FallbackBanner />
+        </div>
+    ) : null;
     return (
         <div className="stage-layout">
             <section className="workspace-panel plan-stage">
@@ -856,13 +873,16 @@ export function PlanWorkspace({
                         <h2>{t(advanced ? "ws.graph" : "plan.title")}</h2>
                     </div>
                 )}
-                {isFallbackDraft(draft) && (
-                    <div className="fallback-banner-row">
-                        <FallbackBanner />
-                    </div>
-                )}
+                {/* In Basic the notice and the banner scroll with the plan, so
+                    that the form under it has the room; the graph of Advanced
+                    has its own area and they stay above it. */}
+                {advanced && banner}
                 {!draft ? (
                     <EmptyState icon="plan" text={t("ws.noPlan")} />
+                ) : searching ? (
+                    <div className="plan-words panel-scroll">
+                        <FallbackProgress />
+                    </div>
                 ) : !draft.plan ? (
                     <div className="plan-words panel-scroll">
                         <PlanRefusal
@@ -870,8 +890,8 @@ export function PlanWorkspace({
                             maxRows={w.maxRows}
                             capabilities={w.capabilities}
                         >
-                            {preview && refusalOffer && (
-                                <FallbackSearch
+                            {preview && offer === "refused" && (
+                                <FallbackOffer
                                     w={w}
                                     draft={draft}
                                     preview={preview}
@@ -880,22 +900,56 @@ export function PlanWorkspace({
                         </PlanRefusal>
                     </div>
                 ) : advanced ? (
-                    <PlanGraph key={draft.fingerprint} draft={draft} />
+                    <>
+                        <PlanGraph key={draft.fingerprint} draft={draft} />
+                        {search && (
+                            <div className="plan-words">
+                                <FallbackPlanExtras
+                                    key={draft.plan_id}
+                                    w={w}
+                                    draft={draft}
+                                    preview={preview}
+                                />
+                                {w.planner && (
+                                    <PlannerAnswerView
+                                        w={w}
+                                        planner={w.planner}
+                                    />
+                                )}
+                            </div>
+                        )}
+                    </>
                 ) : (
                     <div className="plan-words panel-scroll">
+                        {banner}
                         {!draft.validation.valid && (
                             <PlanInvalid draft={draft}>
-                                {preview && invalidOffer && (
-                                    <FallbackSearch
+                                {preview && offer === "invalid" && (
+                                    <FallbackOffer
                                         w={w}
                                         draft={draft}
                                         preview={preview}
-                                        offer={invalidOffer}
                                     />
                                 )}
                             </PlanInvalid>
                         )}
                         <PlanDescription draft={draft} />
+                        {search && (
+                            <>
+                                <FallbackPlanExtras
+                                    key={draft.plan_id}
+                                    w={w}
+                                    draft={draft}
+                                    preview={preview}
+                                />
+                                {w.planner && (
+                                    <PlannerAnswerView
+                                        w={w}
+                                        planner={w.planner}
+                                    />
+                                )}
+                            </>
+                        )}
                     </div>
                 )}
             </section>

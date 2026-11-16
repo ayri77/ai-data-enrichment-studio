@@ -3,9 +3,15 @@
 ## Unreleased
 
 - The universal search can be asked for through the API and the run worker and, when the
-  server offers it, from the interface: after the planner refuses a task, Plan offers a
-  form (question, identifying columns, columns to fill with kind and unit) that posts to
-  `POST /api/fallback-plans`; the plan, Run and Results views carry a "not verified" banner, mark
+  server offers it, from the interface with one switch on the task step ("If the system has no
+  source for this task, search the web with AI", off by default, remembered in the browser): when
+  the planner has no runnable plan (it refused, or its plan failed the check), the interface asks
+  `POST /api/fallback-plans` at once with defaults (the task as the question, the columns to fill
+  with `number` or `text`, every text or number column that is not filled as an identifying
+  column, notes for the links) and shows the search plan as the plan, with a notice of why, the
+  columns that are sent, a button to change them in a form, and the planner's answer one click
+  away; with the switch off the refusal view has one short block with one button that does the
+  same. The plan, Run and Results views carry a "not verified" banner, mark
   values concluded by the model, and Review says there is nothing to choose. `POST /api/fallback-plans` makes a draft with `"kind": "fallback"` and one step,
   `web_lookup`, which asks a model with web search for several columns of each row; approval,
   run, review, download and the audit use the existing routes. It is off unless the server sets
@@ -15,11 +21,6 @@
   `web_searches`. A plan with `web_lookup` is refused on the normal route, from the planner
   and as a supplied plan. Tested only against a fake client and the offline fixture server: no live run
   through the application has been made, and the values are not verified.
-- The universal search is now also offered under the "This plan cannot be run" view when the planner
-  handed over a plan that the check refused (for instance a `ready` plan with no steps), not only after
-  an `unsupported` or `ambiguous` refusal; the validator's messages stay, the lead-in tells the person
-  to build the plan again or rephrase first if the task is something the system can do, and the limits
-  are read again after such a plan. Never for a plan that passed or for a draft of the search itself.
 - The kind of trust behind a value is now shown instead of staying in the code:
   `GET /api/capabilities` gains `trust` (`computed`, `record`, `resolved_name`,
   `service`) beside `source`, and the audit report gains `step_provenance`

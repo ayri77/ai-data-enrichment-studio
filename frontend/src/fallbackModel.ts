@@ -7,6 +7,7 @@ import type {
     Preview,
     SourcesInWorkbook,
 } from "./api";
+import { readPreference, savePreference } from "./preferences";
 import type { OutputTarget } from "./workflowModel";
 
 // The universal search: a plan the server builds from a question, the columns
@@ -20,6 +21,21 @@ export const LOOKUP_CAPABILITY = "web_lookup";
 export const MAX_UNIT = 30;
 /** The longest question a plan request takes. */
 export const MAX_QUESTION = 4000;
+/** The most columns that may identify a row in one request. */
+export const MAX_CONTEXT = 30;
+
+const SWITCH_KEY = "fallbackSearch";
+/**
+ * The person's choice to search the web with AI when the system has no source
+ * for a task. Off unless it was switched on in this browser; a storage that
+ * cannot be read means off.
+ */
+export function readFallbackSwitch(): boolean {
+    return readPreference(SWITCH_KEY) === "on";
+}
+export function saveFallbackSwitch(on: boolean) {
+    savePreference(SWITCH_KEY, on ? "on" : "off");
+}
 
 export const isFallbackDraft = (
     draft: Pick<PlanDraft, "kind"> | null | undefined,
@@ -288,4 +304,54 @@ export function readLookupTask(
         });
     }
     return { question, context: headers, columns: read };
+}
+
+/**
+ * The form of a search plan that is built without asking: the task as the
+ * question, the columns to fill as the request names them (a number where the
+ * existing column holds numbers, text otherwise, no unit), and as identifying
+ * columns every column of the table that can identify a row and is not
+ * filled, in the table's order, up to what one request takes. The links are
+ * written as notes on the cells.
+ */
+export function defaultFallbackForm(
+    task: string,
+    mapping: OutputTarget[],
+    preview: Preview,
+): FallbackForm {
+    const targets = targetNames(mapping);
+    return {
+        question: task,
+        context: preview.profile.columns
+            .filter(
+                (column) =>
+                    !targets.includes(column.name) &&
+                    contextBlocker(column.inferred_type) === null,
+            )
+            .map((column) => column.name)
+            .slice(0, MAX_CONTEXT),
+        settings: {},
+        sources: "notes",
+    };
+}
+
+/**
+ * The choices a search plan was built from, read back from the plan, to fill
+ * the form again. Null when the plan does not say (it is not a one-step search
+ * plan), and the caller then starts from the defaults.
+ */
+export function formFromDraft(draft: PlanDraft): FallbackForm | null {
+    const lookup = readLookupTask(draft.plan, draft.output_columns);
+    if (!lookup) return null;
+    return {
+        question: lookup.question,
+        context: lookup.context,
+        settings: Object.fromEntries(
+            lookup.columns.map((column) => [
+                column.header,
+                { kind: column.kind, unit: column.unit ?? "" },
+            ]),
+        ),
+        sources: draft.sources_in_workbook ?? "none",
+    };
 }

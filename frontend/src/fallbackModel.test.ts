@@ -1,12 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import i18n from "./i18n";
 import type { PlanDraft, Preview } from "./api";
 import { capabilityTitle, capabilityProvenance } from "./capabilities";
 import {
     buildFallbackRequest,
     contextBlocker,
+    defaultFallbackForm,
     defaultKind,
+    formFromDraft,
     formProblems,
+    MAX_CONTEXT,
+    readFallbackSwitch,
+    saveFallbackSwitch,
     isFallbackRun,
     couldOfferFallback,
     fallbackOffer,
@@ -413,5 +418,196 @@ describe("what a run says in Basic", () => {
         // Without the flag the old sentences stay as they were.
         const other = runOutcome(needs, lookupReport, lookupPlan, null);
         expect(other?.more).toEqual([]);
+    });
+});
+
+describe("the search plan built without asking", () => {
+    const wide = (extra: Preview["profile"]["columns"]): Preview => ({
+        ...preview,
+        profile: { ...preview.profile, columns: extra },
+    });
+    const fills: OutputTarget[] = [
+        { mode: "existing", name: "Height", column: "E" },
+        { mode: "existing", name: "First ascent", column: "F" },
+        { mode: "new", name: " Notes ", column: "H" },
+    ];
+    it("asks the task itself, with the notes for the links and nothing set for the kinds", () => {
+        const made = defaultFallbackForm("  Find it  ", fills, preview);
+        // The wording is the request's to trim, as for the form.
+        expect(made.question).toBe("  Find it  ");
+        expect(made.settings).toEqual({});
+        expect(made.sources).toBe("notes");
+    });
+    it("fills the columns of the request in order: numbers where the column holds numbers", () => {
+        const made = defaultFallbackForm("Find it", fills, preview);
+        const request = buildFallbackRequest({
+            preview,
+            mapping: fills,
+            existingOutputs: "keep",
+            form: made,
+        });
+        expect(request.targets).toEqual([
+            { column: "Height", kind: "number" },
+            { column: "First ascent", kind: "text" },
+            { column: "Notes", kind: "text" },
+        ]);
+        expect(request.question).toBe("Find it");
+        expect(request.output_columns).toEqual({
+            Height: "E",
+            "First ascent": "F",
+            Notes: "H",
+        });
+    });
+    it("identifies a row by every text and number column that is not filled, in the table's order", () => {
+        const made = defaultFallbackForm("Find it", fills, preview);
+        // Born holds dates; Height and First ascent are filled; Climbed in winter has text.
+        expect(made.context).toEqual([
+            "Mountain",
+            "Country",
+            "Rank",
+            "Climbed in winter",
+        ]);
+    });
+    it("leaves out the columns that cannot identify a row, and the empty ones", () => {
+        const columns = [
+            column("Name", "Text"),
+            column("When", "DateTime"),
+            column("Flag", "Boolean"),
+            column("Both", "Mixed"),
+            column("Nothing", "Unknown"),
+            column("Strange", "Something"),
+            column("Size", "Number"),
+            column("Count", "Integer"),
+        ];
+        const made = defaultFallbackForm(
+            "Find it",
+            [{ mode: "new", name: "Answer", column: "I" }],
+            wide(columns),
+        );
+        expect(made.context).toEqual(["Name", "Size", "Count"]);
+    });
+    it("never identifies a row by a column to fill, even one of text", () => {
+        const made = defaultFallbackForm(
+            "Find it",
+            [{ mode: "existing", name: "Country", column: "B" }],
+            preview,
+        );
+        expect(made.context).not.toContain("Country");
+        expect(made.context).toContain("Mountain");
+    });
+    it("takes at most as many columns as one request does, from the left", () => {
+        const many = Array.from({ length: 35 }, (_, i) =>
+            column(`Column ${i + 1}`, "Text"),
+        );
+        const made = defaultFallbackForm(
+            "Find it",
+            [{ mode: "existing", name: "Column 2", column: "B" }],
+            wide(many),
+        );
+        expect(MAX_CONTEXT).toBe(30);
+        expect(made.context).toHaveLength(30);
+        expect(made.context[0]).toBe("Column 1");
+        expect(made.context).not.toContain("Column 2");
+        expect(made.context[1]).toBe("Column 3");
+        expect(made.context[29]).toBe("Column 31");
+    });
+    it("is a form the request accepts, unless no column can identify a row", () => {
+        expect(
+            formProblems(
+                defaultFallbackForm("Find it", fills, preview),
+                fills,
+                preview,
+            ),
+        ).toEqual([]);
+        const none = wide([column("Height", "Number"), column("When", "Date")]);
+        expect(
+            formProblems(
+                defaultFallbackForm(
+                    "Find it",
+                    [{ mode: "existing", name: "Height", column: "A" }],
+                    none,
+                ),
+                [{ mode: "existing", name: "Height", column: "A" }],
+                none,
+            ),
+        ).toEqual(["context"]);
+    });
+});
+
+describe("the choices of a search plan read back into the form", () => {
+    it("gives the question, the columns, the kinds, the units and where the links go", () => {
+        expect(formFromDraft(fallbackDraft)).toEqual({
+            question: "Find when each mountain was first climbed",
+            context: ["Mountain", "Country"],
+            settings: {
+                Height: { kind: "number", unit: "m" },
+                "First ascent": { kind: "text", unit: "" },
+                "Climbed in winter": { kind: "yes_no", unit: "" },
+            },
+            sources: "notes",
+        });
+        expect(
+            formFromDraft({ ...fallbackDraft, sources_in_workbook: "sheet" })
+                ?.sources,
+        ).toBe("sheet");
+    });
+    it("builds the same request again from what it read", () => {
+        const read = formFromDraft(fallbackDraft)!;
+        const targets: OutputTarget[] = [
+            { mode: "existing", name: "Height", column: "E" },
+            { mode: "existing", name: "First ascent", column: "F" },
+            { mode: "existing", name: "Climbed in winter", column: "G" },
+        ];
+        const request = buildFallbackRequest({
+            preview,
+            mapping: targets,
+            existingOutputs: "keep",
+            form: read,
+        });
+        expect(request.context_columns).toEqual(["Mountain", "Country"]);
+        expect(request.targets).toEqual([
+            { column: "Height", kind: "number", unit: "m" },
+            { column: "First ascent", kind: "text" },
+            { column: "Climbed in winter", kind: "yes_no" },
+        ]);
+    });
+    it("says nothing for a draft that is not a plan of the search", () => {
+        expect(formFromDraft(refused)).toBeNull();
+        expect(
+            formFromDraft({
+                ...fallbackDraft,
+                plan: { ...lookupPlan, steps: [] },
+            }),
+        ).toBeNull();
+    });
+});
+
+describe("the remembered switch", () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+        localStorage.clear();
+    });
+    it("is off until it is switched on, and is remembered", () => {
+        localStorage.clear();
+        expect(readFallbackSwitch()).toBe(false);
+        saveFallbackSwitch(true);
+        expect(readFallbackSwitch()).toBe(true);
+        saveFallbackSwitch(false);
+        expect(readFallbackSwitch()).toBe(false);
+    });
+    it("reads anything else as off", () => {
+        localStorage.setItem("enrichment.fallbackSearch", "yes");
+        expect(readFallbackSwitch()).toBe(false);
+    });
+    it("is off when the storage cannot be read, and saving there does not fail", () => {
+        saveFallbackSwitch(true);
+        vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+            throw new Error("blocked");
+        });
+        vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+            throw new Error("blocked");
+        });
+        expect(readFallbackSwitch()).toBe(false);
+        expect(() => saveFallbackSwitch(true)).not.toThrow();
     });
 });
