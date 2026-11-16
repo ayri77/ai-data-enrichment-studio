@@ -15,6 +15,11 @@
   `web_searches`. A plan with `web_lookup` is refused on the normal route, from the planner
   and as a supplied plan. Tested only against a fake client and the offline fixture server: no live run
   through the application has been made, and the values are not verified.
+- The universal search is now also offered under the "This plan cannot be run" view when the planner
+  handed over a plan that the check refused (for instance a `ready` plan with no steps), not only after
+  an `unsupported` or `ambiguous` refusal; the validator's messages stay, the lead-in tells the person
+  to build the plan again or rephrase first if the task is something the system can do, and the limits
+  are read again after such a plan. Never for a plan that passed or for a draft of the search itself.
 - The kind of trust behind a value is now shown instead of staying in the code:
   `GET /api/capabilities` gains `trust` (`computed`, `record`, `resolved_name`,
   `service`) beside `source`, and the audit report gains `step_provenance`

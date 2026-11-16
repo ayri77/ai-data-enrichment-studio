@@ -26,6 +26,10 @@ from tests.support.lookup_api import LoggedApiFactory
 # A task that contains this text is refused by the offline planner, so that the
 # scenario for the universal search has a table it cannot plan for.
 REFUSED_TASK = "first ascent"
+# A task that contains this text gets what a planner sometimes hands over for a
+# task no capability covers: status "ready" and a plan with no steps, whose
+# outputs point at steps that do not exist. The server's check refuses it.
+INVALID_TASK = "phone characteristics"
 
 
 class SamplePlanClient:
@@ -42,6 +46,30 @@ class SamplePlanClient:
                     "status": "unsupported",
                     "plan": None,
                     "reason": "The first ascent of a mountain is not in the sources it can read.",
+                }
+            )
+        if INVALID_TASK in context["instruction"].lower():
+            targets = list(context.get("output_targets", [])) or ["Height"]
+            return json.dumps(
+                {
+                    "status": "ready",
+                    "plan": {
+                        "version": "1.0",
+                        "steps": [],
+                        "outputs": [
+                            {
+                                "step_id": f"missing_{number}",
+                                "value_field": "value",
+                                "target_column": target,
+                            }
+                            for number, target in enumerate(targets, 1)
+                        ],
+                        "assumptions": [
+                            "No capability available to fill any missing "
+                            "phone characteristics fields."
+                        ],
+                    },
+                    "reason": None,
                 }
             )
         columns = {column["name"] for column in context["dataset_profile"]["columns"]}

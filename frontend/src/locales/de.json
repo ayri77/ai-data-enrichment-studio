@@ -715,6 +715,7 @@
     "plan.diagram.writesField": "{{field}} → „{{name}}“ ({{letter}})",
     "fallback.title": "Stattdessen mit KI im Web suchen",
     "fallback.text": "Das ist eine andere Arbeitsweise: Ein Modell sucht für jede Zeile im Web. Die Werte werden nicht mit einem Datensatz abgeglichen, und zu jedem Wert gehören die Links, auf denen er beruht.",
+    "fallback.invalidText": "Der Planer hat keinen Plan erstellt, der laufen kann. Wenn das etwas ist, was das System aus seinen Quellen kann, ist es besser, den Plan neu zu erstellen oder die Aufgabe umzuformulieren, denn diese Werte werden mit einem Datensatz abgeglichen. Andernfalls kann stattdessen mit KI im Web gesucht werden: Ein Modell sucht für jede Zeile, die Werte werden nicht mit einem Datensatz abgeglichen, und zu jedem Wert gehören die Links, auf denen er beruht.",
     "fallback.open": "Suche einrichten",
     "fallback.question": "Frage für jede Zeile",
     "fallback.questionHint": "Was das Modell für eine Zeile finden soll. Es beginnt mit Ihrer Aufgabe; Sie können es ändern.",

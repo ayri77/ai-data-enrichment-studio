@@ -271,33 +271,43 @@ export function PlanRefusal({
 
 // A plan exists but the check against the table rejected it. The messages are
 // the validator's own; the codes stay in Advanced.
-export function PlanInvalid({ draft }: { draft: PlanDraft }) {
+// What follows the messages (another way of working) is the caller's.
+export function PlanInvalid({
+    draft,
+    children,
+}: {
+    draft: PlanDraft;
+    children?: ReactNode;
+}) {
     const { t } = useTranslation();
     const { validation } = draft;
     return (
-        <div className="plan-problem" data-testid="plan-invalid">
-            <h3>
-                <CircleAlert aria-hidden="true" />
-                {t("plan.invalid.title")}
-            </h3>
-            <p>
-                {t(
-                    validation.contract_valid
-                        ? "plan.invalid.conflict"
-                        : "plan.invalid.text",
+        <>
+            <div className="plan-problem" data-testid="plan-invalid">
+                <h3>
+                    <CircleAlert aria-hidden="true" />
+                    {t("plan.invalid.title")}
+                </h3>
+                <p>
+                    {t(
+                        validation.contract_valid
+                            ? "plan.invalid.conflict"
+                            : "plan.invalid.text",
+                    )}
+                </p>
+                {validation.errors.length > 0 && (
+                    <details>
+                        <summary>{t("plan.invalid.details")}</summary>
+                        <ul>
+                            {validation.errors.map((err, i) => (
+                                <li key={i}>{err.message}</li>
+                            ))}
+                        </ul>
+                    </details>
                 )}
-            </p>
-            {validation.errors.length > 0 && (
-                <details>
-                    <summary>{t("plan.invalid.details")}</summary>
-                    <ul>
-                        {validation.errors.map((err, i) => (
-                            <li key={i}>{err.message}</li>
-                        ))}
-                    </ul>
-                </details>
-            )}
-            <p>{t("plan.rephrase")}</p>
-        </div>
+                <p>{t("plan.rephrase")}</p>
+            </div>
+            {children}
+        </>
     );
 }

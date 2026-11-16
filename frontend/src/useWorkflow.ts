@@ -14,7 +14,11 @@ import {
     type SourcesInWorkbook,
 } from "./api";
 import { columnLetter, parseRange } from "./range";
-import { buildFallbackRequest, type FallbackForm } from "./fallbackModel";
+import {
+    buildFallbackRequest,
+    couldOfferFallback,
+    type FallbackForm,
+} from "./fallbackModel";
 import { DEMO_LIMITS, type Limits } from "./useLimits";
 import { validMappings, type OutputTarget } from "./workflowModel";
 import { defaultRunCount, runRows } from "./tableModel";
@@ -385,15 +389,10 @@ export function useWorkflow(
             if (options.implicitConsent) setNetwork(true);
             setPlan(draft);
             setWorkspace("plan");
-            // The refusal view offers the search only where the server says
-            // so, and that depends on a key that may have been entered after
-            // the page opened. Not awaited: the block may appear a moment later.
-            if (
-                !draft.plan &&
-                (draft.planning_status === "unsupported" ||
-                    draft.planning_status === "ambiguous")
-            )
-                void options.refreshLimits?.();
+            // The refusal view and the view of a plan that failed the check
+            // offer the search only where the server says so, and that depends
+            // on a key that may have been entered after the page opened. Not awaited: the block may appear a moment later.
+            if (couldOfferFallback(draft)) void options.refreshLimits?.();
         }
     }
     /**

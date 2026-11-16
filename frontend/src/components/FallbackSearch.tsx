@@ -5,6 +5,7 @@ import type { LookupKind, PlanDraft, Preview, SourcesInWorkbook } from "../api";
 import {
     contextBlocker,
     formProblems,
+    type FallbackOffer,
     MAX_QUESTION,
     MAX_UNIT,
     settingFor,
@@ -41,10 +42,13 @@ export function FallbackSearch({
     w,
     draft,
     preview,
+    offer = "refused",
 }: {
     w: Workflow;
     draft: PlanDraft;
     preview: Preview;
+    /** Why it is offered: the planner refused, or its plan failed the check. */
+    offer?: FallbackOffer;
 }) {
     const { t } = useTranslation();
     const [open, setOpen] = useState(false);
@@ -95,7 +99,13 @@ export function FallbackSearch({
                 <Search aria-hidden="true" />
                 {t("fallback.title")}
             </h3>
-            <p>{t("fallback.text")}</p>
+            <p data-testid="fallback-lead">
+                {t(
+                    offer === "invalid"
+                        ? "fallback.invalidText"
+                        : "fallback.text",
+                )}
+            </p>
             {!open ? (
                 <div>
                     <Button variant="outline" onClick={() => setOpen(true)}>

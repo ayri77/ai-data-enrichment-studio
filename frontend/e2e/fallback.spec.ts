@@ -23,11 +23,9 @@ async function navigate(page: Page, name: string) {
         .click();
 }
 
-test("universal search: the planner refuses, the person sets up the search, and the values come with their basis", async ({
-    page,
-}, testInfo) => {
-    // Three mountains: the stand-in finds everything for Everest (one value
-    // concluded), no height for K2, and nothing at all for "Nowhere".
+// Three mountains: the stand-in finds everything for Everest (one value
+// concluded), no height for K2, and nothing at all for "Nowhere".
+function peaksWorkbook(testInfo: TestInfo) {
     const source = testInfo.outputPath("peaks.xlsx");
     const made = spawnSync(
         "uv",
@@ -53,6 +51,13 @@ book.save(sys.argv[1])
         { cwd: "..", encoding: "utf8" },
     );
     expect(made.status, made.stdout + made.stderr).toBe(0);
+    return source;
+}
+
+test("universal search: the planner refuses, the person sets up the search, and the values come with their basis", async ({
+    page,
+}, testInfo) => {
+    const source = peaksWorkbook(testInfo);
 
     const fallbackRequests: unknown[] = [];
     const planRequests: unknown[] = [];
@@ -293,4 +298,118 @@ test("universal search: not offered where the planner built a plan", async ({
     await expect(page.getByTestId("fallback-offer")).toHaveCount(0);
     await expect(page.getByTestId("fallback-banner")).toHaveCount(0);
     await navigate(page, "Plan");
+});
+
+test("universal search: offered also when the planner's plan fails the check", async ({
+    page,
+}, testInfo) => {
+    const source = peaksWorkbook(testInfo);
+    const fallbackRequests: unknown[] = [];
+    page.on("request", (request) => {
+        if (
+            request.method() === "POST" &&
+            new URL(request.url()).pathname === "/api/fallback-plans"
+        )
+            fallbackRequests.push(request.postDataJSON());
+    });
+    await page.setViewportSize({ width: 1440, height: 1500 });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Start with my table" }).click();
+    await page.getByLabel("Upload Excel workbook").setInputFiles(source);
+    await expect(page.getByLabel("Which column to fill?")).toHaveValue("C");
+    await page
+        .getByLabel("Enrichment instruction")
+        .fill("Find the phone characteristics of each mountain.");
+    // Two more columns to fill, both new (the stand-in answers for three).
+    await page.getByRole("button", { name: "Fill one more column" }).click();
+    await page
+        .getByLabel("One more column to fill")
+        .selectOption({ label: "A new column…" });
+    await page.getByLabel("Name of the new column").fill("First ascent");
+    await page.getByRole("button", { name: "Fill one more column" }).click();
+    await page
+        .getByLabel("One more column to fill")
+        .nth(1)
+        .selectOption({ label: "A new column…" });
+    await page
+        .getByLabel("Name of the new column")
+        .nth(1)
+        .fill("Climbed in winter");
+    await page.getByRole("button", { name: "Build Plan" }).click();
+
+    // The planner said "ready" with a plan that has no steps; the check refuses
+    // it, the messages stay, and the search is offered below them.
+    const invalid = page.getByTestId("plan-invalid");
+    await expect(invalid).toBeVisible();
+    await expect(invalid).toContainText("This plan cannot be run");
+    await expect(invalid.locator("details")).toBeVisible();
+    await expect(page.getByTestId("plan-refusal")).toHaveCount(0);
+    const offer = page.getByTestId("fallback-offer");
+    await expect(offer).toBeVisible();
+    await expect(page.getByTestId("fallback-lead")).toContainText(
+        "The planner did not produce a plan that can run.",
+    );
+    expect(
+        await invalid.evaluate(
+            (node, other) =>
+                !!(
+                    node.compareDocumentPosition(other as Node) &
+                    Node.DOCUMENT_POSITION_FOLLOWING
+                ),
+            await offer.elementHandle(),
+        ),
+    ).toBe(true);
+    await offer.getByRole("button", { name: "Set up the search" }).click();
+    const form = page.getByTestId("fallback-form");
+    await expect(form.getByLabel("Question for each row")).toHaveValue(
+        /phone characteristics/,
+    );
+    const context = page.getByTestId("fallback-context");
+    for (const box of await context.getByRole("checkbox").all())
+        await expect(box).not.toBeChecked();
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    await shot(page, testInfo, "fallback-after-invalid.png");
+    await page.setViewportSize({ width: 1440, height: 1500 });
+
+    await context.getByRole("checkbox", { name: /^Mountain/ }).check();
+    await context.getByRole("checkbox", { name: /^Country/ }).check();
+    const targets = page.getByTestId("fallback-targets");
+    await targets.getByLabel("Kind of value in Height").selectOption("number");
+    await targets.getByLabel("Unit for Height (optional)").fill("m");
+    await targets
+        .getByLabel("Kind of value in Climbed in winter")
+        .selectOption("yes_no");
+    await form.locator("button[type=submit]").click();
+    await expect(page.getByTestId("fallback-plan")).toBeVisible();
+    expect(fallbackRequests).toHaveLength(1);
+    expect(fallbackRequests[0]).toMatchObject({
+        sheet_name: "Sheet1",
+        range_ref: "A1:C4",
+        context_columns: ["Mountain", "Country"],
+        targets: [
+            { column: "Height", kind: "number", unit: "m" },
+            { column: "First ascent", kind: "text" },
+            { column: "Climbed in winter", kind: "yes_no" },
+        ],
+        output_columns: {
+            Height: "C",
+            "First ascent": "D",
+            "Climbed in winter": "E",
+        },
+    });
+    await expect(page.getByTestId("plan-invalid")).toHaveCount(0);
+    await page.getByRole("button", { name: "Approve and run" }).click();
+    await expect(page.getByTestId("job-status")).toContainText(
+        /Rows filled: \d+ of 3\./,
+        { timeout: 60_000 },
+    );
+    const review = page.getByRole("button", { name: "Review issues" });
+    if (await review.isVisible()) {
+        await review.click();
+        await page
+            .getByTestId("fallback-review")
+            .getByRole("button", { name: "Continue to results" })
+            .click();
+    }
+    await expect(page.getByTestId("fallback-summary")).toBeVisible();
 });
