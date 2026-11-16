@@ -235,6 +235,12 @@ would all be refused.
    reason for an empty answer, and the usage summary counts for every such
    request how many tasks the model proposed, how many were too long and how
    many left a column out — so the next "nothing" explains itself.
+   A live run of 2026-11-16 (mountains; columns `height` and a new one for geological age,
+   which no capability gives) showed the opposite fault: the suggested task named
+   `resolve_entity`, `lookup_property` and their parameters and asked to fill the age
+   column with an invented approximate value "to distinguish it". The prompts now forbid
+   both, a task that names a registry identifier is dropped, and the usage summary counts
+   it as `internal_names`.
 
 ## Recommendation
 

@@ -106,6 +106,23 @@ the profile — together with the capability descriptions of the registry and th
 language to write in. The reply is untrusted: only a JSON object with a list is
 accepted, entries that are not printable text of at most 400 characters and
 repeats are dropped, and any other shape is an error rather than an empty list.
+The prompts ask for real facts in a person's words: never to invent, estimate or
+fill a column "so that it differs", and never to name a capability, parameter or
+other identifier of the registry. That rule lives in the prompt only (a keyword
+filter for "invent" would depend on the language); in code, a task that names a
+capability id or a registry identifier as an identifier (a name with an
+underscore anywhere as a whole word; a plain word such as `ratio` or `unit` only
+when quoted, next to `=` or followed by `(`; words that are headers of the table
+or chosen columns excepted) is dropped and counted as `internal_names` in the
+`task_ideas` usage event, beside `proposed`, `too_long`, `incomplete` and `shown`;
+when all are dropped the answer is the empty list.
+The kept answer is keyed by workbook, sheet, range, language, chosen columns and the
+model that is configured when the request arrives, so an answer of another model is
+never served (the reasoning effort follows from the model id in the catalog). An
+optional `"again": true` skips the kept answer, asks the model once more, replaces the
+kept answer with the new one and counts against the same limit of 20 requests per
+workbook (shared by all models); at the limit it answers `task_idea_limit` (429) as any
+request without a kept answer does, and the usage event carries `again` (0 or 1).
 A task is only text for the instruction field: it is planned and validated like
 a typed instruction, and nothing is planned until the user asks for a plan. The
 answer is kept per workbook, sheet, range and language. It needs what planning

@@ -296,6 +296,9 @@ class TaskIdeasRequest(BaseModel):
     range_ref: str = Field(min_length=1, max_length=32)
     language: Literal["en", "uk", "de"] = "en"
     allow_network: bool = False
+    # Ask the model again although an answer for the same table, language,
+    # columns and model is kept; the new answer replaces the kept one.
+    again: bool = False
     # Headers of the columns chosen to be filled. With several of them the
     # model phrases one task that fills them all instead of proposing a few.
     fill_columns: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
@@ -371,10 +374,12 @@ class PlanRunService:
         self.assistance: dict[str, dict[str, list[dict]]] = {}
         self.suggestion_counts: dict[str, int] = {}
         self.suggesting = False
-        # Task ideas a model proposed for a table and a language, and how many
-        # times a workbook has asked.
+        # Task ideas a model proposed for a table and a language, kept per model
+        # (an answer of another model is not served), and how many times a
+        # workbook has asked, across models. The reasoning effort follows from
+        # the model id in the catalog, so the id is all the key needs.
         self.task_ideas: dict[
-            str, dict[tuple[str, str, str, tuple[str, ...]], tuple[str, ...]]
+            str, dict[tuple[str, str, str, str, tuple[str, ...]], tuple[str, ...]]
         ] = {}
         self.task_idea_counts: dict[str, int] = {}
         self.router = APIRouter(prefix="/api")
@@ -822,8 +827,9 @@ class PlanRunService:
                         del kept[stale]
                 # One chosen column asks the same question as none.
                 chosen = tuple(body.fill_columns) if len(body.fill_columns) > 1 else ()
-                key = (body.sheet_name, body.range_ref, body.language, chosen)
-                known = self.task_ideas.get(body.dataset_id, {}).get(key)
+                model = self.provider.model or ""
+                key = (model, body.sheet_name, body.range_ref, body.language, chosen)
+                known = None if body.again else self.task_ideas.get(body.dataset_id, {}).get(key)
                 if known is not None:
                     return {"tasks": list(known)}
                 self.model_gate(body.allow_network)
@@ -1154,10 +1160,12 @@ class PlanRunService:
         self.usage.record(
             "task_ideas",
             language=body.language,
+            again=int(body.again),
             columns=len(body.fill_columns) if len(body.fill_columns) > 1 else 0,
             proposed=proposal.proposed,
             too_long=proposal.too_long,
             incomplete=proposal.incomplete,
+            internal_names=proposal.internal_names,
             shown=len(proposal.tasks),
         )
         return proposal.tasks

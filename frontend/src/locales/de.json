@@ -625,6 +625,7 @@
     "startOver.confirm": "Entfernen und neu beginnen",
     "startOver.keep": "Weiterarbeiten",
     "task.suggest": "Aufgabe vorschlagen",
+    "task.again": "Noch einmal vorschlagen",
     "task.forColumns": "Für die {{n}} gewählten Spalten schlägt die KI eine Aufgabe vor, die alle füllt.",
     "task.sends": "Sendet die Spaltennamen, ihre Typen und fünf Beispielzeilen an den KI-Anbieter, wie beim Erstellen eines Plans. Die KI schlägt nur einen Text vor; Sie können ihn ändern.",
     "task.needsConsent": "Zuerst externe Netzwerkanfragen erlauben (Kontrollkästchen unten): Die Spaltennamen und fünf Beispielzeilen werden an den KI-Anbieter gesendet.",

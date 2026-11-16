@@ -1725,7 +1725,8 @@ it("asks the AI for one task that fills all chosen columns, and again when they 
     });
     const ideas = within(await screen.findByTestId("task-ideas"));
     expect(ideas.getByText(i18n.t("task.proposedOne"))).toBeVisible();
-    expect(ideas.getAllByRole("button")).toHaveLength(1);
+    // The task itself and "Suggest again".
+    expect(ideas.getAllByRole("button")).toHaveLength(2);
     // The proposal belonged to those two columns; with others it is asked anew.
     await userEvent.selectOptions(
         screen.getByLabelText(`${i18n.t("ws.targetColumn")} 2`),
@@ -1738,6 +1739,64 @@ it("asks the AI for one task that fills all chosen columns, and again when they 
     await userEvent.click(button("task.suggest"));
     expect(await screen.findByTestId("task-ideas")).toHaveTextContent(
         i18n.t("task.noneForColumns"),
+    );
+});
+
+it("asks the AI for another task with the flag, keeps the field and the list, and shows the limit message", async () => {
+    vi.mocked(api.suggestTasks).mockResolvedValue({ tasks: ["First task"] });
+    render(<App opening="dataset" />);
+    await userEvent.upload(
+        screen.getByLabelText("Upload Excel workbook"),
+        new File(["x"], "capitals.xlsx"),
+    );
+    await userEvent.click(button("previewAction"));
+    const field = await screen.findByLabelText(i18n.t("workflow.instruction"));
+    await userEvent.click(screen.getByLabelText(i18n.t("workflow.network")));
+    // Not offered before the first question.
+    expect(
+        screen.queryByRole("button", { name: i18n.t("task.again") }),
+    ).toBeNull();
+    await userEvent.click(button("task.suggest"));
+    await screen.findByRole("button", { name: "First task" });
+    await userEvent.type(field, "My own text");
+    // Asking again sends the flag and shows the new answer; the field stays.
+    let release: (value: { tasks: string[] }) => void = () => undefined;
+    vi.mocked(api.suggestTasks).mockReturnValueOnce(
+        new Promise((resolve) => (release = resolve)),
+    );
+    await userEvent.click(button("task.again"));
+    expect(api.suggestTasks).toHaveBeenLastCalledWith(
+        expect.objectContaining({ again: true }),
+    );
+    await waitFor(() => expect(button("task.again")).toBeDisabled());
+    release({ tasks: ["Second task"] });
+    await screen.findByRole("button", { name: "Second task" });
+    expect(field).toHaveValue("My own text");
+    expect(button("task.again")).toBeEnabled();
+    // The limit: the existing message, and what was shown stays.
+    vi.mocked(api.suggestTasks).mockRejectedValueOnce(
+        new WorkspaceApiError("task_idea_limit", "sanitized"),
+    );
+    await userEvent.click(button("task.again"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+        i18n.t("error.task_idea_limit"),
+    );
+    expect(screen.getByRole("button", { name: "Second task" })).toBeVisible();
+    // The "none" outcome can be asked again as well.
+    vi.mocked(api.suggestTasks).mockResolvedValue({ tasks: [] });
+    await userEvent.click(button("task.again"));
+    expect(await screen.findByTestId("task-ideas")).toHaveTextContent(
+        i18n.t("task.none"),
+    );
+    vi.mocked(api.suggestTasks).mockResolvedValue({ tasks: ["Third task"] });
+    await userEvent.click(button("task.again"));
+    expect(api.suggestTasks).toHaveBeenLastCalledWith(
+        expect.objectContaining({ again: true }),
+    );
+    await screen.findByRole("button", { name: "Third task" });
+    // Without the flag the first question is unchanged.
+    expect(vi.mocked(api.suggestTasks).mock.calls[0][0]).not.toHaveProperty(
+        "again",
     );
 });
 

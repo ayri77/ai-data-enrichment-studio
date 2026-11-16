@@ -556,6 +556,8 @@ export const api = {
         allow_network: boolean;
         /** Headers of the columns chosen to be filled, when there are several. */
         fill_columns?: string[];
+        /** Ask the model again although an answer is kept; it replaces that one. */
+        again?: boolean;
     }) => post<{ tasks: string[] }>("/api/task-ideas", body),
     /** Ask the model under which other names the source may know a query. */
     suggestNames: (id: string, operationId: string, allow_network: boolean) =>
