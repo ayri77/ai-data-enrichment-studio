@@ -715,6 +715,7 @@
     "plan.diagram.writesField": "{{field}} → “{{name}}” ({{letter}})",
     "fallback.title": "Search the web with AI instead",
     "fallback.text": "This is a different way of working: a model searches the web for each row. The values are not checked against a record, and every value gets the links it rests on.",
+    "fallback.invalidText": "The planner did not produce a plan that can run. If this is something the system can do from its sources, building the plan again or rephrasing the task is the better way, because those values are checked against a record. Otherwise the web can be searched with AI instead: a model searches for each row, the values are not checked against a record, and every value gets the links it rests on.",
     "fallback.open": "Set up the search",
     "fallback.question": "Question for each row",
     "fallback.questionHint": "What the model should find for one row. It starts from your task; you can change it.",

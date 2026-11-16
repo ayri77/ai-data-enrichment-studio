@@ -1,4 +1,5 @@
 import {
+    cleanup,
     fireEvent,
     render,
     screen,
@@ -82,6 +83,25 @@ const refused: PlanDraft = {
     reason: "The first ascent is not in the sources.",
     validation: { valid: false, errors: [] },
 };
+// The planner said "ready" with a plan that has no steps; the check refused it.
+const invalidPlan: PlanDraft = {
+    ...fallbackDraft,
+    kind: undefined,
+    instruction: refused.instruction,
+    planning_status: "ready",
+    reason: null,
+    plan: { ...lookupPlan, steps: [] },
+    validation: {
+        valid: false,
+        contract_valid: false,
+        errors: [
+            {
+                code: "plan_empty",
+                message: "Enrichment plan must contain at least one step",
+            },
+        ],
+    } as PlanDraft["validation"],
+};
 const limits = (web_lookup?: boolean) => ({
     max_run_rows: 20,
     max_timeout_seconds: 300,
@@ -156,7 +176,7 @@ const nav = (key: string) =>
         ],
     );
 // Basic: the planner refuses the task the person wrote.
-async function refusedTask() {
+async function refusedTask(view = "plan-refusal") {
     await userEvent.upload(
         screen.getByLabelText("Upload Excel workbook"),
         new File(["x"], "mountains.xlsx"),
@@ -180,7 +200,7 @@ async function refusedTask() {
         "G",
     );
     await userEvent.click(button("ws.buildPlan"));
-    await screen.findByTestId("plan-refusal");
+    await screen.findByTestId(view);
 }
 const open = () => userEvent.click(button("fallback.open"));
 const context = () => within(screen.getByTestId("fallback-context"));
@@ -852,4 +872,102 @@ it("mentions the search on the overview only when the server has it", async () =
     expect(
         screen.queryByText(t("overview.know.lookup")),
     ).not.toBeInTheDocument();
+});
+
+// The planner handed over a plan the check refused.
+it("offers the search below the validator's messages when the planner's plan failed the check", async () => {
+    vi.mocked(api.createPlan).mockResolvedValue(invalidPlan);
+    render(<App opening="dataset" />);
+    await refusedTask("plan-invalid");
+    const offer = await screen.findByTestId("fallback-offer");
+    const invalid = screen.getByTestId("plan-invalid");
+    // The messages and the title are as they were.
+    expect(invalid).toHaveTextContent(t("plan.invalid.title"));
+    expect(invalid).toHaveTextContent(t("plan.invalid.details"));
+    expect(invalid).toHaveTextContent(
+        "Enrichment plan must contain at least one step",
+    );
+    expect(invalid).toHaveTextContent(t("plan.rephrase"));
+    expect(
+        invalid.compareDocumentPosition(offer) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(invalid).not.toContainElement(offer);
+    // The lead-in of this case, not that of a refusal.
+    expect(screen.getByTestId("fallback-lead")).toHaveTextContent(
+        t("fallback.invalidText"),
+    );
+    expect(offer).not.toHaveTextContent(t("fallback.text"));
+    expect(screen.queryByTestId("plan-refusal")).not.toBeInTheDocument();
+});
+it("builds the same request from the invalid view as from a refusal", async () => {
+    const fill = async () => {
+        await open();
+        await choose("Mountain");
+        await choose("Country");
+        await userEvent.click(button("fallback.build"));
+        await waitFor(() => expect(api.createFallbackPlan).toHaveBeenCalled());
+        return vi.mocked(api.createFallbackPlan).mock.calls[0][0];
+    };
+    render(<App opening="dataset" />);
+    await refusedTask();
+    const fromRefusal = await fill();
+    cleanup();
+    vi.mocked(api.createFallbackPlan).mockClear();
+    vi.mocked(api.createPlan).mockResolvedValue(invalidPlan);
+    render(<App opening="dataset" />);
+    await refusedTask("plan-invalid");
+    await screen.findByTestId("fallback-offer");
+    // Nothing is preselected among the identifying columns; the task is the question.
+    await open();
+    expect(screen.getByLabelText(t("fallback.question"))).toHaveValue(
+        refused.instruction,
+    );
+    for (const box of context().getAllByRole("checkbox"))
+        expect(box).not.toBeChecked();
+    cleanup();
+    vi.mocked(api.createFallbackPlan).mockClear();
+    render(<App opening="dataset" />);
+    await refusedTask("plan-invalid");
+    await screen.findByTestId("fallback-offer");
+    const fromInvalid = await fill();
+    expect(fromInvalid).toEqual(fromRefusal);
+    expect(fromInvalid).toMatchObject({
+        dataset_id: "source",
+        sheet_name: "Sheet1",
+        range_ref: "A1:G11",
+        output_columns: {
+            Height: "E",
+            "First ascent": "F",
+            "Climbed in winter": "G",
+        },
+    });
+});
+it("does not offer it for an invalid plan where the server cannot do it", async () => {
+    vi.mocked(api.limits).mockResolvedValue(limits(false));
+    vi.mocked(api.createPlan).mockResolvedValue(invalidPlan);
+    render(<App opening="dataset" />);
+    await refusedTask("plan-invalid");
+    expect(screen.queryByTestId("fallback-offer")).not.toBeInTheDocument();
+    expect(screen.getByTestId("plan-invalid")).toHaveTextContent(
+        "Enrichment plan must contain at least one step",
+    );
+});
+it("does not offer it for a valid plan or for an invalid draft of the search itself", async () => {
+    vi.mocked(api.createPlan).mockResolvedValue({
+        ...fallbackDraft,
+        validation: invalidPlan.validation,
+    });
+    render(<App opening="dataset" />);
+    await refusedTask("plan-invalid");
+    expect(screen.queryByTestId("fallback-offer")).not.toBeInTheDocument();
+});
+it("reads the limits again when the planner's plan fails the check", async () => {
+    vi.mocked(api.limits).mockResolvedValueOnce(limits(false));
+    vi.mocked(api.limits).mockResolvedValue(limits(true));
+    vi.mocked(api.createPlan).mockResolvedValue(invalidPlan);
+    render(<App opening="dataset" />);
+    await refusedTask("plan-invalid");
+    expect(await screen.findByTestId("fallback-offer")).toBeVisible();
+    expect(api.limits).toHaveBeenCalledTimes(2);
 });

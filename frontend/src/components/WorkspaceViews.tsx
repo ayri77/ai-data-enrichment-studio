@@ -34,7 +34,7 @@ import { FallbackBanner, FallbackSearch } from "./FallbackSearch";
 import {
     isFallbackDraft,
     isFallbackRun,
-    offersFallback,
+    fallbackOffer,
 } from "../fallbackModel";
 
 /** What is still missing before a plan can be built, next to the button itself. */
@@ -839,6 +839,9 @@ export function PlanWorkspace({
     const runnable = !!draft?.plan && draft.validation.valid;
     // A long instruction would push the rest of the summary off the screen.
     const long = !advanced && (draft?.instruction.length ?? 0) > 220;
+    const offer = fallbackOffer(draft, w.webLookup);
+    const refusalOffer = offer === "refused";
+    const invalidOffer = offer === "invalid" ? offer : null;
     return (
         <div className="stage-layout">
             <section className="workspace-panel plan-stage">
@@ -867,7 +870,7 @@ export function PlanWorkspace({
                             maxRows={w.maxRows}
                             capabilities={w.capabilities}
                         >
-                            {preview && offersFallback(draft, w.webLookup) && (
+                            {preview && refusalOffer && (
                                 <FallbackSearch
                                     w={w}
                                     draft={draft}
@@ -881,7 +884,16 @@ export function PlanWorkspace({
                 ) : (
                     <div className="plan-words panel-scroll">
                         {!draft.validation.valid && (
-                            <PlanInvalid draft={draft} />
+                            <PlanInvalid draft={draft}>
+                                {preview && invalidOffer && (
+                                    <FallbackSearch
+                                        w={w}
+                                        draft={draft}
+                                        preview={preview}
+                                        offer={invalidOffer}
+                                    />
+                                )}
+                            </PlanInvalid>
                         )}
                         <PlanDescription draft={draft} />
                     </div>

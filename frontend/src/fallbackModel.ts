@@ -31,23 +31,47 @@ export const isFallbackRun = (
     plan: Pick<PlanDraft, "kind"> | null | undefined,
 ) => job?.kind === "fallback" || plan?.kind === "fallback";
 
+/** The two situations in which the page offers the search. */
+export type FallbackOffer = "refused" | "invalid";
+
 /**
- * Whether the page offers the search: only where the planner could not build
- * a plan (it said "unsupported" or "ambiguous"), and only on a server that
- * has it switched on.
+ * Whether, and why, the page offers the search. Two cases, both only for a
+ * planner draft (never for a draft of the search itself) and only on a server
+ * that has it switched on:
+ * - "refused": the planner built no plan and said "unsupported" or "ambiguous";
+ * - "invalid": the planner did hand over a plan, but the validator rejected it
+ *   (for instance one with no steps), so nothing can be run.
+ * A plan that passed the check is never replaced by an offer.
  */
+export function fallbackOffer(
+    draft: PlanDraft | null,
+    webLookup: boolean,
+): FallbackOffer | null {
+    if (!webLookup || !draft || draft.kind) return null;
+    if (!draft.plan) {
+        return draft.planning_status === "unsupported" ||
+            draft.planning_status === "ambiguous"
+            ? "refused"
+            : null;
+    }
+    return draft.validation.valid ? null : "invalid";
+}
+
+/** Whether the page offers the search, in either of the cases above. */
 export function offersFallback(
     draft: PlanDraft | null,
     webLookup: boolean,
 ): boolean {
-    return (
-        webLookup &&
-        !!draft &&
-        !draft.plan &&
-        !draft.kind &&
-        (draft.planning_status === "unsupported" ||
-            draft.planning_status === "ambiguous")
-    );
+    return fallbackOffer(draft, webLookup) !== null;
+}
+
+/**
+ * Whether the draft is one where the offer may appear once the server says so:
+ * the same two cases, without the state of the limits. Used to decide when the
+ * limits are read again.
+ */
+export function couldOfferFallback(draft: PlanDraft | null): boolean {
+    return fallbackOffer(draft, true) !== null;
 }
 
 /** Why a column cannot identify a row; null when it can. */

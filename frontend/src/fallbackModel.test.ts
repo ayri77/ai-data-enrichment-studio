@@ -8,6 +8,8 @@ import {
     defaultKind,
     formProblems,
     isFallbackRun,
+    couldOfferFallback,
+    fallbackOffer,
     offersFallback,
     readLookupTask,
     targetNames,
@@ -89,6 +91,42 @@ describe("where the search is offered", () => {
         expect(
             offersFallback({ ...refused, planning_status: "ready" }, true),
         ).toBe(false);
+    });
+    it("also when the planner's plan failed the check, with the reason named", () => {
+        const invalid: PlanDraft = {
+            ...refused,
+            plan: { ...lookupPlan, steps: [] },
+            planning_status: "ready",
+            validation: { valid: false, errors: [] },
+        };
+        expect(offersFallback(invalid, true)).toBe(true);
+        expect(fallbackOffer(invalid, true)).toBe("invalid");
+        expect(fallbackOffer(refused, true)).toBe("refused");
+        expect(
+            fallbackOffer({ ...refused, planning_status: "ambiguous" }, true),
+        ).toBe("refused");
+        // Never for a plan that passed, for a draft of the search itself, where the
+        // server cannot do it, or with no draft.
+        const valid = { ...invalid, validation: { valid: true, errors: [] } };
+        expect(offersFallback(valid, true)).toBe(false);
+        expect(
+            offersFallback(
+                { ...fallbackDraft, validation: invalid.validation },
+                true,
+            ),
+        ).toBe(false);
+        expect(offersFallback(invalid, false)).toBe(false);
+        expect(offersFallback(null, false)).toBe(false);
+        expect(fallbackOffer(null, true)).toBeNull();
+        // The limits are read again for exactly the cases that may offer it.
+        expect(couldOfferFallback(invalid)).toBe(true);
+        expect(couldOfferFallback(refused)).toBe(true);
+        expect(couldOfferFallback(valid)).toBe(false);
+        expect(
+            couldOfferFallback({ ...refused, planning_status: "other" }),
+        ).toBe(false);
+        expect(couldOfferFallback(fallbackDraft)).toBe(false);
+        expect(couldOfferFallback(null)).toBe(false);
     });
     it("knows a run of the search from its job or from its plan", () => {
         expect(isFallbackRun(lookupJob, null)).toBe(true);
