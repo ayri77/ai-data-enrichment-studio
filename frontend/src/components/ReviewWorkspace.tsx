@@ -24,6 +24,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReviewCandidate, ReviewItem } from "../api";
+import { isFallbackRun } from "../fallbackModel";
 import { useAdvanced } from "../mode";
 import type { Workflow } from "../useWorkflow";
 import {
@@ -970,8 +971,28 @@ export function ReviewWorkspace({ w }: { w: Workflow }) {
     );
 }
 
+/**
+ * A universal-search run can end as "needs review" although nothing can be
+ * decided: a row without a value that a page backs is simply left empty. Say
+ * so, and lead on to the results.
+ */
+function NothingToDecide({ w }: { w: Workflow }) {
+    const { t } = useTranslation();
+    return (
+        <div className="notice fallback-review" data-testid="fallback-review">
+            <p>{t("fallback.review.nothing")}</p>
+            <p>{t("fallback.review.empty")}</p>
+            <Button variant="outline" onClick={() => w.navigate("export")}>
+                {t("ws.toExport")}
+                <ArrowRight aria-hidden="true" />
+            </Button>
+        </div>
+    );
+}
+
 function ReviewStage({ w }: { w: Workflow }) {
     const { t } = useTranslation();
+    const fallback = isFallbackRun(w.job, w.plan);
     const review = w.review?.job_id === w.job?.job_id ? w.review : null;
     const needsReview = w.job?.status === "needs_review";
     const total = review?.items.length ?? 0;
@@ -991,7 +1012,9 @@ function ReviewStage({ w }: { w: Workflow }) {
             <section className="workspace-panel panel-scroll summary-content">
                 <div className="panel-title">
                     <CircleAlert aria-hidden="true" />
-                    <h2>{t("review.title")}</h2>
+                    <h2>
+                        {t(fallback ? "fallback.review.title" : "review.title")}
+                    </h2>
                 </div>
                 <ModeNotice w={w} />
                 <QualitySummary w={w} />
@@ -1005,6 +1028,8 @@ function ReviewStage({ w }: { w: Workflow }) {
                                 : "ws.noRowDetails",
                         )}
                     </p>
+                ) : fallback ? (
+                    <NothingToDecide w={w} />
                 ) : !review ? (
                     <p className="muted" role="status">
                         {t("review.loading")}

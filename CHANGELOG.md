@@ -2,15 +2,19 @@
 
 ## Unreleased
 
-- The universal search can be asked for through the API and the run worker, no interface
-  yet: `POST /api/fallback-plans` makes a draft with `"kind": "fallback"` and one step,
+- The universal search can be asked for through the API and the run worker and, when the
+  server offers it, from the interface: after the planner refuses a task, Plan offers a
+  form (question, identifying columns, columns to fill with kind and unit) that posts to
+  `POST /api/fallback-plans`; the plan, Run and Results views carry a "not verified" banner, mark
+  values concluded by the model, and Review says there is nothing to choose. `POST /api/fallback-plans` makes a draft with `"kind": "fallback"` and one step,
   `web_lookup`, which asks a model with web search for several columns of each row; approval,
   run, review, download and the audit use the existing routes. It is off unless the server sets
   `ENRICHMENT_ALLOW_WEB_LOOKUP=1` (and has a key); `GET /api/limits` gains `web_lookup`. Each
   row costs one model request and a search fee; the report gains `web_lookup` (requests, tokens,
   searches) and `ai_found` per row, and the usage summary a `web_lookup` model event and
   `web_searches`. A plan with `web_lookup` is refused on the normal route, from the planner
-  and as a supplied plan. Tested only against a fake client: no live run has been made.
+  and as a supplied plan. Tested only against a fake client and the offline fixture server: no live run
+  through the application has been made, and the values are not verified.
 - The kind of trust behind a value is now shown instead of staying in the code:
   `GET /api/capabilities` gains `trust` (`computed`, `record`, `resolved_name`,
   `service`) beside `source`, and the audit report gains `step_provenance`

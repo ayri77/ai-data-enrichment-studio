@@ -30,6 +30,12 @@ import { Button } from "./ui/button";
 import { ProviderSettings } from "./ProviderSettings";
 import { PlanGraph } from "./PlanGraph";
 import { PlanDescription, PlanInvalid, PlanRefusal } from "./PlanDescription";
+import { FallbackBanner, FallbackSearch } from "./FallbackSearch";
+import {
+    isFallbackDraft,
+    isFallbackRun,
+    offersFallback,
+} from "../fallbackModel";
 
 /** What is still missing before a plan can be built, next to the button itself. */
 function BuildChecklist({
@@ -820,7 +826,13 @@ function AdvancedControls({ w }: { w: Workflow }) {
     );
 }
 
-export function PlanWorkspace({ w }: { w: Workflow }) {
+export function PlanWorkspace({
+    w,
+    preview = null,
+}: {
+    w: Workflow;
+    preview?: Preview | null;
+}) {
     const { t } = useTranslation();
     const advanced = useAdvanced();
     const draft = w.plan;
@@ -841,6 +853,11 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
                         <h2>{t(advanced ? "ws.graph" : "plan.title")}</h2>
                     </div>
                 )}
+                {isFallbackDraft(draft) && (
+                    <div className="fallback-banner-row">
+                        <FallbackBanner />
+                    </div>
+                )}
                 {!draft ? (
                     <EmptyState icon="plan" text={t("ws.noPlan")} />
                 ) : !draft.plan ? (
@@ -849,7 +866,15 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
                             draft={draft}
                             maxRows={w.maxRows}
                             capabilities={w.capabilities}
-                        />
+                        >
+                            {preview && offersFallback(draft, w.webLookup) && (
+                                <FallbackSearch
+                                    w={w}
+                                    draft={draft}
+                                    preview={preview}
+                                />
+                            )}
+                        </PlanRefusal>
                     </div>
                 ) : advanced ? (
                     <PlanGraph key={draft.fingerprint} draft={draft} />
@@ -955,7 +980,13 @@ export function PlanWorkspace({ w }: { w: Workflow }) {
                                     ))}
                                     {draft.plan.assumptions.length > 0 && (
                                         <>
-                                            <h3>{t("workflow.assumptions")}</h3>
+                                            <h3>
+                                                {t(
+                                                    draft.kind === "fallback"
+                                                        ? "fallback.howObtained"
+                                                        : "workflow.assumptions",
+                                                )}
+                                            </h3>
                                             <ul>
                                                 {draft.plan.assumptions.map(
                                                     (a, i) => (
@@ -1178,9 +1209,16 @@ export function ExecutionWorkspace({
     const stopped = terminal && !produced;
     // Basic has nothing left to control once a run exists and is not running.
     const controls = advanced || !w.job || w.active;
+    const fallback = isFallbackRun(w.job, w.plan);
     const outcome =
         !advanced && w.job
-            ? runOutcome(w.job, w.report, w.plan?.plan ?? null, w.review)
+            ? runOutcome(
+                  w.job,
+                  w.report,
+                  w.plan?.plan ?? null,
+                  w.review,
+                  fallback,
+              )
             : null;
     // How many rows passed each step, once the audit of this run has arrived.
     const audited = stepOutcomes(w.job, w.report, w.plan?.plan ?? null);
@@ -1223,6 +1261,16 @@ export function ExecutionWorkspace({
                     ))}
                     <RunProgress w={w} />
                     <ModeNotice w={w} />
+                    {fallback && (
+                        <>
+                            <FallbackBanner />
+                            <p className="muted" data-testid="fallback-sources">
+                                {t(
+                                    `fallback.runSources.${w.plan?.sources_in_workbook ?? "none"}`,
+                                )}
+                            </p>
+                        </>
+                    )}
                     {w.job?.previous_job_id && (
                         <p className="muted">{t("review.continued")}</p>
                     )}
@@ -1245,7 +1293,9 @@ export function ExecutionWorkspace({
                                 : terminal
                                   ? t(
                                         w.job!.status === "needs_review"
-                                            ? "workflow.unresolved"
+                                            ? fallback
+                                                ? "fallback.unresolved"
+                                                : "workflow.unresolved"
                                             : "ws.terminalHint",
                                     )
                                   : t("ws.startHint")}
@@ -1304,7 +1354,9 @@ export function ExecutionWorkspace({
                                 stopped
                                     ? "exec.retryHint"
                                     : toReview
-                                      ? "ws.reviewHint"
+                                      ? fallback
+                                          ? "fallback.reviewHint"
+                                          : "ws.reviewHint"
                                       : "ws.exportHint",
                             )}
                         </p>

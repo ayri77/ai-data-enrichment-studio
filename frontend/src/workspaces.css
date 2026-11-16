@@ -2046,3 +2046,130 @@ button.candidate-link {
     text-align: right;
     font-style: italic;
 }
+/* The universal search: the offer, its form, and how its values are marked. */
+.fallback-offer {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 720px;
+    padding: 16px 18px;
+    border: 1px dashed var(--studio-control-border);
+    border-radius: 7px;
+    background: var(--studio-surface0);
+    font-size: 13px;
+}
+.fallback-offer h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+}
+.fallback-offer p {
+    margin: 0;
+}
+.fallback-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.fallback-columns {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--studio-border);
+    border-radius: 6px;
+}
+.fallback-columns legend {
+    padding: 0 4px;
+    font-weight: 600;
+}
+.workspace-body .fallback-check {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 8px;
+}
+.workspace-body .fallback-check input {
+    width: 16px;
+    min-height: 16px;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+.fallback-target {
+    display: grid;
+    grid-template-columns: minmax(110px, 1fr) minmax(150px, 1.2fr) minmax(
+            130px,
+            1fr
+        );
+    gap: 8px;
+    align-items: end;
+}
+.fallback-target > strong {
+    align-self: center;
+    overflow-wrap: anywhere;
+}
+.fallback-notice ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    list-style: disc;
+}
+.fallback-refusal {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+}
+.fallback-says {
+    color: var(--studio-muted);
+}
+.notice.fallback-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--studio-warning-fill);
+    border-color: var(--studio-warning);
+}
+.fallback-banner-row {
+    padding: 12px 20px 0;
+}
+.fallback-fills {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-left: 12px;
+}
+.fallback-fill::before {
+    content: "• ";
+}
+.fallback-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.fallback-summary p {
+    margin: 0;
+}
+.fallback-review {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+}
+.fallback-review p {
+    margin: 0;
+}
+.outcome-table .basis-mark {
+    display: block;
+    font-family: var(--studio-font-sans);
+    font-size: 11px;
+    color: var(--studio-muted);
+}
+.outcome-table td[data-basis="concluded"] {
+    background: var(--studio-warning-fill);
+    box-shadow: inset 3px 0 0 var(--studio-warning);
+}
+.outcome-table td[data-basis="concluded"] .basis-mark {
+    color: var(--studio-warning);
+    font-weight: 600;
+}

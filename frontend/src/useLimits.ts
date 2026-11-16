@@ -11,6 +11,8 @@ export interface Limits {
     maxTableCells: number;
     /** Ids of what a plan may use on this server. */
     capabilities: string[];
+    /** The universal search can be asked for on this server. */
+    webLookup: boolean;
 }
 export const DEMO_LIMITS: Limits = {
     maxRows: 20,
@@ -24,6 +26,7 @@ export const DEMO_LIMITS: Limits = {
         "resolve_entity",
         "lookup_property",
     ],
+    webLookup: false,
 };
 
 export function useLimits(): Limits {
@@ -43,6 +46,7 @@ export function useLimits(): Limits {
                             stated.max_table_cells ?? DEMO_LIMITS.maxTableCells,
                         capabilities:
                             stated.capabilities ?? DEMO_LIMITS.capabilities,
+                        webLookup: stated.web_lookup === true,
                     });
             } catch {
                 // The demo's bounds stay; the server still checks every value.

@@ -53,6 +53,10 @@ are kept and not looked up again.
 The application itself lists what a plan may be built from: the overview page
 reads the list from the server, so it is always the list of this installation.
 
+When the planner cannot do a task and the server sets `ENRICHMENT_ALLOW_WEB_LOOKUP=1`, the
+interface offers a web search by an AI model instead. Its values are not verified; see
+[the interface](docs/24-five-workspace-ui.md#the-universal-search).
+
 The table needs the names and their countries. A country may be written in any
 language or as a two-letter code.
 

@@ -4,8 +4,11 @@ Run from the repository root. Standard ai_data_enrichment.api:app is unchanged.
 There are no new HTTP fixture switches or simulated execution results.
 """
 
+import atexit
 import json
 import os
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +21,11 @@ from ai_data_enrichment.evaluation.plan_run_fixtures import (
     asks_for_tasks,
     offline_executor,
 )
+from tests.support.lookup_api import LoggedApiFactory
+
+# A task that contains this text is refused by the offline planner, so that the
+# scenario for the universal search has a table it cannot plan for.
+REFUSED_TASK = "first ascent"
 
 
 class SamplePlanClient:
@@ -27,6 +35,15 @@ class SamplePlanClient:
         if asks_for_names(response_schema):
             return FixtureNamesClient().complete(messages=messages, response_schema=response_schema)
         context = json.loads(messages[1]["content"])
+        if REFUSED_TASK in context["instruction"].lower():
+            # What the real planner does for a task no capability covers.
+            return json.dumps(
+                {
+                    "status": "unsupported",
+                    "plan": None,
+                    "reason": "The first ascent of a mountain is not in the sources it can read.",
+                }
+            )
         columns = {column["name"] for column in context["dataset_profile"]["columns"]}
         name = (
             "capitals_roads"
@@ -45,8 +62,18 @@ os.environ.setdefault("OPENROUTESERVICE_API_KEY", "offline-fixture")
 # The usage summary opens with this code in the browser scenarios; it guards
 # nothing but counters of this test process.
 USAGE_CODE = "fixture-admin-code"
+# The universal search is switched on here with a stand-in for the model client,
+# made inside the run worker: no request leaves the process, and the key below
+# is only what the stand-in expects to be handed.
+LOOKUP_KEY = "offline-fixture-key"
+os.environ.setdefault("ENRICHMENT_ALLOW_WEB_LOOKUP", "1")
+os.environ.setdefault("OPENAI_API_KEY", LOOKUP_KEY)
+LOOKUP_DIRECTORY = Path(tempfile.mkdtemp(prefix="enrichment-lookup-"))
+atexit.register(shutil.rmtree, LOOKUP_DIRECTORY, ignore_errors=True)
+LOOKUP_LOG = LOOKUP_DIRECTORY / "requests.jsonl"
 app = create_app(
     offline_plan_client=SamplePlanClient(),
     offline_executor_factory=offline_executor,
+    offline_lookup_api=LoggedApiFactory(os.environ["OPENAI_API_KEY"], LOOKUP_LOG),
     admin_code=USAGE_CODE,
 )

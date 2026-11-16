@@ -217,7 +217,27 @@ export interface PlanRequest {
     sources_in_workbook?: SourcesInWorkbook;
     plan?: EnrichmentPlan;
 }
+/** One column the universal search fills: what kind of value it holds. */
+export type LookupKind = "text" | "number" | "yes_no";
+/**
+ * The universal search asks for its own draft: no instruction for the planner
+ * but a question, the columns that identify a row and the columns to fill.
+ */
+export interface FallbackPlanRequest {
+    dataset_id: string;
+    sheet_name: string;
+    range_ref: string;
+    question: string;
+    /** Headers of the columns whose values are sent to the model for each row. */
+    context_columns: string[];
+    targets: { column: string; kind: LookupKind; unit?: string }[];
+    output_columns: Record<string, string>;
+    existing_outputs: "keep" | "replace";
+    sources_in_workbook: SourcesInWorkbook;
+}
 export interface PlanDraft extends Omit<PlanRequest, "allow_network" | "plan"> {
+    /** Only a draft the server built for the universal search says so. */
+    kind?: "fallback";
     plan_id: string;
     fingerprint: string;
     source_sha256: string;
@@ -241,6 +261,8 @@ export const isTerminal = (status: JobStatus) =>
 export interface Job {
     job_id: string;
     plan_id: string;
+    /** Only a run of the universal search says so. */
+    kind?: "fallback";
     fingerprint: string;
     status: JobStatus;
     created_at: string;
@@ -273,8 +295,31 @@ export interface Job {
      */
     rows_skipped?: number;
 }
+/** What a universal-search run asked of the model: numbers only. */
+export interface WebLookupSpend {
+    configuration_id: string;
+    requests: number;
+    input_tokens: number;
+    output_tokens: number;
+    web_searches: number;
+}
+/** One value written from a web search: its column, what it rests on, how many links. */
+export interface AiFound {
+    column: string;
+    basis: "stated" | "concluded";
+    links: number;
+}
 export interface AuditReport extends Job {
     source_sha256: string;
+    /** A universal-search run: what it asked of the model. */
+    web_lookup?: WebLookupSpend;
+    /** What each step is, where its values come from and what stands behind them. */
+    step_provenance?: {
+        step_id: string;
+        capability: string;
+        source: string;
+        trust: string;
+    }[];
     result_sha256?: string;
     source_unchanged?: boolean;
     preserved_cells?: string[];
@@ -313,6 +358,8 @@ export interface AuditReport extends Job {
          * field, although the step succeeded: the field and a reason code.
          */
         empty_outputs?: Record<string, { field: string; code: string }>;
+        /** A universal-search run: each value written from a web search. */
+        ai_found?: AiFound[];
     }[];
     execution?: {
         provider_requests: Record<string, Record<string, number>>;
@@ -443,6 +490,8 @@ export interface RunLimits {
     default_timeout_seconds: number;
     /** Ids of the capabilities a plan may use on this server. */
     capabilities?: string[];
+    /** The universal search can be asked for here (switched on, with a key). */
+    web_lookup?: boolean;
 }
 export const api = {
     limits: () => response<RunLimits>(call("/api/limits")),
@@ -471,6 +520,8 @@ export const api = {
         configureProvider("PUT", body),
     removeProviderKey: () => configureProvider("DELETE"),
     createPlan: (body: PlanRequest) => post<PlanDraft>("/api/plans", body),
+    createFallbackPlan: (body: FallbackPlanRequest) =>
+        post<PlanDraft>("/api/fallback-plans", body),
     getPlan: (id: string) => response<PlanDraft>(call(`/api/plans/${id}`)),
     validatePlan: (id: string) => post<Validation>(`/api/plans/${id}/validate`),
     approvePlan: (id: string, fingerprint: string) =>

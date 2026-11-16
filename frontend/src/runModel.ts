@@ -34,6 +34,8 @@ export function runOutcome(
     report: AuditReport | null,
     plan: EnrichmentPlan | null,
     review: Review | null,
+    /** A run of the universal search: there is nothing to choose in its review. */
+    fallback = false,
 ): Outcome | null {
     const reached = job.progress
         ? [
@@ -91,24 +93,28 @@ export function runOutcome(
         key,
         values: { filled, total },
         more: [
-            ...(filled >= total || job.status !== "needs_review" || !settled
+            ...(filled >= total || job.status !== "needs_review"
                 ? []
-                : [
-                      settled.items.length > 0
-                          ? {
-                                key: "choices",
-                                values: { count: settled.items.length },
-                            }
-                          : { key: "unconfirmed", values: {} },
-                      ...(searchable
-                          ? [
-                                {
-                                    key: "searchable",
-                                    values: { count: searchable },
-                                },
-                            ]
-                          : []),
-                  ]),
+                : fallback
+                  ? [{ key: "lookupEmpty", values: {} }]
+                  : !settled
+                    ? []
+                    : [
+                          settled.items.length > 0
+                              ? {
+                                    key: "choices",
+                                    values: { count: settled.items.length },
+                                }
+                              : { key: "unconfirmed", values: {} },
+                          ...(searchable
+                              ? [
+                                    {
+                                        key: "searchable",
+                                        values: { count: searchable },
+                                    },
+                                ]
+                              : []),
+                      ]),
             ...alreadyFilled,
         ],
     };

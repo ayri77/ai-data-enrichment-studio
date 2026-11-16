@@ -13,6 +13,7 @@ const HOW = ["table", "task", "plan", "result"] as const;
 export function OverviewWorkspace({
     maxRows,
     capabilities,
+    webLookup = false,
     samples,
     busy,
     onStart,
@@ -21,6 +22,8 @@ export function OverviewWorkspace({
     maxRows: number;
     /** Ids of what the server offers, used until its full list has arrived. */
     capabilities: string[];
+    /** The server can search the web with AI where no plan can be built. */
+    webLookup?: boolean;
     samples: Sample[];
     busy: boolean;
     onStart: () => void;
@@ -35,6 +38,7 @@ export function OverviewWorkspace({
         "empty",
         "copy",
         "only",
+        ...(webLookup ? ["lookup"] : []),
         "sends",
         ...(hosted ? ["shared", "counted"] : []),
     ];
