@@ -704,27 +704,59 @@ def test_review_and_resume_work_for_the_source_steps_and_the_lookup_is_not_asked
         # The chosen name fills the source column; the searched column was not asked for again.
         cells = w.cells(second)
         assert cells["C11"] == 8091 and cells["D11"] == 50
-        # Nine rows were answered by the first job and are taken over. The tenth (K2) had no
-        # answer to keep: only a request that found something is kept, so it is asked again.
-        again = calls(w.log)[10:]
-        assert len(again) == 1 and "- Mountain: K2" in again[0]["input"]
+        # Nine rows were answered by the first job and are taken over, and so is the tenth
+        # (K2): "nothing found" is an answer of the search and is kept like the others.
+        assert len(calls(w.log)) == 10
         report = w.report(second)
-        assert report["web_lookup"]["requests"] == 1 and report["web_lookup"]["answers_kept"] == 9
+        assert report["web_lookup"]["requests"] == 0 and report["web_lookup"]["answers_kept"] == 10
+        lookup_codes = [
+            step["result"]["error_code"]
+            for record in report["execution"]["records"]
+            for step in record["row_result"]["steps"]
+            if step["step_id"] == "lookup"
+        ]
+        assert lookup_codes.count("NOTHING_FOUND") == 1 and len(lookup_codes) == 10
         assert report["previous_job_id"] == first["job_id"] and report["kind"] == "mixed"
         row = row_of(report, 11)
         assert row["status"] == "success" and row["user_chosen_steps"] == ["resolve"]
         assert row["ai_found"] == [{"column": "age", "basis": "concluded", "links": 1}]
         assert report["searched_targets"] == ["age"]
-        # The second run made one request (K2), the first ten: one model event each.
+        # The second run made no request: only the first job's ten are in the spend.
         events = [
             e
             for e in w.client.app.state.usage.summary()["recent"]  # type: ignore[attr-defined]
             if e["kind"] == "model" and e["purpose"] == "web_lookup"
         ]
-        assert sorted(e["requests"] for e in events) == [1, 10]
+        assert sorted(e["requests"] for e in events) == [10]
         # The first job is untouched.
         assert w.client.get(f"/api/jobs/{first['job_id']}").json() == first
         assert "C11" not in w.cells(first)
+
+
+def test_an_explicit_timeout_is_kept_by_a_mixed_run_and_by_its_resume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with world(tmp_path, monkeypatch) as w:
+        draft = w.mixed()
+        w.approve(draft)
+        started = w.start(draft, timeout_seconds=120)
+        assert started.status_code == 202 and started.json()["timeout_seconds"] == 120
+        first = w.wait(started.json())
+        review = w.client.get(f"/api/jobs/{first['job_id']}/review").json()
+        [item] = [i for i in review["items"] if i["query"]["name"] == "Annapurna"]
+        decision = {
+            "operation_id": item["operation_id"],
+            "source": "wikidata",
+            "entity_id": "Q9001",
+        }
+        # Without a limit in the request the resume has the longest one, like the start.
+        for body, expected in (({}, MAX_TIMEOUT_SECONDS), ({"timeout_seconds": 90}, 90)):
+            resumed = w.client.post(
+                f"/api/jobs/{first['job_id']}/resume", json={"decisions": [decision], **body}
+            )
+            assert resumed.status_code == 202, resumed.text
+            assert resumed.json()["timeout_seconds"] == expected
+            w.wait(resumed.json())
 
 
 def test_running_the_plan_again_takes_over_the_answers_too(
@@ -735,9 +767,9 @@ def test_running_the_plan_again_takes_over_the_answers_too(
         w.run(draft)
         assert len(calls(w.log)) == 10
         again = w.wait(w.start(draft).json())
-        # Only K2, for which nothing was found, is asked for again.
-        assert len(calls(w.log)) == 11 and "- Mountain: K2" in calls(w.log)[10]["input"]
-        assert w.report(again)["web_lookup"]["answers_kept"] == 9
+        # K2, for which nothing was found, is kept too: no request at all.
+        assert len(calls(w.log)) == 10
+        assert w.report(again)["web_lookup"]["answers_kept"] == 10
 
 
 def test_a_pure_fallback_job_still_cannot_be_resumed_and_a_planner_job_is_unchanged(

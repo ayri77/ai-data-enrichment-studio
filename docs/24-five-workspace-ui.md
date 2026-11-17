@@ -129,7 +129,7 @@ On Execution, Basic says what happened instead of listing counters:
 **Advanced** adds the second layer:
 
 - the connection band, **Provider / Model settings** and **Diagnostics**;
-- on Dataset: table boundaries always in view with the **Preview selection** button, A1 range input and its guidance, column types and the column inspector, the output mapping with several targets, the consent checkbox, the single-match policy, **Use an existing plan** (plan JSON), **Advanced policy and limits** (timeout), provider readiness lines;
+- on Dataset: table boundaries always in view with the **Preview selection** button, A1 range input and its guidance, column types and the column inspector, the output mapping with several targets, the consent checkbox, the single-match policy, **Use an existing plan** (plan JSON), **Advanced policy and limits** (timeout; for a plan that searches the web the field shows the longest limit, which applies until the person changes it, and nothing is sent for it until then), provider readiness lines;
 - on Plan: the graph with its node inspector instead of the description in words, sheet and range, step/output counts, validation codes, **Validate again**, and approval as a separate action from the start;
 - on Execution: the status with its four counters and the error code, the plan graph, run timestamps, **Retry same approved plan** after any run;
 - on Review: matches that cannot be chosen, technical details, error codes;

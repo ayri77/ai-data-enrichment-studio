@@ -284,3 +284,40 @@ def test_wrapper_checks_identity_and_handler_shape() -> None:
 
 def test_empty_session_has_valid_zero_metrics() -> None:
     assert JobMemoization(policy()).snapshot_metrics().logical_operations == 0
+
+
+def test_nothing_found_is_kept_only_for_the_binding_that_asks_for_it() -> None:
+    from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
+
+    class Nothing:
+        calls = 0
+
+        def execute(
+            self, *, inputs: Mapping[str, RuntimeValue], parameters: Mapping[str, str]
+        ) -> OperationResult:
+            self.calls += 1
+            return OperationResult(status="failure", error_code="NOTHING_FOUND", message="None.")
+
+    kept, other = ("web_lookup", "search"), ("resolve_entity", "wikidata")
+    with SQLiteOperationCache(":memory:") as cache:
+        configured = JobExecutionPolicy(
+            memoizable_providers=frozenset({kept, other}),
+            persistent_cache_ttls={kept: 60.0, other: 60.0},
+            kept_nothing_found=frozenset({kept}),
+        )
+        handlers = {kept: Nothing(), other: Nothing()}
+        for _ in range(2):
+            session = JobMemoization(configured, cache)
+            for (capability, provider), handler in handlers.items():
+                wrapped = session.wrap_handler(
+                    capability_id=capability,
+                    provider_id=provider,
+                    configuration_id="c",
+                    handler=handler,
+                    capability_version="1.0",
+                    provider_version="1.0",
+                )
+                result = wrapped.execute(inputs={"name": "x"}, parameters={})
+                assert result.error_code == "NOTHING_FOUND"
+        # The second job read the answer of the first for the one binding only.
+        assert (handlers[kept].calls, handlers[other].calls) == (1, 2)

@@ -325,6 +325,12 @@ def build_live_executor(
                 if reuse
                 else {}
             ),
+            # The search's answer "nothing found" is kept like a found answer.
+            kept_nothing_found=(
+                frozenset({(LOOKUP_CAPABILITY, lookup_source)})
+                if reuse and lookup_handler is not None and _LOOKUP_BINDING.reusable
+                else frozenset()
+            ),
         ),
         persistent_cache=reuse[0] if reuse else None,
         resolution_cache=reuse[1] if reuse else None,

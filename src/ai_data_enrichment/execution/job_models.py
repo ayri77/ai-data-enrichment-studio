@@ -52,6 +52,9 @@ class JobExecutionPolicy(BaseModel):
     memoizable_providers: frozenset[tuple[str, str]] = Field(default_factory=frozenset)
     # Persistent eligibility is opt-in per approved (capability, provider) pair.
     persistent_cache_ttls: dict[tuple[str, str], float] = Field(default_factory=dict)
+    # Bindings whose answer "nothing found" is kept like a found answer. Only that one
+    # code: a failure of delivery or of the input is not an answer and is never kept.
+    kept_nothing_found: frozenset[tuple[str, str]] = Field(default_factory=frozenset)
 
     @field_validator("memoizable_providers")
     @classmethod
@@ -69,6 +72,8 @@ class JobExecutionPolicy(BaseModel):
                 raise ValueError("Persistent cache TTL requires an approved memoizable provider.")
             if not isfinite(ttl) or ttl <= 0:
                 raise ValueError("Persistent cache TTL must be positive and finite.")
+        if not self.kept_nothing_found <= self.persistent_cache_ttls.keys():
+            raise ValueError("Keeping 'nothing found' requires a persistent cache TTL.")
         return self
 
 

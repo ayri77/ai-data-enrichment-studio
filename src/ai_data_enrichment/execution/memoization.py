@@ -1,20 +1,54 @@
 """Bounded job-local deduplication with optional cross-job SQLite reuse.
 
 No changes to DAG ordering, provider adapters, retry budgets or HTTP transport.
-Only explicitly approved successful operations are stored at either cache level.
+Only explicitly approved successful operations are stored at either cache level; the one
+exception is the answer "nothing found" of a binding that asks for it (see
+``JobExecutionPolicy.kept_nothing_found``).
 """
 
 from collections.abc import Mapping
 
 from ai_data_enrichment.execution.contracts import CapabilityHandler
 from ai_data_enrichment.execution.job_models import JobExecutionMetrics, JobExecutionPolicy
-from ai_data_enrichment.execution.models import OperationResult, RuntimeValue
+from ai_data_enrichment.execution.models import (
+    FoundRecord,
+    FoundValue,
+    OperationResult,
+    RuntimeValue,
+)
 from ai_data_enrichment.execution.operation_keys import (
     _operation_key,
     _OperationKey,
     persistent_key_digest,
 )
 from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
+
+NOTHING_FOUND = "NOTHING_FOUND"
+_NOTHING_FOUND_MESSAGE = "The web search found no traceable value for any column."
+
+
+def _nothing_found_entry(message: str | None) -> OperationResult:
+    """The stored form of "nothing found": a record in which no slot has a value.
+
+    The cache holds successes only. A found record always has a value in at least one
+    slot, so a record without any is unambiguous and is read back as the failure. The
+    failure's message (fixed sentences, no row content) is carried in the slot's quote.
+    """
+    empty = FoundValue(value=None, basis=None, quote=(message or "").strip() or None)
+    return OperationResult(status="success", value=FoundRecord(slots={"value_1": empty}))
+
+
+def _is_nothing_found_entry(result: OperationResult) -> bool:
+    value = result.value
+    return isinstance(value, FoundRecord) and all(i.value is None for i in value.slots.values())
+
+
+def _nothing_found(entry: OperationResult) -> OperationResult:
+    assert isinstance(entry.value, FoundRecord)
+    quote = next(iter(entry.value.slots.values())).quote
+    return OperationResult(
+        status="failure", error_code=NOTHING_FOUND, message=quote or _NOTHING_FOUND_MESSAGE
+    )
 
 
 class MemoCapacity:
@@ -103,11 +137,16 @@ class _MemoizingHandler:
                 lookup = session._persistent_cache.get(persistent_key)
                 if lookup.status == "hit":
                     assert lookup.result is not None
+                    kept = lookup.result
+                    if binding in session._policy.kept_nothing_found and _is_nothing_found_entry(
+                        kept
+                    ):
+                        kept = _nothing_found(kept)
                     session._persistent_cache_hits += 1
                     session._count_kept(self._capability_id)
                     session._from_kept.add(key)
-                    session._retain_success(key, lookup.result)
-                    return lookup.result
+                    session._retain_success(key, kept)
+                    return kept
                 session._persistent_cache_misses += 1
                 if lookup.status == "invalid":
                     session._persistent_cache_invalid_entries += 1
@@ -126,6 +165,24 @@ class _MemoizingHandler:
                     provider_id=self._provider_id,
                 )
                 session._persistent_cache_writes += 1
+            if key is not None:
+                session._retain_success(key, result)
+        elif (
+            result.error_code == NOTHING_FOUND
+            and binding in session._policy.kept_nothing_found
+            and persistent_key is not None
+            and ttl is not None
+        ):
+            # An answer of the source, unlike a failed request: kept the same way.
+            assert session._persistent_cache is not None
+            session._persistent_cache.put(
+                persistent_key,
+                _nothing_found_entry(result.message),
+                ttl_seconds=ttl,
+                capability_id=self._capability_id,
+                provider_id=self._provider_id,
+            )
+            session._persistent_cache_writes += 1
             if key is not None:
                 session._retain_success(key, result)
         return result
