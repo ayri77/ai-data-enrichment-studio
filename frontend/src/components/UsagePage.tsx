@@ -27,10 +27,21 @@ function details(event: UsageSummary["recent"][number]) {
         .join(" · ");
 }
 
+const KNOWN_ERRORS = ["admin_required", "access_throttled", "usage_disabled"];
+/** The error code to show, or "" for one that is no news (`quiet`). */
+function known(failure: unknown, quiet: string[]) {
+    if (failure instanceof WorkspaceApiError) {
+        if (quiet.includes(failure.code)) return "";
+        if (KNOWN_ERRORS.includes(failure.code)) return failure.code;
+    }
+    return "network_error";
+}
+
 /**
- * Who used a hosted demo and for what. Opened at `#usage` by the holder of the
- * admin code; the code stays in this page's memory and is asked for again
- * after a reload.
+ * Who used the studio and for what. Opened at `#usage`. The page first asks the
+ * server without a code: a server started on one's own machine with no admin
+ * code answers at once. Otherwise it asks for the admin code, which stays in
+ * this page's memory and is asked for again after a reload.
  */
 export function UsagePage() {
     const { t, i18n } = useTranslation();
@@ -39,34 +50,46 @@ export function UsagePage() {
     const [summary, setSummary] = useState<UsageSummary | null>(null);
     const [error, setError] = useState("");
     const [busy, setBusy] = useState(false);
+    // False while the first, code-less request is on its way; false again if the
+    // server did not need a code.
+    const [checking, setChecking] = useState(true);
+    const [needsCode, setNeedsCode] = useState(true);
     useEffect(() => {
         document.documentElement.dataset.theme = initialTheme();
         document.documentElement.lang = language;
         document.title = `${t("usage.title")} · AI Data Enrichment Studio`;
     }, [language, t]);
+    useEffect(() => {
+        let current = true;
+        api.usage("")
+            .then((opened) => {
+                if (!current) return;
+                setNeedsCode(false);
+                setSummary(opened);
+            })
+            .catch((failure) => {
+                if (!current) return;
+                setError(known(failure, ["admin_required"]));
+            })
+            .finally(() => current && setChecking(false));
+        return () => {
+            current = false;
+        };
+    }, []);
     async function load(event?: FormEvent) {
         event?.preventDefault();
-        if (!code.trim() || busy) return;
+        if ((needsCode && !code.trim()) || busy) return;
         setBusy(true);
         setError("");
         try {
             setSummary(await api.usage(code.trim()));
         } catch (failure) {
-            const known = [
-                "admin_required",
-                "access_throttled",
-                "usage_disabled",
-            ];
-            setError(
-                failure instanceof WorkspaceApiError &&
-                    known.includes(failure.code)
-                    ? failure.code
-                    : "network_error",
-            );
+            setError(known(failure, []));
             setSummary(null);
         }
         setBusy(false);
     }
+    if (checking) return <main className="access-gate" aria-busy="true" />;
     if (!summary)
         return (
             <main className="access-gate">
@@ -111,12 +134,28 @@ export function UsagePage() {
                 </Button>
                 <a href="/">{t("usage.back")}</a>
             </header>
-            <p className="muted">
-                {t("usage.since", {
-                    started: time(summary.started_at, language),
-                    now: time(summary.now, language),
-                })}
+            <p className="muted" data-testid="usage-since">
+                {summary.persistent
+                    ? t("usage.kept", {
+                          since: time(
+                              summary.since ?? summary.process_started_at,
+                              language,
+                          ),
+                          now: time(summary.now, language),
+                      })
+                    : t("usage.cleared", {
+                          started: time(summary.process_started_at, language),
+                          now: time(summary.now, language),
+                      })}
             </p>
+            {!summary.persistent && summary.reason && (
+                <p className="muted">{t(`usage.reason.${summary.reason}`)}</p>
+            )}
+            {summary.skipped_lines > 0 && (
+                <p className="muted" data-testid="usage-skipped">
+                    {t("usage.skipped", { n: summary.skipped_lines })}
+                </p>
+            )}
             <p className="muted">{t("usage.restart")}</p>
             {error && <p role="alert">{t(`error.${error}`)}</p>}
             <h2>{t("usage.visitors")}</h2>

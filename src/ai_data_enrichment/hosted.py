@@ -16,14 +16,18 @@ Everything is configured from the environment, never from the browser:
   refuses to start, so a deployment can never be open by accident.
 - `ENRICHMENT_ADMIN_CODE` (optional, at least 12 characters): opens the usage
   summary and nothing else. Without it there is no such summary.
+- `ENRICHMENT_USAGE_FILE` (optional): a path where the usage events are also kept, so
+  that the summary survives a restart; unset or `off` keeps them in memory only. On
+  a host with an ephemeral disk the file lasts only until the next restart.
 - `OPENAI_API_KEY`, `OPENAI_MODEL`: planning provider (model optional).
 - `ENRICHMENT_ALLOW_NETWORK=1`: server network gate for live requests.
 - `ENRICHMENT_STATIC_DIR` (default `frontend/dist`): the built frontend.
 
 State is in memory and in a temporary directory, as in the local launcher: run
-exactly one process, and expect a restart to clear uploads, plans, jobs and the
-usage summary. Counted events are also written to standard output, one JSON
-line each, where the hosting platform keeps its logs.
+exactly one process, and expect a restart to clear uploads, plans, jobs and, unless
+`ENRICHMENT_USAGE_FILE` is set on a disk that lasts, the usage summary. Counted events
+are also written to standard output, one JSON line each, where the hosting platform
+keeps its logs.
 """
 
 import os

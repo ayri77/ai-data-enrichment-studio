@@ -1,5 +1,6 @@
 """A hosted deployment must be closed without the access code and usable with it."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from ai_data_enrichment.api import create_app
 from ai_data_enrichment.evaluation.plan_run_fixtures import offline_executor
 from ai_data_enrichment.hosted import create_hosted_app, visitor_codes
 from ai_data_enrichment.plan_run import PlanRunSettings
+from ai_data_enrichment.usage import default_usage_file
 
 CODE = "demo-code-1234"
 WORKBOOK = Path("samples/capitals.xlsx").read_bytes()
@@ -424,7 +426,8 @@ def test_the_local_launcher_offers_the_usage_summary_with_an_admin_code(
     monkeypatch.delenv("ENRICHMENT_ADMIN_CODE", raising=False)
     local_server.main()
     with TestClient(started["app"]) as client:
-        assert usage(client).json()["error"]["code"] == "usage_disabled"
+        # No admin code and no access codes, on the loopback address: nothing to enter.
+        assert usage(client, "").status_code == 200
 
     monkeypatch.setenv("ENRICHMENT_ADMIN_CODE", ADMIN)
     local_server.main()
@@ -446,6 +449,7 @@ def test_the_local_launcher_keeps_every_setting_of_the_environment(
     # the universal search never reached a locally started server.
     from ai_data_enrichment import local_server
     from ai_data_enrichment.plan_run import PlanRunSettings
+    from ai_data_enrichment.usage import default_usage_file
 
     started: dict = {}
     monkeypatch.setattr(local_server.uvicorn, "run", lambda app, **options: started.update(app=app))
@@ -464,6 +468,7 @@ def test_the_local_launcher_keeps_every_setting_of_the_environment(
         llm_model="gpt-4.1-mini",
         allow_web_lookup=True,
         web_lookup_model="gpt-4.1-mini",
+        usage_file=str(default_usage_file()),
     )
     with TestClient(started["app"]) as client:
         assert client.get("/api/limits").json()["web_lookup"] is True
@@ -481,3 +486,131 @@ def test_the_local_launcher_keeps_every_setting_of_the_environment(
     local_server.main()
     with TestClient(started["app"]) as client:
         assert client.get("/api/limits").json()["web_lookup"] is False
+
+
+def _launcher(monkeypatch: pytest.MonkeyPatch):
+    from ai_data_enrichment import local_server
+
+    started: dict = {}
+    monkeypatch.setattr(local_server.uvicorn, "run", lambda app, **options: started.update(app=app))
+    monkeypatch.setattr("sys.argv", ["local_server"])
+    monkeypatch.delenv("ENRICHMENT_ADMIN_CODE", raising=False)
+
+    def start():
+        local_server.main()
+        return started["app"]
+
+    return start
+
+
+def test_the_local_launcher_keeps_the_usage_in_the_state_folder_unless_told_otherwise(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, usage_file_in_a_temporary_folder: Path
+) -> None:
+    start = _launcher(monkeypatch)
+    expected = (
+        usage_file_in_a_temporary_folder / "ai-data-enrichment-studio" / "usage" / "events.jsonl"
+    )
+    assert default_usage_file() == expected
+    with TestClient(start()) as client:
+        assert client.get("/api/access").json()["granted"] is True
+        body = usage(client, "").json()
+        assert body["persistent"] is True and "reason" not in body
+    assert [json.loads(line)["kind"] for line in expected.read_text("utf-8").splitlines()] == [
+        "visit"
+    ]
+    # A second launch counts on from the first.
+    with TestClient(start()) as client:
+        assert usage(client, "").json()["events"] == {"visit": 1}
+        client.get("/api/access")
+    assert len(expected.read_text("utf-8").splitlines()) == 2
+
+    # Another path is used as given; "off" switches the file off, and the launcher keeps it.
+    elsewhere = tmp_path / "mine" / "usage.jsonl"
+    monkeypatch.setenv("ENRICHMENT_USAGE_FILE", str(elsewhere))
+    app = start()
+    assert app.state.plan_run.settings.usage_file == str(elsewhere)
+    with TestClient(app) as client:
+        client.get("/api/access")
+    assert elsewhere.is_file()
+    monkeypatch.setenv("ENRICHMENT_USAGE_FILE", "OFF")
+    app = start()
+    assert app.state.plan_run.settings.usage_file == "off"
+    with TestClient(app) as client:
+        client.get("/api/access")
+        body = usage(client, "").json()
+        assert (body["persistent"], body["reason"], body["since"] is not None) == (
+            False,
+            "off",
+            True,
+        )
+    assert len(expected.read_text("utf-8").splitlines()) == 2
+
+
+def test_a_hosted_app_keeps_nothing_unless_a_file_is_named(
+    site: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    usage_file_in_a_temporary_folder: Path,
+) -> None:
+    monkeypatch.setenv("ENRICHMENT_ACCESS_CODE", CODE)
+    monkeypatch.setenv("ENRICHMENT_ADMIN_CODE", ADMIN)
+    monkeypatch.setenv("ENRICHMENT_STATIC_DIR", str(site))
+    with TestClient(create_hosted_app()) as client:
+        client.get("/api/access", headers={"X-Access-Code": CODE})
+        body = usage(client).json()
+        assert (body["persistent"], body["reason"]) == (False, "off")
+    assert not list(usage_file_in_a_temporary_folder.iterdir())
+    kept = tmp_path / "usage.jsonl"
+    monkeypatch.setenv("ENRICHMENT_USAGE_FILE", str(kept))
+    with TestClient(create_hosted_app()) as client:
+        client.get("/api/access", headers={"X-Access-Code": CODE})
+        assert usage(client).json()["persistent"] is True
+    with TestClient(create_hosted_app()) as client:
+        body = usage(client).json()
+        assert body["events"] == {"visit": 1} and body["persistent"] is True
+        assert body["since"] <= body["process_started_at"]
+    # "off" is understood on a hosted app as well.
+    monkeypatch.setenv("ENRICHMENT_USAGE_FILE", "off")
+    with TestClient(create_hosted_app()) as client:
+        assert usage(client).json()["events"] == {}
+
+
+@pytest.mark.parametrize(
+    ("local", "admin", "visitor_codes", "opens_without_code"),
+    [
+        (True, False, False, True),
+        (True, True, False, False),
+        (True, False, True, False),
+        (True, True, True, False),
+        (False, False, False, False),
+        (False, True, False, False),
+        (False, False, True, False),
+        (False, True, True, False),
+    ],
+)
+def test_the_summary_opens_without_a_code_only_for_the_launcher_with_no_codes_at_all(
+    site: Path, local: bool, admin: bool, visitor_codes: bool, opens_without_code: bool
+) -> None:
+    from ai_data_enrichment.usage import summary_open_without_code
+
+    assert (
+        summary_open_without_code(local=local, access_codes_set=visitor_codes, admin_code_set=admin)
+        is opens_without_code
+    )
+    app = create_app(
+        local_browser_configuration=local,
+        access_codes=VISITORS if visitor_codes else None,
+        admin_code=ADMIN if admin else None,
+        static_dir=site,
+    )
+    with TestClient(app) as client:
+        without = usage(client, "")
+        assert (without.status_code == 200) is opens_without_code
+        if not opens_without_code:
+            assert without.json()["error"]["code"] == (
+                "admin_required" if admin else "usage_disabled"
+            )
+        # The admin code, where there is one, always opens it.
+        if admin:
+            assert usage(client).status_code == 200
+            assert usage(client, "wrong-admin-code").status_code == 401

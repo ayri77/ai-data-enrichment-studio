@@ -207,6 +207,11 @@ select {
 .connection-note {
     margin-left: auto;
 }
+.studio-connection a {
+    margin-left: 12px;
+    color: inherit;
+    text-decoration: underline;
+}
 .studio main {
     min-width: 0;
     flex: 1;

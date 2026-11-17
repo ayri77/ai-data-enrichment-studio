@@ -2278,6 +2278,9 @@ it("starts in Basic without technical tools; the switch reveals them and is reme
     absent("ws.providerSettings");
     expect(screen.queryByText(i18n.t("localApi"))).not.toBeInTheDocument();
     expect(
+        screen.queryByRole("link", { name: i18n.t("usage.link") }),
+    ).not.toBeInTheDocument();
+    expect(
         screen.queryByText(i18n.t("ws.advancedControls")),
     ).not.toBeInTheDocument();
     expect(
@@ -2289,6 +2292,10 @@ it("starts in Basic without technical tools; the switch reveals them and is reme
     await userEvent.selectOptions(mode, "advanced");
     expect(button("ws.diagnostics")).toBeVisible();
     expect(screen.getByText(i18n.t("localApi"))).toBeVisible();
+    // The owner's usage page is one click away from the server-level line.
+    expect(
+        screen.getByRole("link", { name: i18n.t("usage.link") }),
+    ).toHaveAttribute("href", "#usage");
     expect(screen.getByLabelText(i18n.t("workflow.policy"))).toBeVisible();
     expect(localStorage.getItem("enrichment.mode")).toBe("advanced");
 });

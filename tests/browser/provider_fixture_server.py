@@ -1,6 +1,7 @@
 """Test-only OpenAI HTTP responses behind the actual trusted loopback launcher."""
 
 import json
+import os
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import patch
@@ -9,6 +10,9 @@ import httpx
 from openai import OpenAI
 
 from ai_data_enrichment.local_server import main
+
+# The launcher keeps the usage summary in the user's state folder; a test must not.
+os.environ.setdefault("ENRICHMENT_USAGE_FILE", "off")
 
 
 def respond(request: httpx.Request) -> httpx.Response:
