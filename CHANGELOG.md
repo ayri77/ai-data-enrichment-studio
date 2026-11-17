@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Mixed plans on the server (the interface does not use them yet; nothing was run live, every
+  test uses fake clients). `POST /api/fallback-plans` accepts `plan_id`, a planner draft with
+  `unfilled_targets`, and answers a new draft of kind `mixed`: the planner's plan unchanged plus
+  one `web_lookup` step (`build_mixed_plan`) for exactly those columns, with `searched_targets`
+  and `planner_plan_id` inside the fingerprint; the planner draft is kept and never dropped to
+  make room for it. `fallback_registry` accepts the one-step and the mixed shape (`plan_shape`),
+  the gate knows `planner`, `fallback` and `mixed`, and a mixed job runs through the normal
+  executor assembly (request policies, reuse caches, review, resume) with the lookup bound in
+  addition: `execute_workbook` has one branch, and the executor factory gets `registry=` and
+  `web_lookup=` for such plans. A mixed job can be reviewed and resumed (the lookup is answered
+  from kept answers); a pure fallback job still cannot. New error codes `mixed_base_not_planner`,
+  `mixed_nothing_unfilled`, `mixed_base_invalid`.
 - The universal search keeps its answers for the lifetime of one plan. A successful answer (the
   codec now stores a found record with its evidence; the format string is unchanged because only
   a new value type was added) is written to the plan's value cache and taken over by the next job

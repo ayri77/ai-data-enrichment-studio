@@ -9,8 +9,10 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
+from ai_data_enrichment.capabilities.registry import CapabilityRegistry
 from ai_data_enrichment.evaluation.smoke import OfflineWikidataTransport
 from ai_data_enrichment.execution.job_executor import JobExecutor
+from ai_data_enrichment.orchestration.live_executor import WebLookupOptions
 from ai_data_enrichment.plan_run_worker import (
     MountainPolicy,
     ResumeSelections,
@@ -127,8 +129,15 @@ def offline_executor(
     *,
     resume_selections: ResumeSelections | None = None,
     reuse: Reuse | None = None,
+    registry: CapabilityRegistry | None = None,
+    web_lookup: WebLookupOptions | None = None,
 ) -> JobExecutor:
-    """Top-level and picklable on Windows: same registered, audited live stack."""
+    """Top-level and picklable on Windows: same registered, audited live stack.
+
+    A fallback or mixed plan also gets its own ``registry`` and the ``web_lookup`` options
+    (with the test's fake API object): its source steps are answered by the fixtures here,
+    its lookup step by that object.
+    """
     return live_executor(
         capabilities,
         policy,
@@ -136,6 +145,8 @@ def offline_executor(
         transport=APITransportFixture(),
         resume_selections=resume_selections,
         reuse=reuse,
+        registry=registry,
+        web_lookup=web_lookup,
     )
 
 

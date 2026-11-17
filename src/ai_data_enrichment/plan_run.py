@@ -6,7 +6,7 @@ import logging
 import multiprocessing
 import os
 import re
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -14,7 +14,7 @@ from hashlib import sha256
 from pathlib import Path
 from shutil import rmtree
 from time import monotonic
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter
@@ -31,8 +31,10 @@ from ai_data_enrichment.capabilities.fallback import (
     FallbackRequest,
     FallbackTarget,
     build_fallback_plan,
+    build_mixed_plan,
     fallback_registry,
     is_fallback_plan,
+    plan_shape,
 )
 from ai_data_enrichment.domain.dataset_profile import DatasetProfile
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan
@@ -122,8 +124,12 @@ WEB_LOOKUP_REASONING_EFFORT = "low"
 # A model id is one short word: it is counted in the usage summary and named in the audit.
 _MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}")
 # A draft made by the planner (or brought along) has no "kind"; one the server built for
-# the web lookup fallback says so. The kind is part of what the fingerprint covers.
+# the web lookup says so: "fallback" (the lookup step alone) or "mixed" (the planner's steps
+# for the columns that have a source and one lookup step for the others). The kind is part
+# of what the fingerprint covers.
 FALLBACK_KIND = "fallback"
+MIXED_KIND = "mixed"
+PLAN_KINDS = ("planner", FALLBACK_KIND, MIXED_KIND)
 # What a draft gains after its fingerprint was made; everything else is covered by it.
 _AFTER_FINGERPRINT = frozenset(
     {"plan_id", "fingerprint", "status", "created_at", "approved_at", "validation"}
@@ -258,21 +264,47 @@ class FallbackPlanRequest(BaseModel):
     Only structure and size are checked here; what a lookup task may hold is checked by
     ``FallbackRequest`` and ``build_fallback_plan``. There is no plan, no kind and no
     model in the body: the server builds the plan and sets the kind.
+
+    Two forms. Without ``plan_id`` the table (``dataset_id``, ``sheet_name``,
+    ``range_ref``), ``output_columns`` and ``question`` are required and the draft is a
+    fallback draft. With ``plan_id`` (a stored planner draft that left some columns
+    unfilled) the table, the output columns and ``existing_outputs`` come from that draft
+    and MUST NOT be sent; ``question`` defaults to the draft's instruction; the draft made
+    is a mixed one. ``check_form`` refuses a body that is neither.
     """
 
     model_config = ConfigDict(extra="forbid")
-    dataset_id: str = Field(min_length=1, max_length=64)
-    sheet_name: str = Field(min_length=1, max_length=31)
-    range_ref: str = Field(min_length=1, max_length=32)
-    question: str = Field(min_length=1, max_length=4000)
+    # The planner draft to complete; the form of the body depends on it.
+    plan_id: str | None = Field(default=None, min_length=1, max_length=64)
+    dataset_id: str | None = Field(default=None, min_length=1, max_length=64)
+    sheet_name: str | None = Field(default=None, min_length=1, max_length=31)
+    range_ref: str | None = Field(default=None, min_length=1, max_length=32)
+    question: str | None = Field(default=None, min_length=1, max_length=4000)
     context_columns: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
         min_length=1, max_length=100
     )
     targets: list[FallbackTargetBody] = Field(min_length=1, max_length=100)
     # As in a plan request: each column to fill, existing or new, and its column letter.
-    output_columns: dict[str, str] = Field(min_length=1, max_length=20)
+    output_columns: dict[str, str] | None = Field(default=None, min_length=1, max_length=20)
     existing_outputs: Literal["keep", "replace"] = "keep"
+    # Omitted with plan_id: the draft's own choice is kept.
     sources_in_workbook: Literal["none", "notes", "sheet"] = "none"
+
+    def check_form(self) -> None:
+        """Refuse a body that mixes the two forms or lacks what its form needs."""
+        table = ("dataset_id", "sheet_name", "range_ref", "output_columns", "existing_outputs")
+        if self.plan_id is not None:
+            given = [name for name in table if name in self.model_fields_set]
+            if given:
+                raise WorkspaceError(
+                    "fallback_plan_invalid",
+                    "With plan_id the table, the output columns and the choice about existing "
+                    f"values come from that plan; do not send {', '.join(given)}.",
+                )
+        elif None in (self.dataset_id, self.sheet_name, self.range_ref, self.output_columns) or (
+            self.question is None
+        ):
+            raise WorkspaceError("invalid_request", "Check the request fields.")
 
 
 class ApprovalRequest(BaseModel):
@@ -445,10 +477,15 @@ class PlanRunService:
             raise WorkspaceError("workspace_full", "Wait for the current run to finish.", 409)
         self._drop_job(oldest)
 
-    def make_room_for_plan(self) -> None:
+    def make_room_for_plan(self, keep: str | None = None) -> None:
+        """Drop the oldest plan that has no running job, never ``keep``.
+
+        ``keep`` is the planner draft a mixed draft is being made from: it must still be
+        there when the new draft is stored, and is the user's to remove, not ours.
+        """
         if len(self.plans) < MAX_PLANS:
             return
-        oldest = next((i for i in self.plans if not self._active(plan_id=i)), None)
+        oldest = next((i for i in self.plans if i != keep and not self._active(plan_id=i)), None)
         if oldest is None:
             raise WorkspaceError("workspace_full", "Wait for the current run to finish.", 409)
         del self.plans[oldest]
@@ -577,15 +614,15 @@ class PlanRunService:
 
     @staticmethod
     def plan_gate(draft: dict, plan: EnrichmentPlan) -> None:
-        """A plan with the web lookup is a fallback draft and nothing else is.
+        """A plan with the web lookup is a fallback or a mixed draft and nothing else is.
 
         Whatever the draft says, the plan decides: a draft of another kind, or one whose
-        kind and plan do not agree, is not run, validated or approved.
+        kind and plan do not agree, is not run, validated or approved. ``planner``: no
+        web lookup step; ``fallback``: the lookup step alone; ``mixed``: the lookup step
+        with other steps.
         """
         kind = draft.get("kind", "planner")
-        if kind not in ("planner", FALLBACK_KIND) or is_fallback_plan(plan) != (
-            kind == FALLBACK_KIND
-        ):
+        if kind not in PLAN_KINDS or plan_shape(plan) != kind:
             raise WorkspaceError(
                 "web_lookup_plan_refused",
                 "A plan that searches the web can only be made by the universal search.",
@@ -605,10 +642,13 @@ class PlanRunService:
             path, selection.sheet_name, draft["dataset_id"], selection=selection
         )
         try:
+            kind = draft.get("kind", "planner")
             registry = (
-                fallback_registry(plan, profile.columns)
-                if draft.get("kind") == FALLBACK_KIND
-                else builtin_registry()
+                builtin_registry()
+                if kind == "planner"
+                else fallback_registry(
+                    plan, profile.columns, builtin_registry() if kind == MIXED_KIND else None
+                )
             )
         except FallbackPlanError as exc:
             return {
@@ -688,6 +728,7 @@ class PlanRunService:
         source: str,
         kind: str | None = None,
         unfilled_targets: Sequence[str] = (),
+        extra: Mapping[str, Any] | None = None,
     ) -> dict:
         """Make, fingerprint, validate and keep the draft; the same for every kind."""
         draft = {
@@ -700,8 +741,10 @@ class PlanRunService:
             # The chosen columns the planner found no source for. Inside what the
             # fingerprint covers, so a client cannot change it after approval.
             "unfilled_targets": list(unfilled_targets),
-            # Only a fallback draft has a kind; it is inside what the fingerprint covers.
+            # Only a draft the server built for the web lookup has a kind; it is inside
+            # what the fingerprint covers, like the fields only that kind has (``extra``).
             **({"kind": kind} if kind else {}),
+            **(extra or {}),
         }
         fingerprint = draft_fingerprint(draft)
         draft.update(
@@ -792,8 +835,24 @@ class PlanRunService:
         )
 
     def create_fallback_plan(self, body: FallbackPlanRequest) -> dict:
-        """The one-step universal-search plan the server builds, kept as a draft."""
+        """The universal-search plan the server builds, kept as a draft.
+
+        Without ``plan_id`` the one-step plan (kind ``fallback``); with it, the plan of a
+        stored planner draft plus one lookup step for the columns it left unfilled (kind
+        ``mixed``).
+        """
         self.lookup_gate()
+        body.check_form()
+        if body.plan_id is not None:
+            return self._create_mixed_plan(body, body.plan_id)
+        if (
+            body.dataset_id is None
+            or body.sheet_name is None
+            or body.range_ref is None
+            or body.output_columns is None
+            or body.question is None
+        ):
+            raise WorkspaceError("invalid_request", "Check the request fields.")
         # The same request fields and the same checks of the table as a normal plan.
         as_plan_request = PlanRequest(
             dataset_id=body.dataset_id,
@@ -806,14 +865,7 @@ class PlanRunService:
         )
         path, profile = self._selected_table(as_plan_request)
         try:
-            request = FallbackRequest(
-                question=body.question,
-                context_columns=tuple(body.context_columns),
-                targets=tuple(
-                    FallbackTarget(column=item.column, kind=item.kind, unit=item.unit)
-                    for item in body.targets
-                ),
-            )
+            request = self._lookup_request(body, body.question)
             plan = build_fallback_plan(request, profile.columns)
         except ValidationError as exc:
             message = str(exc.errors()[0]["msg"]).removeprefix("Value error, ")
@@ -829,6 +881,101 @@ class PlanRunService:
             planning_attempts=[],
             source="fallback",
             kind=FALLBACK_KIND,
+        )
+
+    @staticmethod
+    def _lookup_request(body: FallbackPlanRequest, question: str) -> FallbackRequest:
+        return FallbackRequest(
+            question=question,
+            context_columns=tuple(body.context_columns),
+            targets=tuple(
+                FallbackTarget(column=item.column, kind=item.kind, unit=item.unit)
+                for item in body.targets
+            ),
+        )
+
+    def _create_mixed_plan(self, body: FallbackPlanRequest, base_id: str) -> dict:
+        """A new draft: the plan of a planner draft plus one lookup step for what it left out.
+
+        The planner draft is only read: it stays stored and unchanged, and making room for
+        the new draft never drops it (``make_room_for_plan(keep=...)``).
+        """
+        base = self.get_plan(base_id)
+        if base.get("kind", "planner") != "planner":
+            raise WorkspaceError(
+                "mixed_base_not_planner",
+                "Only a plan the planner made can be completed with the universal search.",
+            )
+        unfilled = unfilled_targets_of(base)
+        if not unfilled:
+            raise WorkspaceError(
+                "mixed_nothing_unfilled",
+                "This plan fills every column you chose; there is nothing to search for.",
+            )
+        # Read now, as a run would: a changed workbook or a plan that no longer validates
+        # is refused here, not after the user has approved the new draft.
+        if not self.validate(base)["valid"]:
+            raise WorkspaceError(
+                "mixed_base_invalid",
+                "The plan this search is meant to complete is not valid. Repair it first.",
+            )
+        # The table, the output columns and the choices of the planner draft are kept.
+        as_plan_request = PlanRequest(
+            dataset_id=base["dataset_id"],
+            sheet_name=base["sheet_name"],
+            range_ref=base["range_ref"],
+            instruction=base["instruction"],
+            output_columns=base["output_columns"],
+            mountain_resolution_policy=base["mountain_resolution_policy"],
+            existing_outputs=base.get("existing_outputs", "keep"),
+            sources_in_workbook=(
+                body.sources_in_workbook
+                if "sources_in_workbook" in body.model_fields_set
+                else base.get("sources_in_workbook", "none")
+            ),
+        )
+        path, profile = self._selected_table(as_plan_request)
+        try:
+            request = self._lookup_request(body, body.question or base["instruction"])
+            named = sorted(target.column for target in request.targets)
+            if named != sorted(unfilled):
+                missing = [name for name in unfilled if name not in named]
+                extra = [name for name in named if name not in unfilled]
+                raise FallbackPlanError(
+                    "The columns to search must be exactly the ones the plan left unfilled ("
+                    + ", ".join(f"'{name}'" for name in unfilled)
+                    + ")."
+                    + (f" Missing: {', '.join(missing)}." if missing else "")
+                    + (f" Not left unfilled: {', '.join(extra)}." if extra else "")
+                )
+            plan = build_mixed_plan(
+                EnrichmentPlan.model_validate(base["plan"]),
+                request,
+                profile.columns,
+                offered=builtin_registry(),
+                max_steps=MAX_PLAN_STEPS,
+            )
+        except ValidationError as exc:
+            message = str(exc.errors()[0]["msg"]).removeprefix("Value error, ")
+            raise WorkspaceError("fallback_plan_invalid", message) from None
+        except FallbackPlanError as exc:
+            raise WorkspaceError("fallback_plan_invalid", str(exc)) from None
+        self.make_room_for_plan(keep=base_id)
+        return self._store_draft(
+            as_plan_request,
+            path,
+            plan,
+            decision="ready",
+            reason=None,
+            planning_attempts=[],
+            source="mixed",
+            kind=MIXED_KIND,
+            extra={
+                # The columns the lookup fills, in the order of the request, so that a
+                # client can say which columns are searched; and the draft this one completes.
+                "searched_targets": [target.column for target in request.targets],
+                "planner_plan_id": base_id,
+            },
         )
 
     def _routes(self) -> None:
@@ -909,7 +1056,10 @@ class PlanRunService:
             async with self.lock:
                 # Before anything is dropped or read.
                 self.lookup_gate()
-                self.make_room_for_plan()
+                body.check_form()
+                # The mixed form makes room itself, once it knows which draft to keep.
+                if body.plan_id is None:
+                    self.make_room_for_plan()
                 return await run_in_threadpool(self.create_fallback_plan, body)
 
         @router.get("/plans/{plan_id}")
@@ -1265,14 +1415,18 @@ class PlanRunService:
         if draft["fingerprint"] != draft_fingerprint(draft):
             raise WorkspaceError("approval_mismatch", "Approve the displayed fingerprint.", 409)
         self.plan_gate(draft, plan)
-        fallback = draft.get("kind") == FALLBACK_KIND
-        if fallback:
+        kind = draft.get("kind", "planner")
+        fallback = kind == FALLBACK_KIND
+        searching = kind in (FALLBACK_KIND, MIXED_KIND)
+        if searching:
             # Switched off, or the key removed, since the draft was made: not run.
             self.lookup_gate()
+        if fallback:
             # A resume carries the user's decisions on names that were not settled; a
             # fallback plan has no name to settle, so its jobs have none. Running the
             # plan again (the run route) is what continues it: answers already given are
-            # kept. This refusal is not about repeated lookups.
+            # kept. This refusal is not about repeated lookups. A mixed plan has source
+            # steps with names to settle: it is resumed like a planner plan.
             if resume_selections is not None or previous_job_id is not None:
                 raise WorkspaceError(
                     "review_not_available", "This job has nothing left to review.", 409
@@ -1305,20 +1459,21 @@ class PlanRunService:
             "progress": None,
             "artifacts": {},
             "execution_mode": "offline_fixture" if self.offline_executor_factory else "live",
-            # A fallback run has the longest limit a run may have unless the request names
-            # a shorter one: its rows are asked one after another and each takes seconds.
+            # A run with the web lookup has the longest limit a run may have unless the
+            # request names a shorter one: its rows are asked one after another and each
+            # takes seconds.
             "timeout_seconds": (
                 MAX_TIMEOUT_SECONDS
-                if fallback and "timeout_seconds" not in body.model_fields_set
+                if searching and "timeout_seconds" not in body.model_fields_set
                 else body.timeout_seconds
             ),
             # A resume is a new job; the earlier job and its report stay untouched.
             "previous_job_id": previous_job_id,
             "review_decisions": decisions,
-            **({"kind": FALLBACK_KIND} if fallback else {}),
+            **({"kind": kind} if searching else {}),
         }
         lookup = None
-        if fallback:
+        if searching:
             lookup = LookupSettings(
                 model=self.settings.web_lookup_model,
                 reasoning_effort=WEB_LOOKUP_REASONING_EFFORT,
@@ -1529,6 +1684,12 @@ class PlanRunService:
                 "approved_plan": draft,
                 # The chosen columns the planner found no source for: not written, not created.
                 "unfilled_targets": unfilled_targets_of(draft),
+                # A mixed run: the columns the web lookup filled, the others have a source.
+                **(
+                    {"searched_targets": list(draft.get("searched_targets", []))}
+                    if draft.get("kind") == MIXED_KIND
+                    else {}
+                ),
                 "source_sha256": task.source_sha256,
                 # A resumed job: the other names it searched under, who gave
                 # each, and every model request made during the review.

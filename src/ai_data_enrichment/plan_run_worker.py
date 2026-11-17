@@ -16,7 +16,7 @@ from pydantic import SecretStr
 
 from ai_data_enrichment.capabilities.bindings import BINDINGS, Trust, binding_for
 from ai_data_enrichment.capabilities.definitions import offered_capabilities
-from ai_data_enrichment.capabilities.fallback import fallback_registry, is_fallback_plan
+from ai_data_enrichment.capabilities.fallback import fallback_registry, plan_shape
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan, required_input_columns
 from ai_data_enrichment.execution.job_executor import JobExecutor
@@ -53,7 +53,9 @@ MountainPolicy = Literal["strict", "verified_only"]
 # Trusted application injection only; never supplied in an HTTP request.
 # Called as factory(capabilities, policy, max_rows); a resume additionally passes
 # resume_selections=... as a keyword, and a run whose plan keeps confirmed values
-# for its later runs passes reuse=... as a keyword.
+# for its later runs passes reuse=... as a keyword. A run whose plan has a web lookup
+# step (a fallback or a mixed plan) passes registry=... (the one built for that plan) and
+# web_lookup=... (how to run it) as keywords; no other run passes them.
 ExecutorFactory = Callable[..., JobExecutor]
 ResumeSelections = Mapping[tuple[str, str], ResumeSelection | OtherName]
 Reuse = tuple[SQLiteOperationCache, SQLiteResolutionCache]
@@ -127,8 +129,10 @@ def live_executor(
     transport: JsonTransport | None = None,
     resume_selections: ResumeSelections | None = None,
     reuse: Reuse | None = None,
+    registry: CapabilityRegistry | None = None,
+    web_lookup: WebLookupOptions | None = None,
 ) -> JobExecutor:
-    registry = builtin_registry()
+    registry = registry if registry is not None else builtin_registry()
     return build_live_executor(
         registry,
         routing_key=routing_key(),
@@ -140,6 +144,7 @@ def live_executor(
         audit_mountains="resolve_entity" in capabilities,
         mountain_resolution_policy=policy if "resolve_entity" in capabilities else "strict",
         transport=transport,
+        web_lookup=web_lookup,
         request_policies={
             provider: ProviderRequestPolicy(
                 max_requests_per_job=MAX_PROVIDER_REQUESTS,
@@ -383,51 +388,46 @@ def execute_workbook(
             raise ValueError("Source changed")
         capabilities = frozenset(step.capability for step in task.plan.steps)
         # A plan with the web lookup runs with the lookup's own registry and options, and
-        # only then; no other plan may, and a fallback plan may not run without them.
-        if is_fallback_plan(task.plan) != (lookup is not None):
-            raise ValueError("The web lookup is run for a fallback plan only.")
+        # only then; no other plan may, and a plan with the lookup may not run without them.
+        if (plan_shape(task.plan) != "planner") != (lookup is not None):
+            raise ValueError("The web lookup is run for a fallback or mixed plan only.")
         options: dict[str, Any] = {}
         if task.resume_selections:
             options["resume_selections"] = task.resume_selections
         with ExitStack() as opened:
-            if lookup is not None:
+            # The plan's own caches, as for every plan: what a source confirmed, and an
+            # answer a model gave for a row, is taken over by a later run of the plan for
+            # the same time, before a budget or an API is touched.
+            reuse = _open_reuse(opened, task)
+            if reuse is not None:
+                options["reuse"] = reuse
+            if lookup is None:
+                registry = builtin_registry()
+            else:
                 profile = profile_worksheet(
                     task.source_path,
                     task.selection.sheet_name,
                     task.dataset_id,
                     selection=task.selection,
                 )
-                registry = fallback_registry(task.plan, profile.columns)
+                registry = fallback_registry(task.plan, profile.columns, builtin_registry())
                 usage = MirroredUsage(
                     progress, PROGRESS_HEADER + len(OUTCOME_KINDS) * len(task.plan.steps)
                 )
                 # The client is made here, from the key this process was given.
                 api = lookup.api_factory(lookup.api_key.get_secret_value())
                 opened.callback(_close, api)
-                executor = build_live_executor(
-                    registry,
-                    max_rows=MAX_RUN_ROWS,
-                    # The plan's own caches, as for every other plan: an answer a
-                    # model gave for a row is taken over by a later run of the plan
-                    # for the same time, before the budget or the API is touched.
-                    reuse=_open_reuse(opened, task),
-                    reuse_seconds=RESULT_REUSE_SECONDS,
-                    web_lookup=WebLookupOptions(
-                        api=api,
-                        model=lookup.model,
-                        reasoning_effort=lookup.reasoning_effort,
-                        usage=usage,
-                        timeout_seconds=LOOKUP_REQUEST_SECONDS,
-                        # From this process's own start, on its own clock.
-                        deadline=started + lookup.deadline_seconds,
-                    ),
+                options["registry"] = registry
+                options["web_lookup"] = WebLookupOptions(
+                    api=api,
+                    model=lookup.model,
+                    reasoning_effort=lookup.reasoning_effort,
+                    usage=usage,
+                    timeout_seconds=LOOKUP_REQUEST_SECONDS,
+                    # From this process's own start, on its own clock.
+                    deadline=started + lookup.deadline_seconds,
                 )
-            else:
-                registry = builtin_registry()
-                reuse = _open_reuse(opened, task)
-                if reuse is not None:
-                    options["reuse"] = reuse
-                executor = factory(capabilities, task.mountain_policy, MAX_RUN_ROWS, **options)
+            executor = factory(capabilities, task.mountain_policy, MAX_RUN_ROWS, **options)
             runner = ExcelEnrichmentRunner(
                 registry=registry,
                 executor=executor,

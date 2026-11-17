@@ -6,6 +6,8 @@ columns. Nothing here calls a model or a service. This module holds
 
 * ``FallbackRequest``: what the user chose (question, context columns, targets);
 * ``build_fallback_plan``: the plan that follows from it, the same bytes every time;
+* ``build_mixed_plan``: the planner's plan with that one lookup step added for the columns
+  the planner had no source for;
 * ``web_lookup_spec`` and ``fallback_registry``: the capability as it holds for ONE plan.
 
 The capability is not part of ``offered_capabilities`` and not of ``BINDINGS``: the
@@ -38,6 +40,7 @@ from ai_data_enrichment.domain.enrichment_plan import (
     LiteralValue,
     OutputMapping,
     PlanStep,
+    StepOutputReference,
 )
 from ai_data_enrichment.providers.web_lookup import (
     LOOKUP_CAPABILITY,
@@ -264,15 +267,60 @@ def is_fallback_plan(plan: EnrichmentPlan) -> bool:
     return any(step.capability == LOOKUP_CAPABILITY for step in plan.steps)
 
 
-def _read_plan(plan: EnrichmentPlan) -> tuple[PlanStep, LookupTask]:
-    """The step and the task of a well-formed fallback plan; a clear error for any other."""
-    if len(plan.steps) != 1:
+PlanShape = Literal["planner", "fallback", "mixed"]
+
+
+def plan_shape(plan: EnrichmentPlan) -> PlanShape:
+    """Which kind of draft a plan can belong to, from its steps alone.
+
+    ``planner``: no web lookup step. ``fallback``: the web lookup step and nothing else.
+    ``mixed``: the web lookup step with other steps. Whether a plan of the last two shapes
+    is well formed is for ``fallback_registry`` to say.
+    """
+    if not is_fallback_plan(plan):
+        return "planner"
+    return "fallback" if len(plan.steps) == 1 else "mixed"
+
+
+def _same(left: str, right: str) -> bool:
+    return left.strip().casefold() == right.strip().casefold()
+
+
+def _read_plan(
+    plan: EnrichmentPlan, offered_ids: frozenset[str]
+) -> tuple[PlanStep, LookupTask, PlanShape]:
+    """The lookup step, its task and the shape of a well-formed plan; a clear error otherwise."""
+    lookups = [step for step in plan.steps if step.capability == LOOKUP_CAPABILITY]
+    if not plan.steps:
         raise FallbackPlanError("A fallback plan has exactly one step.")
-    step = plan.steps[0]
-    if step.capability != LOOKUP_CAPABILITY:
-        raise FallbackPlanError(f"The step of a fallback plan uses '{LOOKUP_CAPABILITY}'.")
+    if len(plan.steps) == 1:
+        if not lookups:
+            raise FallbackPlanError(f"The step of a fallback plan uses '{LOOKUP_CAPABILITY}'.")
+    elif len(lookups) != 1:
+        raise FallbackPlanError(
+            f"A plan with other steps has exactly one step that uses '{LOOKUP_CAPABILITY}'."
+        )
+    shape: PlanShape = "fallback" if len(plan.steps) == 1 else "mixed"
+    step = lookups[0]
     if step.parameters:
         raise FallbackPlanError("The web lookup step takes no parameters.")
+    if shape == "mixed":
+        if any(isinstance(reference, StepOutputReference) for reference in step.inputs.values()):
+            raise FallbackPlanError("The web lookup step must not use the result of another step.")
+        for other in plan.steps:
+            if other is step:
+                continue
+            if other.capability not in offered_ids:
+                raise FallbackPlanError(
+                    f"The step '{other.id}' uses '{other.capability}', which is not offered."
+                )
+            if any(
+                isinstance(reference, StepOutputReference) and reference.step_id == step.id
+                for reference in other.inputs.values()
+            ):
+                raise FallbackPlanError(
+                    f"The step '{other.id}' must not use the result of the web lookup step."
+                )
     text = step.inputs.get("task")
     if not isinstance(text, LiteralValue) or not isinstance(text.value, str):
         raise FallbackPlanError("The step has no lookup task as a text.")
@@ -292,10 +340,14 @@ def _read_plan(plan: EnrichmentPlan) -> tuple[PlanStep, LookupTask]:
             raise FallbackPlanError(f"The input '{slot}' must be the column '{header}'.")
 
     headers = {column.slot: column.header for column in task.columns}
-    mapped = [output.value_field for output in plan.outputs]
+    if shape == "fallback":
+        outputs = list(plan.outputs)
+    else:
+        outputs = [output for output in plan.outputs if output.step_id == step.id]
+    mapped = [output.value_field for output in outputs]
     if sorted(mapped) != sorted(headers):
         raise FallbackPlanError("The outputs do not match the columns of the task.")
-    for output in plan.outputs:
+    for output in outputs:
         if output.step_id != step.id:
             raise FallbackPlanError("Every output must come from the web lookup step.")
         if output.target_column.strip() != headers[output.value_field]:
@@ -305,7 +357,23 @@ def _read_plan(plan: EnrichmentPlan) -> tuple[PlanStep, LookupTask]:
             )
         if output.expected_unit is not None:
             raise FallbackPlanError("A web lookup output has no expected unit.")
-    return step, task
+    if shape == "mixed":
+        searched = list(headers.values())
+        for output in plan.outputs:
+            if output.step_id == step.id:
+                continue
+            if any(_same(output.target_column, header) for header in searched):
+                raise FallbackPlanError(
+                    f"The column '{output.target_column.strip()}' is filled by the steps of the "
+                    "plan and by the web lookup; it must be one or the other."
+                )
+        for header in context.values():
+            if any(_same(output.target_column, header) for output in plan.outputs):
+                raise FallbackPlanError(
+                    f"The column '{header}' identifies the row for the web lookup but the plan "
+                    "writes to it; its cells may change during the run."
+                )
+    return step, task, shape
 
 
 def fallback_registry(
@@ -319,10 +387,12 @@ def fallback_registry(
     ``offered_capabilities`` without the routing one) and the ``web_lookup`` spec derived
     from the plan's own task text. ``columns`` is the table the plan runs on: the types
     of the context inputs are the types of the columns bound to them, which the plan alone
-    does not say. Raises ``FallbackPlanError`` for a plan that is not a well-formed
-    fallback plan.
+    does not say. Two shapes are well formed: exactly one ``web_lookup`` step and nothing
+    else (a fallback plan), or exactly one ``web_lookup`` step with one or more steps of
+    the offered capabilities (a mixed plan). Raises ``FallbackPlanError`` for any other plan.
     """
-    step, task = _read_plan(plan)
+    specs = offered.list_all() if offered is not None else offered_capabilities(road_distance=False)
+    step, task, _ = _read_plan(plan, frozenset(spec.id for spec in specs))
     by_name = {column.name: column for column in columns}
     types: dict[str, DataType] = {}
     for slot, _ in task.context:
@@ -339,7 +409,6 @@ def fallback_registry(
             )
         types[slot] = found
     registry = CapabilityRegistry()
-    specs = offered.list_all() if offered is not None else offered_capabilities(road_distance=False)
     for spec in specs:
         registry.register(spec)
     if registry.get(LOOKUP_CAPABILITY) is not None:
@@ -363,14 +432,8 @@ def _near(name: str, names: Sequence[str]) -> str:
     return f" Did you mean '{same[0]}'?" if same else ""
 
 
-def build_fallback_plan(
-    request: FallbackRequest, columns: Sequence[ColumnProfile]
-) -> EnrichmentPlan:
-    """The one-step plan for ``request`` on a table with ``columns``.
-
-    The same request on the same columns gives the same plan, byte for byte. Raises
-    ``FallbackPlanError`` with a message a user can act on.
-    """
+def _check_request(request: FallbackRequest, columns: Sequence[ColumnProfile]) -> None:
+    """Refuse a request the table cannot serve, with a message a user can act on."""
     by_name = {column.name: column for column in columns}
     names = list(by_name)
 
@@ -414,6 +477,9 @@ def build_fallback_plan(
                 f"with {_KIND_WORDS[target.kind]} values."
             )
 
+
+def _lookup_parts(request: FallbackRequest, step_id: str) -> tuple[PlanStep, list[OutputMapping]]:
+    """The lookup step and its output mappings for ``request``, under the id ``step_id``."""
     task = request.to_task()
     text = task.to_json()
     try:
@@ -427,26 +493,117 @@ def build_fallback_plan(
     inputs: dict[str, Any] = {"task": LiteralValue(kind="literal", value=text)}
     for (slot, _), name in zip(task.context, request.context_columns, strict=True):
         inputs[slot] = ColumnReference(kind="column", name=name)
-    plan = EnrichmentPlan(
-        version=PLAN_VERSION,
-        steps=[PlanStep(id=STEP_ID, capability=LOOKUP_CAPABILITY, inputs=inputs, parameters={})],
-        outputs=[
-            OutputMapping(step_id=STEP_ID, value_field=column.slot, target_column=target.column)
-            for column, target in zip(task.columns, request.targets, strict=True)
-        ],
-        assumptions=[ASSUMPTION],
-    )
+    step = PlanStep(id=step_id, capability=LOOKUP_CAPABILITY, inputs=inputs, parameters={})
+    outputs = [
+        OutputMapping(step_id=step_id, value_field=column.slot, target_column=target.column)
+        for column, target in zip(task.columns, request.targets, strict=True)
+    ]
+    return step, outputs
 
-    # The application's own validator, as for a planner's plan: a plan it would refuse is
-    # a mistake in this module, not something to hand to a user.
+
+def build_fallback_plan(
+    request: FallbackRequest, columns: Sequence[ColumnProfile]
+) -> EnrichmentPlan:
+    """The one-step plan for ``request`` on a table with ``columns``.
+
+    The same request on the same columns gives the same plan, byte for byte. Raises
+    ``FallbackPlanError`` with a message a user can act on.
+    """
+    _check_request(request, columns)
+    step, outputs = _lookup_parts(request, STEP_ID)
+    plan = EnrichmentPlan(
+        version=PLAN_VERSION, steps=[step], outputs=outputs, assumptions=[ASSUMPTION]
+    )
+    _validated(
+        plan,
+        columns,
+        offered=None,
+        targets=frozenset(target.column for target in request.targets),
+        max_steps=1,
+    )
+    return plan
+
+
+def _validated(
+    plan: EnrichmentPlan,
+    columns: Sequence[ColumnProfile],
+    *,
+    offered: CapabilityRegistry | None,
+    targets: frozenset[str],
+    max_steps: int,
+) -> None:
+    """The application's own validator, as for a planner's plan: a plan it would refuse is
+    a mistake in this module or in the plan it was given, not something to hand to a user."""
     result = PlanValidator(
-        fallback_registry(plan, columns),
+        fallback_registry(plan, columns, offered),
         DatasetProfile(dataset_id="fallback", name="fallback", columns=list(columns)),
-        PlanValidationPolicy(
-            max_steps=1, output_targets=frozenset(target.column for target in request.targets)
-        ),
+        PlanValidationPolicy(max_steps=max_steps, output_targets=targets),
     ).validate(plan)
     if not result.valid:
         details = "; ".join(f"{error.code}: {error.message}" for error in result.errors)
         raise FallbackPlanError(f"The fallback plan is not valid: {details}")
+
+
+def _free_step_id(plan: EnrichmentPlan) -> str:
+    """``lookup``, or else ``lookup_2``, ``lookup_3`` ...: the first id no step has."""
+    taken = {step.id.casefold() for step in plan.steps}
+    candidate, number = STEP_ID, 1
+    while candidate.casefold() in taken:
+        number += 1
+        candidate = f"{STEP_ID}_{number}"
+    return candidate
+
+
+def build_mixed_plan(
+    planner_plan: EnrichmentPlan,
+    request: FallbackRequest,
+    columns: Sequence[ColumnProfile],
+    *,
+    offered: CapabilityRegistry | None = None,
+    max_steps: int | None = None,
+) -> EnrichmentPlan:
+    """The planner's plan with one web lookup step added for the columns it left unfilled.
+
+    The planner's steps, their order and its output mappings are kept exactly as they
+    are; the lookup step comes last, with the id ``lookup`` (or the first free
+    ``lookup_n``) and one output per target of ``request``. The assumptions are the
+    planner's and the lookup's own sentence. The same inputs give the same plan, byte for
+    byte. ``offered`` is the registry the planner's steps are validated against (by
+    default the offered capabilities without the routing one).
+
+    Refused with ``FallbackPlanError``: a planner plan that already searches the web, a
+    target the planner's plan already writes, a context column that any output of the
+    combined plan writes (its cells may be empty or change during the run), and whatever
+    ``build_fallback_plan`` refuses.
+    """
+    if is_fallback_plan(planner_plan):
+        raise FallbackPlanError("The plan to add the web lookup to must not search the web.")
+    _check_request(request, columns)
+    written = [output.target_column for output in planner_plan.outputs]
+    for target in request.targets:
+        if any(_same(target.column, name) for name in written):
+            raise FallbackPlanError(
+                f"The plan already fills the column '{target.column}'; the web lookup can fill "
+                "only columns the plan leaves empty."
+            )
+    for name in request.context_columns:
+        if any(_same(name, other) for other in written):
+            raise FallbackPlanError(
+                f"The column '{name}' identifies the row for the web lookup, but the plan writes "
+                "to it; its cells may change during the run. Choose another column."
+            )
+    step, outputs = _lookup_parts(request, _free_step_id(planner_plan))
+    plan = EnrichmentPlan(
+        version=planner_plan.version,
+        steps=[*planner_plan.steps, step],
+        outputs=[*planner_plan.outputs, *outputs],
+        assumptions=[*planner_plan.assumptions, ASSUMPTION],
+    )
+    _validated(
+        plan,
+        columns,
+        offered=offered,
+        targets=frozenset([*written, *(target.column for target in request.targets)]),
+        max_steps=max_steps if max_steps is not None else len(plan.steps),
+    )
     return plan
