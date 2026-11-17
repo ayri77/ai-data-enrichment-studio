@@ -1,4 +1,5 @@
 import type { EnrichmentPlan, PlanDraft } from "./api";
+import { LOOKUP_CAPABILITY, type ColumnRef } from "./fallbackModel";
 import { stepDepths } from "./workflowModel";
 
 // A plan put into words for a person who will never open the graph. This is
@@ -63,6 +64,8 @@ function action(step: Step): Pick<PlanLine, "action" | "values" | "notes"> {
             };
         case "ratio":
             return { action: "ratio", values: {}, notes: [] };
+        case LOOKUP_CAPABILITY:
+            return { action: "webLookup", values: {}, notes: [] };
         case "resolve_entity":
             return p.entity_type === "mountain"
                 ? { action: "mountain", values: {}, notes: [] }
@@ -93,10 +96,15 @@ export function describePlan(draft: PlanDraft): PlanLine[] {
     if (!plan) return [];
     const depths = stepDepths(plan);
     // What a step needs comes first; otherwise the model's own order is kept.
+    // The web search of a mixed plan needs nothing, but it comes after the
+    // steps that were planned from the system's sources.
+    const searches = (step: Step) =>
+        step.capability === LOOKUP_CAPABILITY ? 1 : 0;
     const ordered = plan.steps
         .map((step, index) => ({ step, index }))
         .sort(
             (a, b) =>
+                searches(a.step) - searches(b.step) ||
                 depths.get(a.step.id)! - depths.get(b.step.id)! ||
                 a.index - b.index,
         )
@@ -136,7 +144,12 @@ export function describePlan(draft: PlanDraft): PlanLine[] {
                 name: o.target_column,
                 letter: draft.output_columns[o.target_column] ?? "",
                 unit: o.expected_unit ?? "",
-                ...(o.value_field !== "value" ? { field: o.value_field } : {}),
+                // The web search names its values by slot; a slot is no word
+                // for a person, the column says all there is to say.
+                ...(o.value_field !== "value" &&
+                step.capability !== LOOKUP_CAPABILITY
+                    ? { field: o.value_field }
+                    : {}),
             })),
     }));
 }
@@ -149,4 +162,9 @@ export function unfilledColumns(
         name,
         letter: draft.output_columns[name] ?? "",
     }));
+}
+
+/** Columns as the page names them: “header” (letter), one after the other. */
+export function columnLabels(columns: ColumnRef[]): string {
+    return columns.map((c) => `“${c.name}” (${c.letter})`).join(", ");
 }

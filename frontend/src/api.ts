@@ -245,9 +245,28 @@ export interface FallbackPlanRequest {
     existing_outputs: "keep" | "replace";
     sources_in_workbook: SourcesInWorkbook;
 }
+/**
+ * The same route builds a mixed plan from a planner draft that left columns
+ * unfilled: the draft's own dataset, range and output columns are used, and the
+ * body names only the search part. `targets` are exactly the unfilled columns.
+ */
+export interface MixedPlanRequest {
+    plan_id: string;
+    question: string;
+    context_columns: string[];
+    targets: { column: string; kind: LookupKind; unit?: string }[];
+    sources_in_workbook: SourcesInWorkbook;
+}
 export interface PlanDraft extends Omit<PlanRequest, "allow_network" | "plan"> {
-    /** Only a draft the server built for the universal search says so. */
-    kind?: "fallback";
+    /**
+     * Only a draft the server built says so: "fallback" for a plan that is one
+     * web search, "mixed" for the planner's steps and one web search.
+     */
+    kind?: "fallback" | "mixed";
+    /** A mixed draft: the columns the web search fills, in the order of the request. */
+    searched_targets?: string[];
+    /** A mixed draft: the planner draft it was built from, still stored. */
+    planner_plan_id?: string;
     plan_id: string;
     fingerprint: string;
     source_sha256: string;
@@ -276,8 +295,8 @@ export const isTerminal = (status: JobStatus) =>
 export interface Job {
     job_id: string;
     plan_id: string;
-    /** Only a run of the universal search says so. */
-    kind?: "fallback";
+    /** Only a run of the universal search says so ("mixed": with source steps too). */
+    kind?: "fallback" | "mixed";
     fingerprint: string;
     status: JobStatus;
     created_at: string;
@@ -317,6 +336,8 @@ export interface WebLookupSpend {
     input_tokens: number;
     output_tokens: number;
     web_searches: number;
+    /** Rows a kept answer of an earlier job settled; absent from an older server. */
+    answers_kept?: number;
 }
 /** One value written from a web search: its column, what it rests on, how many links. */
 export interface AiFound {
@@ -326,6 +347,8 @@ export interface AiFound {
 }
 export interface AuditReport extends Job {
     source_sha256: string;
+    /** A mixed run: the columns the web search filled. */
+    searched_targets?: string[];
     /** A universal-search run: what it asked of the model. */
     web_lookup?: WebLookupSpend;
     /** What each step is, where its values come from and what stands behind them. */
@@ -535,7 +558,7 @@ export const api = {
         configureProvider("PUT", body),
     removeProviderKey: () => configureProvider("DELETE"),
     createPlan: (body: PlanRequest) => post<PlanDraft>("/api/plans", body),
-    createFallbackPlan: (body: FallbackPlanRequest) =>
+    createFallbackPlan: (body: FallbackPlanRequest | MixedPlanRequest) =>
         post<PlanDraft>("/api/fallback-plans", body),
     getPlan: (id: string) => response<PlanDraft>(call(`/api/plans/${id}`)),
     validatePlan: (id: string) => post<Validation>(`/api/plans/${id}/validate`),

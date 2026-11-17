@@ -217,3 +217,254 @@ export const lookupReport: AuditReport = {
         ],
     },
 };
+
+// --- A mixed plan: the planner's steps for "Height", one web search for "First ascent" ---
+
+const sourceSteps: EnrichmentPlan["steps"] = [
+    {
+        id: "resolve",
+        capability: "resolve_entity",
+        inputs: {
+            name: { kind: "column", name: "Mountain" },
+            country: { kind: "column", name: "Country" },
+        },
+        parameters: { entity_type: "mountain" },
+    },
+    {
+        id: "elevation",
+        capability: "lookup_property",
+        inputs: { entity: { kind: "step_output", step_id: "resolve" } },
+        parameters: { property: "elevation" },
+    },
+];
+const heightOutput = {
+    step_id: "elevation",
+    value_field: "value",
+    target_column: "Height",
+    expected_unit: "m",
+};
+
+/** What the planner answers when "First ascent" has no source: a plan for the height. */
+export const partialDraft: PlanDraft = {
+    dataset_id: "source",
+    sheet_name: "Sheet1",
+    range_ref: "A1:G11",
+    instruction: "Find the height and the first ascent of each mountain",
+    output_columns: { Height: "E", "First ascent": "F" },
+    mountain_resolution_policy: "verified_only",
+    existing_outputs: "keep",
+    sources_in_workbook: "none",
+    plan_id: "plan-partial",
+    fingerprint: "e".repeat(64),
+    source_sha256: "b".repeat(64),
+    status: "draft",
+    approved_at: null,
+    planning_status: "ready",
+    reason: null,
+    unfilled_targets: ["First ascent"],
+    validation: { valid: true, errors: [] },
+    plan: {
+        version: "1.0",
+        steps: sourceSteps,
+        outputs: [heightOutput],
+        assumptions: ["The elevation is read from the record of the mountain."],
+    },
+};
+
+const mixedTask = {
+    question: partialDraft.instruction,
+    context: [
+        ["ctx_1", "Mountain"],
+        ["ctx_2", "Country"],
+        ["ctx_3", "Rank"],
+    ],
+    columns: [{ slot: "value_1", header: "First ascent", kind: "text" }],
+};
+
+/** The mixed plan the server builds from `partialDraft`. */
+export const mixedDraft: PlanDraft = {
+    ...partialDraft,
+    kind: "mixed",
+    plan_id: "plan-mixed",
+    fingerprint: "f".repeat(64),
+    sources_in_workbook: "notes",
+    unfilled_targets: [],
+    searched_targets: ["First ascent"],
+    planner_plan_id: partialDraft.plan_id,
+    plan: {
+        version: "1.0",
+        steps: [
+            ...sourceSteps,
+            {
+                id: "lookup",
+                capability: "web_lookup",
+                inputs: {
+                    task: { kind: "literal", value: JSON.stringify(mixedTask) },
+                    ctx_1: { kind: "column", name: "Mountain" },
+                    ctx_2: { kind: "column", name: "Country" },
+                    ctx_3: { kind: "column", name: "Rank" },
+                },
+                parameters: {},
+            },
+        ],
+        outputs: [
+            heightOutput,
+            {
+                step_id: "lookup",
+                value_field: "value_1",
+                target_column: "First ascent",
+            },
+        ],
+        assumptions: [
+            ...partialDraft.plan!.assumptions,
+            "Each value of the searched columns is found by an AI model with web search, one request per row. The values are not verified.",
+        ],
+    },
+};
+
+export const mixedJob: Job = {
+    ...lookupJob,
+    kind: "mixed",
+    job_id: "job-mixed",
+    plan_id: mixedDraft.plan_id,
+    fingerprint: mixedDraft.fingerprint,
+    status: "needs_review",
+    metrics: {
+        total_rows: 3,
+        successful_rows: 1,
+        partial_rows: 1,
+        failed_rows: 1,
+    },
+    artifacts: {
+        result: "/api/jobs/job-mixed/artifacts/result",
+        report: "/api/jobs/job-mixed/artifacts/report",
+    },
+};
+
+const heightStep = (value: number | null) => ({
+    step_id: "elevation",
+    result:
+        value === null
+            ? failure("DEPENDENCY_FAILED")
+            : {
+                  status: "success" as const,
+                  value,
+                  error_code: null,
+                  message: null,
+                  evidence: [{ source: "wikidata", reference: "Q513" }],
+              },
+});
+const resolveStep = (ok: boolean, code = "AMBIGUOUS") => ({
+    step_id: "resolve",
+    result: ok
+        ? {
+              status: "success" as const,
+              value: { source: "wikidata", entity_id: "Q513" },
+              error_code: null,
+              message: null,
+              evidence: [{ source: "wikidata", reference: "Q513" }],
+          }
+        : failure(code),
+});
+
+/**
+ * Row 2: a height from the source and a concluded first ascent. Row 3: K2 is
+ * ambiguous, so no height, and the search stated the first ascent. Row 4: no
+ * mountain of that name and nothing found on the web.
+ */
+export const mixedReport: AuditReport = {
+    ...mixedJob,
+    source_sha256: mixedDraft.source_sha256,
+    searched_targets: ["First ascent"],
+    web_lookup: {
+        configuration_id: "openai-web-lookup-p1-gpt-6-luna-low",
+        requests: 1,
+        input_tokens: 2000,
+        output_tokens: 400,
+        web_searches: 4,
+        answers_kept: 2,
+    },
+    step_provenance: [
+        {
+            step_id: "resolve",
+            capability: "resolve_entity",
+            source: "wikidata",
+            trust: "resolved_name",
+        },
+        {
+            step_id: "elevation",
+            capability: "lookup_property",
+            source: "wikidata",
+            trust: "record",
+        },
+        {
+            step_id: "lookup",
+            capability: "web_lookup",
+            source: "openai_web_search",
+            trust: "ai_found",
+        },
+    ],
+    rows: [
+        {
+            ...record(2, "Everest"),
+            status: "success",
+            ai_found: [
+                { column: "First ascent", basis: "concluded", links: 2 },
+            ],
+        },
+        {
+            ...record(3, "K2"),
+            status: "partial",
+            ai_found: [{ column: "First ascent", basis: "stated", links: 1 }],
+        },
+        { ...record(4, "Nowhere"), status: "failure", ai_found: [] },
+    ],
+    execution: {
+        provider_requests: {},
+        records: [
+            {
+                record_id: "Sheet1!2",
+                row_result: {
+                    steps: [
+                        resolveStep(true),
+                        heightStep(8849),
+                        {
+                            step_id: "lookup",
+                            result: success({
+                                value_1: found("1953", "concluded", [
+                                    "https://example.org/page",
+                                    "https://example.org/other",
+                                ]),
+                            }),
+                        },
+                    ],
+                },
+            },
+            {
+                record_id: "Sheet1!3",
+                row_result: {
+                    steps: [
+                        resolveStep(false),
+                        heightStep(null),
+                        {
+                            step_id: "lookup",
+                            result: success({
+                                value_1: found("1954", "stated"),
+                            }),
+                        },
+                    ],
+                },
+            },
+            {
+                record_id: "Sheet1!4",
+                row_result: {
+                    steps: [
+                        resolveStep(false, "NOT_FOUND"),
+                        heightStep(null),
+                        { step_id: "lookup", result: failure("NOTHING_FOUND") },
+                    ],
+                },
+            },
+        ],
+    },
+};

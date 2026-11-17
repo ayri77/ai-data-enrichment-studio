@@ -3,6 +3,7 @@ import type {
     FallbackPlanRequest,
     Job,
     LookupKind,
+    MixedPlanRequest,
     PlanDraft,
     Preview,
     SourcesInWorkbook,
@@ -47,6 +48,51 @@ export const isFallbackRun = (
     plan: Pick<PlanDraft, "kind"> | null | undefined,
 ) => job?.kind === "fallback" || plan?.kind === "fallback";
 
+export const isMixedDraft = (
+    draft: Pick<PlanDraft, "kind"> | null | undefined,
+) => draft?.kind === "mixed";
+
+/** A run of a mixed plan: the planner's steps and one web search. */
+export const isMixedRun = (
+    job: Pick<Job, "kind"> | null | undefined,
+    plan: Pick<PlanDraft, "kind"> | null | undefined,
+) => job?.kind === "mixed" || plan?.kind === "mixed";
+
+/** The kind of plan a draft is: the wording of banners follows it. */
+export function searchKind(
+    draft: Pick<PlanDraft, "kind"> | null | undefined,
+): "planner" | "fallback" | "mixed" {
+    return draft?.kind === "fallback" || draft?.kind === "mixed"
+        ? draft.kind
+        : "planner";
+}
+
+/**
+ * The columns a planner draft leaves unfilled although it can be run: the
+ * case in which the page offers a web search for them (or does it at once).
+ * Empty for every other draft: one with no plan or a failed check has nothing
+ * to build on, and a search or mixed draft has no such columns left.
+ */
+export function partialColumns(draft: PlanDraft | null | undefined): string[] {
+    if (!draft || draft.kind || !draft.plan || !draft.validation.valid)
+        return [];
+    return draft.unfilled_targets ?? [];
+}
+
+/**
+ * How the notice for the columns without a source reads. "plain": it says only
+ * that they stay as they are (the server cannot search, or the plan cannot be
+ * run). "offer": it also has the button and the checkbox for the search.
+ * Null: there is nothing to say.
+ */
+export function unfilledWording(
+    draft: PlanDraft | null | undefined,
+    webLookup: boolean,
+): "plain" | "offer" | null {
+    if (!draft || (draft.unfilled_targets ?? []).length === 0) return null;
+    return webLookup && partialColumns(draft).length > 0 ? "offer" : "plain";
+}
+
 /** The two situations in which the page offers the search. */
 export type FallbackOffer = "refused" | "invalid";
 
@@ -83,11 +129,14 @@ export function offersFallback(
 
 /**
  * Whether the draft is one where the offer may appear once the server says so:
- * the same two cases, without the state of the limits. Used to decide when the
+ * the same two cases and a plan with columns left unfilled, without the state
+ * of the limits. Used to decide when the
  * limits are read again.
  */
 export function couldOfferFallback(draft: PlanDraft | null): boolean {
-    return fallbackOffer(draft, true) !== null;
+    return (
+        fallbackOffer(draft, true) !== null || partialColumns(draft).length > 0
+    );
 }
 
 /** Why a column cannot identify a row; null when it can. */
@@ -354,4 +403,139 @@ export function formFromDraft(draft: PlanDraft): FallbackForm | null {
         ),
         sources: draft.sources_in_workbook ?? "none",
     };
+}
+
+/** A column as the page names it: its header and its letter in the worksheet. */
+export interface ColumnRef {
+    name: string;
+    letter: string;
+}
+
+/**
+ * The columns of a mixed plan in its two groups: those the planner's steps
+ * fill from the system's sources, and those the web search fills.
+ */
+export function columnGroups(
+    draft: Pick<PlanDraft, "plan" | "output_columns" | "searched_targets">,
+): { filled: ColumnRef[]; searched: ColumnRef[] } {
+    const searched = draft.searched_targets ?? [];
+    const ref = (name: string): ColumnRef => ({
+        name,
+        letter: draft.output_columns[name] ?? "",
+    });
+    const filled: string[] = [];
+    for (const output of draft.plan?.outputs ?? [])
+        if (
+            !searched.includes(output.target_column) &&
+            !filled.includes(output.target_column)
+        )
+            filled.push(output.target_column);
+    return { filled: filled.map(ref), searched: searched.map(ref) };
+}
+
+/**
+ * The form of a mixed plan that is built without asking: the task as the
+ * question; the columns to search are exactly the ones the planner left
+ * unfilled (a number where the existing column holds numbers, text otherwise,
+ * no unit); as identifying columns every text or number column of the table
+ * that no output of the plan writes, neither searched nor filled by the
+ * planner's steps, and that is not empty, in the table's order, up to what one
+ * request takes. The links are written as notes on the cells.
+ */
+export function defaultMixedForm(
+    draft: Pick<
+        PlanDraft,
+        | "instruction"
+        | "output_columns"
+        | "unfilled_targets"
+        | "searched_targets"
+    >,
+    mapping: OutputTarget[],
+    preview: Preview,
+): FallbackForm {
+    const targets = mixedTargets(draft);
+    const written = new Set([...Object.keys(draft.output_columns), ...targets]);
+    return {
+        question: draft.instruction,
+        context: preview.profile.columns
+            .filter(
+                (column) =>
+                    !written.has(column.name) &&
+                    contextBlocker(column.inferred_type) === null &&
+                    column.null_count < preview.profile.row_count,
+            )
+            .map((column) => column.name)
+            .slice(0, MAX_CONTEXT),
+        settings: Object.fromEntries(
+            targets.map((name) => [
+                name,
+                { kind: defaultKind(typeOf(name, mapping, preview)), unit: "" },
+            ]),
+        ),
+        sources: "notes",
+    };
+}
+
+/** The columns the web search part of a draft is about. */
+export function mixedTargets(
+    draft: Pick<PlanDraft, "unfilled_targets" | "searched_targets">,
+): string[] {
+    return (draft.unfilled_targets ?? []).length > 0
+        ? draft.unfilled_targets!
+        : (draft.searched_targets ?? []);
+}
+
+/**
+ * The body of the request for a mixed plan: the planner draft it is built
+ * from, the form's choices and the columns to search, fixed. Nothing of the
+ * table is repeated; the server takes it from the planner draft.
+ */
+export function buildMixedRequest(input: {
+    planId: string;
+    targets: string[];
+    preview: Preview;
+    mapping: OutputTarget[];
+    form: FallbackForm;
+}): MixedPlanRequest {
+    const { form, targets, preview, mapping } = input;
+    return {
+        plan_id: input.planId,
+        question: form.question.trim(),
+        context_columns: preview.profile.columns
+            .map((column) => column.name)
+            .filter(
+                (name) =>
+                    form.context.includes(name) && !targets.includes(name),
+            ),
+        targets: targets.map((name) => {
+            const setting = settingFor(form, name, mapping, preview);
+            const unit = setting.unit.trim();
+            return {
+                column: name,
+                kind: setting.kind,
+                ...(setting.kind === "number" && unit ? { unit } : {}),
+            };
+        }),
+        sources_in_workbook: form.sources,
+    };
+}
+
+/**
+ * The page's choice of output columns reduced to the ones the web search
+ * fills, in the order of `targets`. A column the page no longer has an entry
+ * for is read from the draft (and counts as new, so its kind starts as text).
+ */
+export function searchedMapping(
+    targets: string[],
+    mapping: OutputTarget[],
+    outputColumns: Record<string, string>,
+): OutputTarget[] {
+    return targets.map(
+        (name) =>
+            mapping.find((entry) => nameOf(entry) === name) ?? {
+                mode: "new" as const,
+                name,
+                column: outputColumns[name] ?? "",
+            },
+    );
 }
