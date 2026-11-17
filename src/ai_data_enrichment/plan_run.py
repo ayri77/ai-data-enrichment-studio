@@ -6,7 +6,7 @@ import logging
 import multiprocessing
 import os
 import re
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -102,7 +102,12 @@ from ai_data_enrichment.run_limits import (
 from ai_data_enrichment.spellings import SuggestionError, suggest_names
 from ai_data_enrichment.task_ideas import TaskIdeaError, propose_tasks
 from ai_data_enrichment.usage import UsageLog, parse_usage_file
-from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy, PlanValidator
+from ai_data_enrichment.validation.models import ValidationResult
+from ai_data_enrichment.validation.plan_validator import (
+    PlanValidationPolicy,
+    PlanValidator,
+    apply_unfilled_targets,
+)
 from ai_data_enrichment.workspace_errors import WorkspaceError
 
 LOOKUP_NUMBERS = ("requests", "input_tokens", "output_tokens", "web_searches")
@@ -163,6 +168,24 @@ class PlanBodyLimit:
 def _validation_policy(output_columns: dict[str, str]) -> PlanValidationPolicy:
     """One policy for planning and for the final draft validation."""
     return PlanValidationPolicy(max_steps=MAX_PLAN_STEPS, output_targets=frozenset(output_columns))
+
+
+def unfilled_targets_of(draft: dict) -> list[str]:
+    """The requested columns the draft's planner named as having no source; a draft
+    made before the field existed, a supplied plan and a fallback draft have none."""
+    return list(draft.get("unfilled_targets", []))
+
+
+def planned_columns(draft: dict) -> dict[str, str]:
+    """The output columns the plan writes: the chosen ones minus the unfilled targets.
+
+    What a run creates, writes and checks is this mapping. A new column with no source is
+    not created; an existing one is not read for the run and stays as it is.
+    """
+    unfilled = set(unfilled_targets_of(draft))
+    return {
+        name: letter for name, letter in draft["output_columns"].items() if name not in unfilled
+    }
 
 
 def timestamp() -> str:
@@ -592,26 +615,34 @@ class PlanRunService:
                 "valid": False,
                 "errors": [{"code": "fallback_plan_invalid", "message": str(exc)}],
             }
-        validation = (
-            PlanValidator(registry, profile, _validation_policy(draft["output_columns"]))
-            .validate(plan, instruction=draft["instruction"])
-            .model_dump(mode="json")
+        # The same reduction the planner's loop applied: the plan writes the chosen columns
+        # minus the unfilled ones, and a wrongly named unfilled target is reported here too.
+        policy, unfilled_errors = apply_unfilled_targets(
+            _validation_policy(draft["output_columns"]), unfilled_targets_of(draft), plan
         )
-        if any(error["code"] == "OUTPUT_TARGET_MISMATCH" for error in validation["errors"]):
+        result = PlanValidator(registry, profile, policy).validate(
+            plan, instruction=draft["instruction"]
+        )
+        if unfilled_errors:
+            result = ValidationResult(errors=[*unfilled_errors, *result.errors])
+        validation = result.model_dump(mode="json")
+        if unfilled_errors or any(
+            error["code"] == "OUTPUT_TARGET_MISMATCH" for error in validation["errors"]
+        ):
             # Already reported precisely; the coordinate checks below need matching names.
             return validation
         try:
             build_output_header_writes(
                 plan,
                 selection,
-                output_columns=draft["output_columns"],
+                output_columns=planned_columns(draft),
                 existing_headers={
                     get_column_letter(selection.bounds[0] + index): col.name
                     for index, col in enumerate(profile.columns)
                 },
             )
             # Keep outputs within the existing workspace's column envelope.
-            if any(column_index_from_string(c) > 100 for c in draft["output_columns"].values()):
+            if any(column_index_from_string(c) > 100 for c in planned_columns(draft).values()):
                 raise ValueError("Output column limit")
         except ValueError:
             validation["errors"].append(
@@ -656,6 +687,7 @@ class PlanRunService:
         planning_attempts: list,
         source: str,
         kind: str | None = None,
+        unfilled_targets: Sequence[str] = (),
     ) -> dict:
         """Make, fingerprint, validate and keep the draft; the same for every kind."""
         draft = {
@@ -665,6 +697,9 @@ class PlanRunService:
             "planning_status": decision,
             "reason": reason,
             "planning_attempts": planning_attempts,
+            # The chosen columns the planner found no source for. Inside what the
+            # fingerprint covers, so a client cannot change it after approval.
+            "unfilled_targets": list(unfilled_targets),
             # Only a fallback draft has a kind; it is inside what the fingerprint covers.
             **({"kind": kind} if kind else {}),
         }
@@ -703,6 +738,8 @@ class PlanRunService:
         plan = body.plan
         decision, reason = "ready", None
         planning_attempts = []
+        # A supplied plan has none: it must write every chosen column.
+        unfilled: list[str] = []
         if plan is None:
             self.model_gate(body.allow_network)
             try:
@@ -717,6 +754,7 @@ class PlanRunService:
                 plan = generated.response.plan
                 decision, reason = generated.response.status, generated.response.reason
                 planning_attempts = [asdict(attempt) for attempt in generated.attempts]
+                unfilled = list(generated.unfilled_targets)
             except PlanGenerationError as exc:
                 codes = sorted(
                     {code for attempt in exc.attempts for code in attempt.diagnostic_codes}
@@ -750,6 +788,7 @@ class PlanRunService:
             reason=reason,
             planning_attempts=planning_attempts,
             source="model" if body.plan is None else "supplied",
+            unfilled_targets=unfilled,
         )
 
     def create_fallback_plan(self, body: FallbackPlanRequest) -> dict:
@@ -1293,7 +1332,8 @@ class PlanRunService:
             directory=directory,
             selection=TableSelection(draft["sheet_name"], draft["range_ref"]),
             plan=plan,
-            output_columns=dict(draft["output_columns"]),
+            # What the plan writes; an unfilled target is neither created nor touched.
+            output_columns=planned_columns(draft),
             mountain_policy=draft["mountain_resolution_policy"],
             # Drafts made before the option existed keep what they had.
             existing_outputs=draft.get("existing_outputs", "keep"),
@@ -1480,6 +1520,8 @@ class PlanRunService:
                 "schema_version": "1.0",
                 **job,
                 "approved_plan": draft,
+                # The chosen columns the planner found no source for: not written, not created.
+                "unfilled_targets": unfilled_targets_of(draft),
                 "source_sha256": task.source_sha256,
                 # A resumed job: the other names it searched under, who gave
                 # each, and every model request made during the review.

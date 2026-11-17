@@ -84,7 +84,10 @@ def output(plan: Plan, target: str) -> Plan:
     return next(o for o in plan["outputs"] if o["target_column"] == target)
 
 
-CASES = tuple(INSTRUCTIONS)
+# The six cases whose every target has a source; the two with a target nothing can fill are
+# tested apart, below.
+CASES = tuple(case for case in INSTRUCTIONS if not ROUTES[case].unfilled)
+PARTIAL_CASES = {"mountains_age": ("mountains", "age"), "capitals_mayor": ("capitals", "mayor")}
 
 
 def test_every_measured_case_has_a_route() -> None:
@@ -448,3 +451,89 @@ def test_no_message_carries_a_table_value() -> None:
     step(plan, "resolve")["inputs"]["country"] = {"kind": "literal", "value": "Nepal"}
     text = " ".join(d.message for d in verdict("mountains", plan).deviations)
     assert "Nepal" not in text and "4242" not in text
+
+
+# --- targets the system has no source for ---------------------------------------------------
+
+
+def test_the_two_partial_cases_expect_the_other_target_to_be_handed_away() -> None:
+    assert set(PARTIAL_CASES) == {case for case in INSTRUCTIONS if ROUTES[case].unfilled}
+    for case, (base, target) in PARTIAL_CASES.items():
+        assert ROUTES[case].unfilled == (target,)
+        # The target that has a source is routed exactly as in the plain case.
+        assert ROUTES[case].targets == ROUTES[base].targets
+        assert ROUTES[case].capabilities == ROUTES[base].capabilities
+        assert INSTRUCTIONS[case] != INSTRUCTIONS[base]
+        assert f"into a new column named {target}" in INSTRUCTIONS[case]
+    assert all(not ROUTES[case].unfilled for case in CASES) and len(CASES) == 6
+
+
+@pytest.mark.parametrize("case", PARTIAL_CASES)
+def test_a_plan_for_the_target_with_a_source_that_hands_the_other_away_is_on_the_route(
+    case: str,
+) -> None:
+    base, target = PARTIAL_CASES[case]
+    result = check_route(
+        EnrichmentPlan.model_validate(known_good(base)), ROUTES[case], columns(case), [target]
+    )
+    assert result.deviations == () and result.on_route
+
+
+@pytest.mark.parametrize("case", PARTIAL_CASES)
+def test_a_plan_that_hands_away_the_target_that_has_a_source_is_blocked(case: str) -> None:
+    base, _ = PARTIAL_CASES[case]
+    wanted = ROUTES[case].targets[0].target
+    plan = known_good(base)
+    plan["outputs"] = []
+    # Nothing is written, and both the target with a source and the other are handed away.
+    # (A real plan like this is refused by the model rule; the check still judges it.)
+    result = check_route(
+        EnrichmentPlan.model_validate(plan),
+        ROUTES[case],
+        columns(case),
+        [wanted, PARTIAL_CASES[case][1]],
+    )
+    assert set(result.blocking_codes) == {C.TARGET_HANDED_AWAY}
+    assert wanted in result.deviations[0].message and not result.on_route
+
+
+@pytest.mark.parametrize("case", PARTIAL_CASES)
+def test_a_plan_that_writes_the_target_nothing_can_fill_is_not_handing_it_away(case: str) -> None:
+    base, target = PARTIAL_CASES[case]
+    plan = known_good(base)
+    plan["outputs"].append(
+        {"step_id": plan["outputs"][0]["step_id"], "value_field": "value", "target_column": target}
+    )
+    result = check_route(EnrichmentPlan.model_validate(plan), ROUTES[case], columns(case), [])
+    assert set(result.blocking_codes) == {C.TARGET_NOT_HANDED_AWAY}  # not also EXTRA_TARGET
+    assert target in result.deviations[0].message and not result.on_route
+
+
+@pytest.mark.parametrize("case", PARTIAL_CASES)
+def test_a_plan_that_neither_writes_nor_lists_the_target_is_not_on_the_route(case: str) -> None:
+    base, _ = PARTIAL_CASES[case]
+    result = check_route(
+        EnrichmentPlan.model_validate(known_good(base)), ROUTES[case], columns(case), []
+    )
+    assert set(result.blocking_codes) == {C.TARGET_NOT_HANDED_AWAY}
+
+
+@pytest.mark.parametrize("case", PARTIAL_CASES)
+def test_a_refusal_has_no_plan_to_judge(case: str) -> None:
+    from scripts.experiment_planner import judge_route
+
+    record: dict[str, Any] = {"status": "unsupported", "valid": False, "plan": None}
+    judge_route(record, case)
+    assert record["route"] == {"verdict": "not_judged", "deviations": []}
+
+
+@pytest.mark.parametrize("case", CASES)
+def test_listing_a_target_that_has_a_source_is_handing_it_away(case: str) -> None:
+    for target in (route.target for route in ROUTES[case].targets):
+        result = check_route(
+            EnrichmentPlan.model_validate(known_good(case)), ROUTES[case], columns(case), [target]
+        )
+        assert C.TARGET_HANDED_AWAY in result.blocking_codes and not result.on_route
+        assert any(target in d.message for d in result.deviations)
+    # Listing nothing is as before.
+    assert verdict(case, known_good(case)).deviations == ()

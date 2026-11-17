@@ -140,3 +140,13 @@ export function describePlan(draft: PlanDraft): PlanLine[] {
             })),
     }));
 }
+
+/** The chosen columns the plan does not fill, each with its column letter. */
+export function unfilledColumns(
+    draft: PlanDraft,
+): { name: string; letter: string }[] {
+    return (draft.unfilled_targets ?? []).map((name) => ({
+        name,
+        letter: draft.output_columns[name] ?? "",
+    }));
+}

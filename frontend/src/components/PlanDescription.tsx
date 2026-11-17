@@ -3,7 +3,7 @@ import { CircleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { PlanDraft } from "../api";
 import { readLookupTask } from "../fallbackModel";
-import { describePlan, type PlanRef } from "../planModel";
+import { describePlan, unfilledColumns, type PlanRef } from "../planModel";
 import type { StepOutcome } from "../runModel";
 import { CanDo } from "./CanDo";
 import { PlanDiagram } from "./PlanDiagram";
@@ -224,6 +224,23 @@ function LookupDescription({
                 </li>
             </ol>
         </div>
+    );
+}
+
+// Chosen columns the system has no source for. The plan fills the others; the
+// listed ones stay as they are. Shown above the steps in Basic and Advanced.
+export function UnfilledNotice({ draft }: { draft: PlanDraft }) {
+    const { t } = useTranslation();
+    const columns = unfilledColumns(draft);
+    if (columns.length === 0) return null;
+    return (
+        <p className="notice" data-testid="unfilled-notice">
+            {t("plan.unfilled", {
+                columns: columns
+                    .map((c) => `“${c.name}” (${c.letter})`)
+                    .join(", "),
+            })}
+        </p>
     );
 }
 

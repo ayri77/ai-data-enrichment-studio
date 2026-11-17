@@ -1,6 +1,7 @@
 """Deterministic validation of enrichment plans."""
 
-from dataclasses import dataclass, field
+from collections.abc import Sequence
+from dataclasses import dataclass, field, replace
 from graphlib import CycleError, TopologicalSorter
 from typing import Literal
 
@@ -58,6 +59,62 @@ class PlanValidationPolicy:
         """Reject negative limits before plan validation begins."""
         if self.max_steps is not None and self.max_steps < 0:
             raise ValueError("max_steps must be non-negative")
+
+
+def apply_unfilled_targets(
+    policy: PlanValidationPolicy | None,
+    unfilled: Sequence[str],
+    plan: EnrichmentPlan | None,
+) -> tuple[PlanValidationPolicy | None, list[ValidationDiagnostic]]:
+    """The policy a plan is validated with when some requested targets are left unfilled.
+
+    The one place that turns "requested targets" and "named as unfilled" into the set the
+    plan must write: the requested targets minus the unfilled names that are valid. The
+    planner loop and the server's validation both call it, so ``PlanValidator`` keeps its
+    single rule (the outputs equal ``output_targets``) and never learns about unfilled
+    targets. A name that is not a requested target, or that the plan also writes, is
+    reported and does not reduce the set, so that it cannot hide a missing column.
+    """
+    if not unfilled:
+        return policy, []
+    requested = policy.output_targets if policy is not None else None
+    if policy is None or requested is None:
+        return policy, [
+            ValidationDiagnostic(
+                code="UNFILLED_TARGETS_WITHOUT_TARGETS",
+                message="Unfilled targets can only be named when output targets were requested.",
+                field="unfilled_targets",
+            )
+        ]
+    written = {output.target_column for output in plan.outputs} if plan is not None else set()
+    errors: list[ValidationDiagnostic] = []
+    reduce: set[str] = set()
+    for name in unfilled:
+        if name not in requested:
+            errors.append(
+                ValidationDiagnostic(
+                    code="UNKNOWN_UNFILLED_TARGET",
+                    message=(
+                        f"Unfilled target '{name}' is not a requested target "
+                        f"column {sorted(requested)}."
+                    ),
+                    field="unfilled_targets",
+                )
+            )
+        elif name in written:
+            errors.append(
+                ValidationDiagnostic(
+                    code="UNFILLED_TARGET_ALSO_WRITTEN",
+                    message=(
+                        f"Target '{name}' is listed as unfilled and also written by an "
+                        "output mapping; it must be one or the other."
+                    ),
+                    field="unfilled_targets",
+                )
+            )
+        else:
+            reduce.add(name)
+    return replace(policy, output_targets=requested - reduce), errors
 
 
 class PlanValidator:

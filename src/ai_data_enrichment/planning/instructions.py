@@ -41,6 +41,9 @@ PLAN_CONTRACT_GUIDANCE = (
     "for that row and is reported for review. A request to leave unresolved, ambiguous "
     "or missing results empty, or not to invent values, therefore describes what always "
     "happens: it needs no step, parameter or capability and is never a reason to "
-    "abstain. Model assumptions are unverified claims; do not "
+    "abstain. Cells of a target column that already hold a value are kept by the run "
+    "unless the user chose to replace them; the plan maps a step's result to the column "
+    "and needs no step or capability for that. "
+    "Model assumptions are unverified claims; do not "
     "assert that row geocoding is unambiguous before provider evidence is available."
 )

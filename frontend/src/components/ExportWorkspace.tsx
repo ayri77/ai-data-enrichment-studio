@@ -32,6 +32,7 @@ import {
     type RowFilter,
     type Sort,
 } from "../resultsModel";
+import { unfilledColumns } from "../planModel";
 import { Button } from "./ui/button";
 import { Back, EmptyState, ModeNotice, StartOver } from "./WorkspaceViews";
 import { FallbackBanner } from "./FallbackSearch";
@@ -369,6 +370,8 @@ function ResultTable({ w }: { w: Workflow }) {
     );
     const lookup = isFallbackRun(w.job, w.plan) || rows.some((r) => r.lookup);
     const summary = lookupSummary(rows);
+    // Chosen columns the plan had no source for: named once, above the table.
+    const unfilled = w.plan ? unfilledColumns(w.plan) : [];
     const spend = w.report?.web_lookup;
     const onSort = (key: string) =>
         setSort((old) => ({
@@ -405,6 +408,15 @@ function ResultTable({ w }: { w: Workflow }) {
                         </p>
                     )}
                 </div>
+            )}
+            {unfilled.length > 0 && (
+                <p className="muted" data-testid="unfilled-summary">
+                    {t("results.unfilled", {
+                        columns: unfilled
+                            .map((c) => `“${c.name}” (${c.letter})`)
+                            .join(", "),
+                    })}
+                </p>
             )}
             <div className="result-toolbar">
                 <div

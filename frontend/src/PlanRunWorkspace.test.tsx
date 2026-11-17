@@ -10,7 +10,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 import App from "./App";
-import { PlanDescription } from "./components/PlanDescription";
+import { PlanDescription, UnfilledNotice } from "./components/PlanDescription";
 import { useWorkflow } from "./useWorkflow";
 import {
     api,
@@ -3232,4 +3232,78 @@ it("tells mountain namesakes apart by what the source records about each", async
     expect(chosen("Mont Blanc")).toHaveTextContent(
         "highest mountain in the Alps",
     );
+});
+
+// A plan the planner made for the columns it has a source for; "age" has none.
+const partial: PlanDraft = {
+    ...draft,
+    output_columns: { distance: "E", age: "F" },
+    unfilled_targets: ["age"],
+};
+const noticeText = () => i18n.t("plan.unfilled", { columns: "“age” (F)" });
+
+it("Basic names the columns with no source above the steps and lists only the filled ones", async () => {
+    localStorage.removeItem("enrichment.mode");
+    vi.mocked(api.createPlan).mockResolvedValue(partial);
+    render(<App opening="dataset" />);
+    await generateBasic();
+    const notice = screen.getByTestId("unfilled-notice");
+    expect(notice).toHaveTextContent(noticeText());
+    const steps = document.querySelector(".plan-steps")!;
+    expect(
+        notice.compareDocumentPosition(steps) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // The output list is what the plan writes: the unfilled column is not in it.
+    expect(screen.getByText("E · distance")).toBeVisible();
+    expect(screen.queryByText(/F · age/)).toBeNull();
+    expect(steps).not.toHaveTextContent("age");
+});
+
+it("Advanced names the columns with no source above the graph and lists only the filled ones", async () => {
+    vi.mocked(api.createPlan).mockResolvedValue(partial);
+    render(<App opening="dataset" />);
+    await generate();
+    const notice = screen.getByTestId("unfilled-notice");
+    expect(notice).toHaveTextContent(noticeText());
+    const graph = screen.getByRole("region", { name: i18n.t("ws.graph") });
+    expect(
+        notice.compareDocumentPosition(graph) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // The graph and the summary both name the columns the plan writes.
+    expect(screen.getAllByText(/E · distance/).length).toBeGreaterThan(0);
+    expect(screen.queryAllByText(/F · age/)).toHaveLength(0);
+});
+
+it("shows no notice for a plan that fills every chosen column, or a draft without the field", () => {
+    const { rerender } = render(<UnfilledNotice draft={draft} />);
+    expect(screen.queryByTestId("unfilled-notice")).toBeNull();
+    rerender(<UnfilledNotice draft={{ ...draft, unfilled_targets: [] }} />);
+    expect(screen.queryByTestId("unfilled-notice")).toBeNull();
+});
+
+it("says in the results which columns had no source, in every language", async () => {
+    vi.mocked(api.createPlan).mockResolvedValue(partial);
+    vi.mocked(api.approvePlan).mockResolvedValue({
+        ...partial,
+        status: "approved",
+        approved_at: "2026-11-10T09:00:00Z",
+    });
+    render(<App opening="dataset" />);
+    await start();
+    await waitFor(() => expect(api.getReport).toHaveBeenCalled());
+    await navigate("export");
+    const line = await screen.findByTestId("unfilled-summary");
+    expect(line).toHaveTextContent(
+        i18n.t("results.unfilled", { columns: "“age” (F)" }),
+    );
+    for (const locale of ["uk", "de", "en"] as const) {
+        await act(() => i18n.changeLanguage(locale));
+        expect(screen.getByTestId("unfilled-summary")).toHaveTextContent(
+            "“age” (F)",
+        );
+        expect(messages[locale]["results.unfilled"]).toContain("{{columns}}");
+        expect(messages[locale]["plan.unfilled"]).toContain("{{columns}}");
+    }
 });

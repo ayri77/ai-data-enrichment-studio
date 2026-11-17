@@ -30,6 +30,16 @@ The application opens on **Overview**, the first entry of the navigation and not
 
 Limits. The list says what a plan may be built *from*, not which tasks will succeed: whether a task can be planned is still decided by the planner and the validator. The plain wording of the six capabilities is written by hand and can drift from a contract that changes; the Advanced view cannot. Translating the descriptions of future capabilities needs either wording added to the locale files or wording that arrives with the capability ([plug-in design](29-capability-extension-design.md), point 7).
 
+## Columns without a source
+
+A plan from the planner may fill only some of the chosen columns (`unfilled_targets` of the draft, [plan/run API](22-m5-plan-run-api.md)). The interface says so in three places and changes nothing else:
+
+- **Plan**, above the steps, in Basic (above the list of steps) and in Advanced (above the graph): a notice, "The system has no source for these columns: “age” (F). The plan fills the other columns; these stay as they are.", with each column as its name and letter, as the plan names columns elsewhere (`UnfilledNotice` in `components/PlanDescription.tsx`). The steps, the graph and the list of result columns in the summary show only what the plan writes.
+- **Results**, one line above the table in Basic and Advanced: "The system had no source for these columns: “age” (F). They were left as they are."
+- Nothing else: the table of results, the downloads, review and resume are as for any run.
+
+This is not connected to the universal search. The search is offered by `fallbackOffer` exactly as before, and a partial plan is a runnable plan that passed the check, so it offers nothing (pinned by a test in `fallbackModel.test.ts`). The listed columns are not searched for, automatically or by an offer. The texts are `plan.unfilled` and `results.unfilled` in the three locale files.
+
 ## The universal search
 
 A web lookup by an AI model is the way on for a task the system has no source for. It exists only when the server sets `ENRICHMENT_ALLOW_WEB_LOOKUP=1` and has a key (`GET /api/limits`: `web_lookup`); otherwise nothing of it is shown. For the person there is one switch and no second plan to set up.

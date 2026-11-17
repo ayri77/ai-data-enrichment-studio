@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- The planner may name the columns it has no source for. Its answer gains `unfilled_targets`
+  (empty by default; only with `ready`; no blank or repeated names; a ready answer that lists
+  any must still have a step and an output), and when the context lists output targets it is
+  told to answer `ready` with a plan for the targets it can fill and to list the others, only
+  when no capability can produce them. The columns a plan must write are the requested ones
+  minus the listed ones (`apply_unfilled_targets`, used by the planner loop and by the server's
+  validation; wrong names are diagnostics `UNKNOWN_UNFILLED_TARGET`,
+  `UNFILLED_TARGET_ALSO_WRITTEN`, `UNFILLED_TARGETS_WITHOUT_TARGETS` repaired through the loop).
+  The draft stores `unfilled_targets` inside its fingerprint (a supplied plan still has to write
+  every chosen column); the run writes only what the plan writes, so an unfilled new column is
+  not created and an unfilled existing column is left as it is; the report lists them. The plan
+  view gets a notice above the steps and Results one line. Also told to the planner: that cells
+  of a target column that already hold a value are kept by the run (the cause of the one
+  baseline refusal on `mountains_gaps`), and the abstention challenge now allows partial plans.
+  The route check gains `TARGET_HANDED_AWAY` / `TARGET_NOT_HANDED_AWAY` and two cases,
+  `mountains_age` and `capitals_mayor`. The planner is not told, and nothing in this change
+  offers or starts, a web search for the listed columns. **Measured by the owner on 2026-11-17
+  before merging** (`gpt-6-luna`, ten runs per case): 80 of 80 valid and on the expected route
+  over the six existing cases and the two new ones, no target handed away wrongly, no refusal;
+  the table is in `docs/26-live-planning-reliability.md`. Not measured: other models, tasks
+  with several columns without a source.
 - The usage summary survives a restart and opens on one's own machine without setup. Events can
   be kept in a file (`UsageStore`; one JSON object per line, appended per event, replayed through the
   same counting at start, so totals, the events by kind and the latest 300 events come back; a

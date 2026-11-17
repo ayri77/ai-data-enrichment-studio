@@ -255,6 +255,11 @@ export interface PlanDraft extends Omit<PlanRequest, "allow_network" | "plan"> {
     approved_at: string | null;
     planning_status: string;
     reason: string | null;
+    /**
+     * Chosen columns the planner found no source for. The plan does not write
+     * them. Absent in a draft the server made before the field existed.
+     */
+    unfilled_targets?: string[];
     validation: Validation;
     plan: EnrichmentPlan | null;
 }

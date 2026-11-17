@@ -3,11 +3,11 @@
 A plan that passes validation can still be wrong in substance: the right kind of number read
 from the wrong place, written into the wrong column, or looked up from a made-up constant. The
 validator cannot see that, because it knows capabilities and types, not the task. This module
-states, for the six cases of ``scripts/experiment_planner.py``, which capability must produce
+states, for the eight cases of ``scripts/experiment_planner.py``, which capability must produce
 each output column, with which parameters and from which inputs, and reports every way a plan
 differs from that.
 
-It judges only those six cases. It says nothing about a plan for any other table or task, and
+It judges only those eight cases. It says nothing about a plan for any other table or task, and
 it is a measurement aid: the planner, its prompt and the validator do not use it.
 
 ``check_route`` is pure. It reads the plan and the column headers, never a cell, and its
@@ -44,6 +44,8 @@ class DeviationCode(StrEnum):
     MISSING_TARGET = "MISSING_TARGET"  # an expected output column is not written
     EXTRA_TARGET = "EXTRA_TARGET"  # a column nobody asked for is written
     WRONG_UNIT = "WRONG_UNIT"  # the unit stated on an output mapping differs
+    TARGET_HANDED_AWAY = "TARGET_HANDED_AWAY"  # listed as unfilled where a source exists
+    TARGET_NOT_HANDED_AWAY = "TARGET_NOT_HANDED_AWAY"  # expected unfilled, but written
     UNUSED_STEP = "UNUSED_STEP"  # a step feeds no output (a failure only if not tolerated)
     OPTIONAL_PARAMETER_SET = "OPTIONAL_PARAMETER_SET"  # an optional parameter, set; a note only
 
@@ -105,6 +107,9 @@ class CaseRoute:
     capabilities: frozenset[str]
     # A step that feeds no output is reported; it fails the route only if this is False.
     unused_steps_tolerated: bool = True
+    # Targets of the task that no capability can produce: the plan must list them as
+    # unfilled and must not write them. Every case of the first six expects none.
+    unfilled: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -132,8 +137,8 @@ class RouteVerdict:
 
 
 # ---------------------------------------------------------------------------------------
-# The six cases. Derived from the prepared plans (demo/*_api_plan.json) for the four that
-# have one; written by hand for capitals_coordinates and capitals_population.
+# The eight cases. Derived from the prepared plans (demo/*_api_plan.json) for the four that
+# have one; written by hand for the other four. The last two have a target nothing can fill.
 # ---------------------------------------------------------------------------------------
 
 
@@ -202,6 +207,18 @@ ROUTES: Final[Mapping[str, CaseRoute]] = {
         targets=(TargetRoute("population", "population", _FROM_OPEN),),
         capabilities=frozenset({"geocode"}),
     ),
+    # The height has its route; no capability knows the geological age of a mountain.
+    "mountains_age": CaseRoute(
+        targets=(_HEIGHT,),
+        capabilities=frozenset({"resolve_entity", "lookup_property"}),
+        unfilled=("age",),
+    ),
+    # The distance has its route; no capability knows who is the mayor of a city.
+    "capitals_mayor": CaseRoute(
+        targets=(_DISTANCE,),
+        capabilities=frozenset({"geocode", "geodesic_distance"}),
+        unfilled=("mayor",),
+    ),
 }
 
 
@@ -211,13 +228,23 @@ ROUTES: Final[Mapping[str, CaseRoute]] = {
 
 
 def check_route(
-    plan: EnrichmentPlan, expectation: CaseRoute, columns: Sequence[str]
+    plan: EnrichmentPlan,
+    expectation: CaseRoute,
+    columns: Sequence[str],
+    unfilled: Sequence[str] = (),
 ) -> RouteVerdict:
     """Compare a plan that passed validation with the expected route of its case.
 
     ``columns`` are the headers of the table the plan was made for. An expectation that names
     a header the table does not have is a mistake in the expectation, not in the plan, and
     raises ``ValueError``.
+
+    ``unfilled`` are the targets the planner named as having no source. A plan is on the
+    expected route when the targets it writes pass their routes and this set equals the one
+    the case expects. A target handed away where a capability can produce it is
+    ``TARGET_HANDED_AWAY`` (and not also a missing target); a target expected to be handed
+    away that the plan writes, or does not list, is ``TARGET_NOT_HANDED_AWAY`` (and not also
+    an extra target; how it was written is not judged).
     """
     for header in sorted(_headers(expectation) - set(columns)):
         raise ValueError(f"The expected route reads a column that the table lacks: {header}")
@@ -234,9 +261,25 @@ def check_route(
             )
 
     wanted = {route.target: route for route in expectation.targets}
+    handed_away = set(unfilled)
+    for target in sorted(handed_away - set(expectation.unfilled)):
+        found.append(
+            _dev(
+                DeviationCode.TARGET_HANDED_AWAY,
+                f"column {target} is listed as having no source, but the task has one for it",
+            )
+        )
     written: set[str] = set()
     for output in plan.outputs:
         route = wanted.get(output.target_column)
+        if output.target_column in expectation.unfilled:
+            found.append(
+                _dev(
+                    DeviationCode.TARGET_NOT_HANDED_AWAY,
+                    f"column {output.target_column} has no source but is written",
+                )
+            )
+            continue
         if route is None:
             found.append(
                 _dev(
@@ -277,8 +320,16 @@ def check_route(
                     f"{label} states unit {output.expected_unit!r}, expected {route.unit!r}",
                 )
             )
+    for target in expectation.unfilled:
+        if target not in handed_away and target not in {o.target_column for o in plan.outputs}:
+            found.append(
+                _dev(
+                    DeviationCode.TARGET_NOT_HANDED_AWAY,
+                    f"column {target} has no source but is not listed as such",
+                )
+            )
     for route in expectation.targets:
-        if route.target not in written:
+        if route.target not in written and route.target not in handed_away:
             found.append(
                 _dev(DeviationCode.MISSING_TARGET, f"column {route.target} is not written")
             )

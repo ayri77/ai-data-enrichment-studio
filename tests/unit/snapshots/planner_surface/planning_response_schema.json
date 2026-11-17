@@ -257,6 +257,13 @@
       ],
       "title": "Status",
       "type": "string"
+    },
+    "unfilled_targets": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unfilled Targets",
+      "type": "array"
     }
   },
   "required": [
