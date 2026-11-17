@@ -665,7 +665,7 @@ export function useWorkflow(
         consent &&
         !locked &&
         (planningReadiness === "ready" || planningReadiness === "offline");
-    async function suggestTasks(language: string) {
+    async function suggestTasks(language: string, again = false) {
         if (!canSuggestTasks || !preview) return;
         const asked = generation.current;
         const columns = fillKey;
@@ -676,6 +676,7 @@ export function useWorkflow(
             language,
             allow_network: consent,
             ...(fillColumns.length > 1 ? { fill_columns: fillColumns } : {}),
+            ...(again ? { again: true } : {}),
         });
         // An answer for a table that was left in the meantime, or for columns
         // that are no longer the chosen ones, is not shown.

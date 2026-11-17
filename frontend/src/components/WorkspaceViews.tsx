@@ -281,11 +281,26 @@ function TaskIdeas({ w }: { w: Workflow }) {
                 </p>
             </div>
         );
+    const again = (
+        <Button
+            type="button"
+            variant="outline"
+            disabled={!w.canSuggestTasks}
+            onClick={() =>
+                void w.action(() => w.suggestTasks(language, true), "ideas")
+            }
+        >
+            {t("task.again")}
+        </Button>
+    );
     if (!ideas.length)
         return (
-            <p className="muted" data-testid="task-ideas">
-                {t(w.taskColumns > 0 ? "task.noneForColumns" : "task.none")}
-            </p>
+            <div className="task-ideas" data-testid="task-ideas">
+                <p className="muted">
+                    {t(w.taskColumns > 0 ? "task.noneForColumns" : "task.none")}
+                </p>
+                {again}
+            </div>
         );
     return (
         <div className="task-ideas" data-testid="task-ideas">
@@ -303,6 +318,7 @@ function TaskIdeas({ w }: { w: Workflow }) {
                     {idea}
                 </button>
             ))}
+            {again}
         </div>
     );
 }

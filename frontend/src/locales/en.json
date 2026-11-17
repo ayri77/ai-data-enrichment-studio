@@ -625,6 +625,7 @@
     "startOver.confirm": "Remove and start over",
     "startOver.keep": "Keep working",
     "task.suggest": "Suggest a task",
+    "task.again": "Suggest again",
     "task.forColumns": "For the {{n}} chosen columns the AI proposes one task that fills them all.",
     "task.sends": "Sends the column names, their types and five sample rows to the AI provider, as building a plan does. The AI only proposes a text; you can change it.",
     "task.needsConsent": "First allow external network requests (the checkbox below): the column names and five sample rows are sent to the AI provider.",

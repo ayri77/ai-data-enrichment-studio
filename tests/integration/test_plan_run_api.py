@@ -2050,9 +2050,59 @@ def test_the_model_proposes_tasks_for_a_table_in_the_language_asked_for(ideas):
         ("uk", 2, 2, 1),
     ]
     assert all(e["too_long"] == 0 and e["incomplete"] in (0, 1) for e in asked)
+    assert all(e["internal_names"] == 0 for e in asked)
     # A proposal is text only: nothing was planned or started.
     mountains = upload(client, "mountains")
     assert "elevation" in task_ideas(client, mountains, "mountains").json()["tasks"][0]
+
+
+def test_tasks_that_name_internal_functions_are_not_shown_and_are_counted(ideas, monkeypatch):
+    client, model = ideas
+    dataset_id = upload(client, "capitals")
+    named = {"tasks": ["Fill distance with resolve_entity and entity_type='city'."]}
+    monkeypatch.setattr(model, "complete", lambda **_: json.dumps(named))
+    response = task_ideas(client, dataset_id)
+    # The same empty answer as no proposal: the interface words it as "none".
+    assert response.status_code == 200 and response.json() == {"tasks": []}
+    [event] = [e for e in client.app.state.usage.summary()["recent"] if e["kind"] == "task_ideas"]
+    assert (event["proposed"], event["internal_names"], event["shown"]) == (1, 1, 0)
+
+
+def test_a_suggestion_is_kept_per_model_and_can_be_asked_for_again(ideas, monkeypatch):
+    client, model = ideas
+    dataset_id = upload(client, "capitals")
+    answers = iter(f"Task number {n}." for n in range(1, 20))
+    monkeypatch.setattr(model, "complete", lambda **_: json.dumps({"tasks": [next(answers)]}))
+
+    def switch(model_id):
+        # What the browser settings do: the model the next request would use.
+        client.app.state.plan_run.provider.model = model_id
+
+    def ask(**extra):
+        return task_ideas(client, dataset_id, **extra).json()["tasks"]
+
+    def events():
+        return [e for e in client.app.state.usage.summary()["recent"] if e["kind"] == "task_ideas"]
+
+    switch("gpt-4.1-mini")
+    assert ask() == ["Task number 1."] and ask() == ["Task number 1."]
+    # Another model is another question; the first one's answer is not served.
+    switch("gpt-4.1")
+    assert ask() == ["Task number 2."]
+    # Back to the first: its own answer, without a call.
+    switch("gpt-4.1-mini")
+    assert ask() == ["Task number 1."]
+    # "Again" asks although an answer is kept, replaces it, and is counted.
+    assert ask(again=True) == ["Task number 3."]
+    assert ask() == ["Task number 3."]
+    assert sorted(e["again"] for e in events()) == [0, 0, 1]
+    # Three calls so far, counted per workbook across models.
+    monkeypatch.setattr(plan_run, "MAX_TASK_IDEA_REQUESTS", 3)
+    assert ask() == ["Task number 3."]  # Kept answers cost nothing at the limit.
+    limited = task_ideas(client, dataset_id, again=True)
+    assert limited.status_code == 429 and limited.json()["error"]["code"] == "task_idea_limit"
+    assert ask() == ["Task number 3."]
+    assert len(events()) == 3
 
 
 def test_task_ideas_are_refused_or_reported_without_guessing(ideas, monkeypatch):

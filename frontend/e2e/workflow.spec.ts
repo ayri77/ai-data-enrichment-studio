@@ -1301,7 +1301,8 @@ test("Basic: an uploaded workbook needs an instruction and nothing else", async 
 test("Basic: the AI proposes a task for the table, in the language of the interface", async ({
     page,
 }, testInfo) => {
-    const asked: { language: string; range_ref: string }[] = [];
+    const asked: { language: string; range_ref: string; again?: boolean }[] =
+        [];
     page.on("request", (r) => {
         if (r.url().endsWith("/api/task-ideas"))
             asked.push(JSON.parse(r.postData() ?? "{}"));
@@ -1317,7 +1318,7 @@ test("Basic: the AI proposes a task for the table, in the language of the interf
     // What leaves the browser is said next to the button.
     await expect(page.getByText(/five sample rows to the AI/)).toBeVisible();
     await page.getByRole("button", { name: "Suggest a task" }).click();
-    const idea = page.getByTestId("task-ideas").getByRole("button");
+    const idea = page.getByTestId("task-ideas").locator("button.task-idea");
     await expect(idea).toHaveText(
         "[English] Calculate the distance in km between Capital_From and Capital_To and write it to distance.",
     );
@@ -1338,10 +1339,16 @@ test("Basic: the AI proposes a task for the table, in the language of the interf
     await navigate(page, "Dataset");
     await page.locator(".studio-preferences select").nth(1).selectOption("uk");
     await page.getByRole("button", { name: "Запропонувати завдання" }).click();
-    await expect(page.getByTestId("task-ideas").getByRole("button")).toHaveText(
-        /^\[Ukrainian\]/,
-    );
-    expect(asked.map((x) => x.language)).toEqual(["en", "uk"]);
+    await expect(
+        page.getByTestId("task-ideas").locator("button.task-idea"),
+    ).toHaveText(/^\[Ukrainian\]/);
+    // "Suggest again" asks the same question with the flag.
+    await page.getByRole("button", { name: "Запропонувати ще раз" }).click();
+    await expect(
+        page.getByTestId("task-ideas").locator("button.task-idea"),
+    ).toHaveText(/^\[Ukrainian\]/);
+    expect(asked.map((x) => x.language)).toEqual(["en", "uk", "uk"]);
+    expect(asked.map((x) => x.again ?? false)).toEqual([false, false, true]);
     expect(asked[0].range_ref).toBe("A1:E11");
     await page.screenshot({ path: testInfo.outputPath("task-ideas-uk.png") });
 });

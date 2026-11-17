@@ -14,6 +14,7 @@ from ai_data_enrichment.task_ideas import (
     Proposal,
     TaskIdeaError,
     idea_messages,
+    names_internal,
     parse_ideas,
     propose_tasks,
     suggest_tasks,
@@ -234,3 +235,105 @@ def test_an_unclear_header_is_no_reason_to_propose_nothing() -> None:
     system, _ = idea_messages(PROFILE, builtin_registry(), "uk", ["a", "b"])
     assert "A header that does not say what it should hold still gets one" in system["content"]
     assert "Keep the task under 900 characters" in system["content"]
+
+
+def test_both_prompts_ask_for_real_facts_and_never_for_invented_values() -> None:
+    for chosen in ([], ["Висота", "Нова колонка"]):
+        system, _ = idea_messages(PROFILE, builtin_registry(), "uk", chosen)
+        text = system["content"]
+        assert "request for real facts about the rows" in text
+        assert "Never name the tool's functions, capabilities, parameters" in text
+        assert "Never suggest inventing, estimating, guessing" in text
+        assert "so that it differs from another one" in text
+        assert "Every value must be something that can be looked up" in text
+        assert "still ask plainly for the real value of that column" in text
+        assert "do not claim that the tool can do it" in text
+    chosen_prompt = idea_messages(PROFILE, builtin_registry(), "uk", ["a", "b"])[0]["content"]
+    assert "the most plausible real value" in chosen_prompt
+    assert "a column the capabilities do not cover is still named" in chosen_prompt
+    # The old wording asked for a value "the capabilities can produce" for every column.
+    assert "Choose for each column a value" not in chosen_prompt
+
+
+def ideas_for(tasks: list[str], chosen: list[str] | None = None) -> Proposal:
+    return propose_tasks(
+        Client({"tasks": tasks}),
+        profile=PROFILE,
+        registry=builtin_registry(),
+        language="en",
+        fill_columns=chosen or [],
+    )
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        # The live suggestion of 2026-11-16, as it was worded.
+        'Fill "Висота" by calling "resolve_entity" with entity_type=\'mountain\' and then '
+        "getting the property 'elevation' through \"lookup_property\".",
+        "Use resolve_entity for each row.",
+        "Use RESOLVE_ENTITY for each row.",
+        "Find the distance with geodesic_distance.",
+        "Set entity_type='mountain' and read the elevation.",
+        "Set entity_type = mountain and read the elevation.",
+        "Fill the ratio(a, b) of the two columns.",
+        "Run the `ratio` capability on both columns.",
+        'Apply "geocode" to every city.',
+        "Use geocode(city) for every row.",
+        "Set required_role to country_capital.",
+        'Pass "unit" km to the distance step.',
+        "Read population and administrative_area of each city.",
+    ],
+)
+def test_a_task_that_names_something_internal_is_dropped_and_counted(task: str) -> None:
+    assert ideas_for([task, "Find the elevation of every mountain."]) == Proposal(
+        ("Find the elevation of every mountain.",), proposed=2, internal_names=1
+    )
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        "Find the height of every mountain and the country it is in.",
+        "Find the geological age of each mountain in millions of years.",
+        "Fill the ratio of the two distances.",
+        "Write the distance between the two cities and the ratio of the road to the straight line.",
+        "Geocode the cities and give the unit in kilometres: the name and the country.",
+        "Fill «Висота» with the elevation of each mountain.",
+        "Для кожної гори знайди висоту і країну.",
+    ],
+)
+def test_ordinary_prose_with_words_that_are_also_identifiers_is_kept(task: str) -> None:
+    assert ideas_for([task]) == Proposal((task,), proposed=1)
+
+
+def test_a_word_the_table_has_as_a_header_is_not_internal() -> None:
+    task = 'Fill "unit" and "name" with the unit and the name of each mountain.'
+    assert names_internal(task, builtin_registry())
+    assert not names_internal(task, builtin_registry(), ["unit", "name"])
+    # A new column the person asked for counts as a header too.
+    chosen = ["Висота", "unit"]
+    task = 'Fill "Висота" with the elevation and "unit" with its unit.'
+    assert ideas_for([task], chosen) == Proposal((task,), proposed=1)
+
+
+def test_dropped_tasks_are_counted_and_nothing_is_left_when_all_are_dropped() -> None:
+    chosen = ["Висота", "Нова колонка"]
+    named = "Fill «Висота» through lookup_property and «Нова колонка» with an invented age."
+    proposal = ideas_for([named], chosen)
+    assert proposal == Proposal((), proposed=1, internal_names=1)
+    # Tasks that are dropped for the identifier are not also counted as incomplete.
+    assert ideas_for(["Use resolve_entity.", "Use lookup_property."]) == Proposal(
+        (), proposed=2, internal_names=2
+    )
+    # The route answers with the existing empty list; the interface words it as "none".
+    assert (
+        suggest_tasks(
+            Client({"tasks": [named]}),
+            profile=PROFILE,
+            registry=builtin_registry(),
+            language="uk",
+            fill_columns=chosen,
+        )
+        == ()
+    )

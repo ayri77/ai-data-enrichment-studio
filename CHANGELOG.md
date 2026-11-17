@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- "Suggest a task" could propose to invent values and could name internal functions: for
+  mountains with a column that no capability can fill (geological age) it suggested filling that
+  column with "an invented approximate age" and wrote `resolve_entity`, `lookup_property` and
+  their parameters into the text for the person, and the planner followed it (live run,
+  2026-11-16). The prompts for one and for several columns now ask for real facts in a person's
+  words, forbid inventing, estimating or filling a column "so that it differs", and say to ask
+  plainly for the real value of a column the capabilities do not cover; a suggestion that
+  names a capability id or another identifier of the registry is dropped (if all are dropped the
+  interface shows its usual "no suggestion" text), and the `task_ideas` usage event counts them as
+  `internal_names`. The kept suggestion is now keyed by the model as well (after changing the
+  model in the settings the old model's text was still served), and a "Suggest again" button
+  beside the shown suggestion or the "none" text sends `again` to `POST /api/task-ideas`, which
+  asks the model anew, replaces the kept answer and counts against the same per-workbook limit
+  (`task_idea_limit` as before; the usage event gains `again`). Tested against a fake model only;
+  the behaviour of the live model after the change was not measured.
 - The universal search can be asked for through the API and the run worker and, when the
   server offers it, from the interface with one switch on the task step ("If the system has no
   source for this task, search the web with AI", off by default, remembered in the browser): when
