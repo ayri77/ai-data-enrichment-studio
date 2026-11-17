@@ -77,7 +77,7 @@ provide the dataset ID and actual worksheet/range; the range includes headers.
 | What a plan may use | `GET /api/capabilities` | Every capability registered on this installation, in the order the planner is shown them: its contract (`id`, `version`, `description`, `inputs`, `parameters`, `output`), `source` — the id of the source its values come from, or `local` for a calculation — and `trust`, the kind of trust behind its values as a lowercase word: `computed` (calculated here), `record` (read from an identified record of the source), `resolved_name` (a name matched to a record of the source) or `service` (calculated by an outside service, with no record to check it against). `source` and `trust` are not part of the contract the planner is shown; a client must treat a `trust` it does not know as "unknown kind". `GET /api/limits` carries the same ids with the bounds of one run |
 | Task ideas from the model | `POST /api/task-ideas` | 200; up to three tasks that could be asked for with the selected table, in the language asked for; plans and writes nothing |
 | Create draft | `POST /api/plans` | 201; generate with `LLMPlanner`, or validate a supplied `plan` |
-| Create a universal-search draft | `POST /api/fallback-plans` | 201, the same draft as above with `"kind": "fallback"`; off unless the server switches it on (see "The universal search" below) |
+| Create a universal-search draft | `POST /api/fallback-plans` | 201, the same draft as above with `"kind": "fallback"`; with `plan_id` (a planner draft that left columns unfilled) a draft with `"kind": "mixed"`; off unless the server switches it on (see "The universal search" and "A mixed plan" below) |
 | Read draft | `GET /api/plans/{plan_id}` | Plan JSON, binding, fingerprint, decision and validation |
 | Validate | `POST /api/plans/{plan_id}/validate` | Semantic DAG/type/parameter checks and explicit column bindings |
 | Approve | `POST /api/plans/{plan_id}/approve` | Requires `approved: true` and exact displayed `fingerprint` |
@@ -375,11 +375,14 @@ Refusals: `web_lookup_disabled` (403, setting off, nothing is read or stored),
 a column that does not exist, a type that does not fit, a task too long, and so on),
 `invalid_selection`, `dataset_not_found`, `request_too_large` (413, 64 KiB) as for a plan.
 
-**The kind.** A planner draft has no `kind`; a fallback draft has `"fallback"`. Only the
-server sets it, and it is inside what the fingerprint covers. A plan with `web_lookup` is
-refused (`web_lookup_plan_refused`, 422) wherever a plan could enter on the normal path: a
-supplied `plan`, what the planner returns, and a stored draft whose kind does not agree
-with its plan. Before a run the draft's fingerprint is computed again from what is stored,
+**The kind.** A planner draft has no `kind` (it is `planner`); a fallback draft has
+`"fallback"`, a mixed one `"mixed"`. Only the server sets it, and it is inside what the
+fingerprint covers. The gate (`plan_gate`, before validation, approval and every run) knows
+three kinds and the shape of plan each one has: `planner`, no `web_lookup` step; `fallback`,
+the lookup step and nothing else; `mixed`, the lookup step and other steps. A plan with
+`web_lookup` is refused (`web_lookup_plan_refused`, 422) wherever a plan could enter on the
+normal path: a supplied `plan`, what the planner returns, and a stored draft whose kind does
+not agree with the shape of its plan. Before a run the draft's fingerprint is computed again from what is stored,
 so a draft changed after approval is refused (`approval_mismatch`). A run is refused when
 the setting was switched off or the key removed after the draft was made.
 
@@ -418,9 +421,8 @@ lookups (it no longer would, for the rows kept). A resume exists to apply the us
 names that need review, and a lookup plan has no name to resolve: its jobs have no resolution
 report and Review lists nothing, so the resume route answers 422 and `start_job` refuses a
 previous job or selections for such a draft (409, a second guard the route does not reach).
-Running the plan again is what continues it. How a plan that mixes lookup and source steps (not
-built yet) is resumed is left to the change that builds it; every job opens the plan's caches, so
-its lookup step would be answered from kept answers and not repeated.
+Running the plan again is what continues it. A plan that mixes lookup and source steps does
+have names to resolve and is resumed (see "A mixed plan").
 The key is handed to the worker process with its task and the client is made there; it is
 never written to a file, a log line, the audit or an error.
 
@@ -452,6 +454,100 @@ sums `web_searches` per visitor beside the other numbers. The summary also says 
 cancelled or whose worker dies still records the requests that had returned (the worker
 copies the four numbers to shared memory after each request); a request still in flight
 when the worker is stopped cannot be counted, although the provider may bill it.
+
+### A mixed plan
+
+When the planner answers `ready` with `unfilled_targets` (see "The planner may name the columns
+it has no source for" in the changelog), the columns it filled have a source and the others
+have none. A **mixed** plan fills both: the planner's steps for the first, ONE `web_lookup`
+step for the others. The server builds it (`build_mixed_plan` in `capabilities/fallback.py`);
+the planner is never shown the capability and is not changed.
+
+**Route.** `POST /api/fallback-plans` with `plan_id`:
+
+```json
+{
+  "plan_id": "<a planner draft with a non-empty unfilled_targets>",
+  "question": "How old is this mountain, in millions of years?",
+  "context_columns": ["Mountain", "Country"],
+  "targets": [{"column": "age", "kind": "number", "unit": "million years"}],
+  "sources_in_workbook": "notes"
+}
+```
+
+* The dataset, sheet, range, output columns, `existing_outputs` and the mountain policy come
+  from the planner draft. **The body must not repeat them**: `dataset_id`, `sheet_name`,
+  `range_ref`, `output_columns` and `existing_outputs` with a `plan_id` are refused
+  (`fallback_plan_invalid`, "do not send ..."), the simpler of rejecting and requiring
+  equality. `sources_in_workbook` may be sent; omitted, the planner draft's choice is kept.
+* `question` may be omitted: it is then the planner draft's instruction.
+  `context_columns` and the kind and unit of each target mean what they mean for a fallback
+  draft.
+* `targets` must name exactly the draft's `unfilled_targets` (any order); a missing, extra or
+  repeated name is `fallback_plan_invalid` with the reason.
+* The answer is a NEW draft (201): `"kind": "mixed"`, the combined plan, `unfilled_targets: []`,
+  `output_columns` of the planner draft (every requested column), `searched_targets` (the
+  columns the lookup fills, in the order of the request, so that an interface can say which
+  columns are searched) and `planner_plan_id`. The draft's `instruction` stays the planner
+  draft's (so the validator's intent checks still see the user's task); the lookup's question
+  is in the plan's task text. All three fields are inside the fingerprint.
+* The planner draft stays stored and untouched. The store holds at most 32 plans and makes
+  room by dropping the oldest one without a running job; for a mixed draft the planner draft
+  it is made from is never dropped (`make_room_for_plan(keep=...)`; if it is the only one that
+  could go, the request is `workspace_full`, 409, and nothing changes). Room is made only
+  after every other check has passed, so a refused request drops nothing.
+* The setting, the key and the offline stand-in are checked first, exactly as for a fallback
+  draft (`web_lookup_disabled`, `web_lookup_no_key`).
+
+New refusals (all 422, each with a text in the three interface languages): `plan_not_found`
+(404, as for every plan route), `mixed_base_not_planner` (the draft is a fallback or mixed
+one), `mixed_nothing_unfilled`, `mixed_base_invalid` (the planner draft does not validate now),
+and `fallback_plan_invalid` for the rest: targets that are not the unfilled ones, a target the
+planner's plan already writes, and **a context column that any output of the combined plan
+writes** (its cells may be empty or change during the run), besides whatever a fallback draft
+refuses.
+
+**The plan.** The planner's steps, their order and its output mappings are kept byte for byte;
+one step is appended, `web_lookup`, built as for a fallback plan (the task text is a literal,
+`ctx_n` are bound to the columns, one output per target). Its id is `lookup`, or the first free
+of `lookup_2`, `lookup_3`, ...; the plan's assumptions are the planner's and the lookup's
+sentence. The same inputs give the same bytes. The real `PlanValidator` validates it
+(`fallback_registry(plan, columns, offered)` and a policy whose output targets are every
+requested column). `fallback_registry` accepts a plan with exactly one `web_lookup` step and
+nothing else, or with exactly one `web_lookup` step and steps of offered capabilities; for the
+second shape the lookup's inputs are only the task and columns, no other step uses its output,
+and no other output writes a column the lookup fills or a column it reads. `plan_shape` says
+which shape a plan has.
+
+**The run.** A mixed job goes through the same machinery as a planner job (request policies,
+the plan's reuse caches, review, resume selections) with the lookup bound in addition: the
+worker builds the plan's registry, the lookup client from the key and the task's
+`LookupSettings`, and calls the one executor factory with `registry=` and `web_lookup=` (see
+`ExecutorFactory`). The lookup's budget, deadline and 30 second request timeout are those of a
+fallback job, and so is the time limit (the longest, unless the request names one). The job and
+its report have `"kind": "mixed"`.
+
+* **A row** is judged by the existing rules: each step succeeds or fails independently, and a
+  row is `success` only when every step of the plan did. Values are written per successful
+  step's output, not per row: a row whose source step needs review gets its searched column
+  written (and its source column empty) if the lookup succeeded, and the other way round. That
+  row is not a successful row, so a job with such rows ends `needs_review`.
+* **Review** shows the name choices of the source steps as for a planner job; there is nothing
+  to decide for the lookup step.
+* **Resume** applies the choices and re-executes the whole plan as a new job of the same plan.
+  The lookup step is answered from the plan's kept answers (see "Kept answers"): no request
+  for a row answered by an earlier job of the plan; only rows with no kept answer (a failure is
+  never kept) are asked again. The report's `web_lookup.answers_kept` says how many rows were
+  taken over. A pure fallback job is still not resumable.
+* **The report** has, besides the planner's fields, `kind: "mixed"`, `searched_targets`,
+  `unfilled_targets: []`, the `web_lookup` block, `ai_found` per row for the searched columns
+  only, and `step_provenance` for every step, so each column carries its own kind of trust:
+  the source steps `resolved_name` / `record`, the lookup `ai_found`. With
+  `sources_in_workbook` each written cell's note or `Sources` row names its own source and
+  kind of trust. The usage summary has the planner's `model` event (purpose `plan`) and the
+  lookup's (purpose `web_lookup`), as for the two separate drafts.
+
+The interface does not use any of this yet.
 
 ## Review and resume
 
