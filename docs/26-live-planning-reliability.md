@@ -502,6 +502,37 @@ that lets the planner hand columns it cannot fill to a web search: measure the b
 then again after the change, and look at whether columns it can fill are being handed away
 (`MISSING_TARGET`) or reached by shortcuts (`WRONG_CAPABILITY`, `LITERAL_INPUT`).
 
+#### Baseline with a route verdict (2026-11-17, by the owner)
+
+`gpt-6-luna`, effort `low`, six capabilities offered, ten runs per case, at revision
+`1dd7bf6`. This is the first measurement that judges the route.
+
+| Case | Valid | Valid and on the expected route | Deviating | Refused |
+| --- | --- | --- | --- | --- |
+| `capitals` | 10 | 10 | 0 | 0 |
+| `mountains` | 10 | 10 | 0 | 0 |
+| `capitals_roads` | 10 | 10 | 0 | 0 |
+| `mountains_gaps` | 9 | 9 | 0 | 1 |
+| `capitals_coordinates` | 10 | 10 | 0 | 0 |
+| `capitals_population` | 10 | 10 | 0 | 0 |
+| **Total** | **59 of 60** | **59 of 60** | **0** | **1** |
+
+- **No valid plan left the expected route**, and none carried a note. Every plan that
+  passed validation used the capabilities, fields, parameters and columns the case expects.
+- **One refusal on `mountains_gaps`.** The planner's reason: the capabilities can resolve
+  each mountain and read its elevation, "but none provides a way to update only missing
+  height cells while preserving existing values. Mapping results to height could overwrite
+  values already present." The planner is not told that a run keeps the cells of an output
+  column that already hold a value. This is the same kind of gap as the one closed on
+  2026-11-14 for "leave unresolved results empty": a fact about execution that the
+  instruction does not state. The earlier measurement of this case was 10 of 10 (2026-11-15);
+  one refusal in twenty runs so far.
+- Requests took 2 to 6 s; none came near the server's 30 s limit.
+
+The fix for the refusal is a sentence in the planner's instruction, which changes what the
+planner is shown. It goes in together with the next change to the planner (naming the columns
+it cannot fill), so that one new measurement covers both.
+
 ### Where models are described
 
 `src/ai_data_enrichment/planning/model_catalog.py` is the one place. Each `ModelSpec` has
