@@ -80,6 +80,8 @@ class _MemoizingHandler:
 
         if key is not None and key in session._cache:
             session._reused_operations += 1
+            if key in session._from_kept:
+                session._count_kept(self._capability_id)
             return session._cache[key]
 
         ttl = session._policy.persistent_cache_ttls.get(binding)
@@ -102,6 +104,8 @@ class _MemoizingHandler:
                 if lookup.status == "hit":
                     assert lookup.result is not None
                     session._persistent_cache_hits += 1
+                    session._count_kept(self._capability_id)
+                    session._from_kept.add(key)
                     session._retain_success(key, lookup.result)
                     return lookup.result
                 session._persistent_cache_misses += 1
@@ -150,6 +154,18 @@ class JobMemoization:
         self._persistent_cache_writes = 0
         self._persistent_cache_invalid_entries = 0
         self._memo_capacity_skips = 0
+        # Operations answered from what an earlier job kept, per capability: the
+        # reads of the persistent cache and the later reuse of those very answers
+        # in this job. A repeat of a freshly asked operation is not among them.
+        self._from_kept: set[_OperationKey] = set()
+        self._kept_operations: dict[str, int] = {}
+
+    def _count_kept(self, capability_id: str) -> None:
+        self._kept_operations[capability_id] = self._kept_operations.get(capability_id, 0) + 1
+
+    def kept_operations(self) -> dict[str, int]:
+        """Per capability, how many operations an earlier job's kept answer settled."""
+        return dict(self._kept_operations)
 
     def _retain_success(self, key: _OperationKey, result: OperationResult) -> None:
         """Keep approved successes up to the configured in-memory capacity."""

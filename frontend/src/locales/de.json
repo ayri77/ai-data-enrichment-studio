@@ -787,7 +787,7 @@
     "results.filter.concluded": "Von der KI gefolgert ({{count}})",
     "results.lookupGap": "Für „{{column}}“ konnte keine Seite genannt werden; diese Zelle bleibt leer.",
     "results.cause.nothing_found": "Für keinen Wert dieser Zeile konnte eine Seite genannt werden; ihre Zellen bleiben leer.",
-    "results.cause.deadline": "Die Zeit des Laufs war um, bevor diese Zeile gefragt wurde. Die davor beantworteten Zeilen stehen im Ergebnis.",
+    "results.cause.deadline": "Die Zeit des Laufs war um, bevor diese Zeile gefragt wurde. Die davor beantworteten Zeilen stehen im Ergebnis. Ein erneuter Lauf setzt fort: Bereits beantwortete Zeilen werden eine Weile nicht noch einmal gefragt.",
     "results.cause.request_refused": "Der Suchdienst hat die Anfrage für diese Zeile abgelehnt.",
     "results.cause.response_incomplete": "Die Suche für diese Zeile wurde nicht abgeschlossen, daher wurde kein Wert übernommen.",
     "results.cause.lookup_access": "Der Suchdienst hat die Anfrage abgelehnt: Der OpenAI-Schlüssel des Servers ist ungültig oder sein Kontingent ist aufgebraucht.",

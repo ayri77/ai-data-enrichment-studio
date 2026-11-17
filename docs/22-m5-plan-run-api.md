@@ -389,6 +389,38 @@ the setting was switched off or the key removed after the draft was made.
 request that could end later than 20 seconds before that limit (counted from its own
 start, which comes a little after the supervisor's); the rows not asked then fail with `DEADLINE_REACHED`, and every row answered
 before is kept and written, so the job ends as an ordinary finished run, not as `timed_out`.
+**Kept answers.** A row's successful answer is kept in the plan's value cache and taken over
+by a later job of the same plan, exactly as a value read from a source is (see "A resume is a
+whole run" below, `RESULT_REUSE_SECONDS` in `run_limits.py`; the lookup's lifetime is that
+constant, not a copy of it). So running the approved plan again (the run route, "Retry same
+approved plan") after a run that left rows `DEADLINE_REACHED` asks and pays only for those rows;
+a row answered before is neither asked nor counted against the job's budget, and a kept answer is
+served even after the deadline. What a key is made of: the capability, its source
+(`openai_web_search`), the configuration id (prompt version, model, reasoning effort), the whole
+task text (question, context columns, each target's column, kind and unit) and the row's context
+values; a change in any of them is another key and asks again. Two identical rows of one job
+still cost one request. **Known cost:** only successes are kept. A row that ended
+`NOTHING_FOUND`, `DEADLINE_REACHED`, `PROVIDER_ERROR`, `INVALID_RESPONSE` or any other failure is
+asked (and paid for) again by every later run, so a row for which nothing can be found costs a
+request on every run. The cache belongs to the plan (its own directory beside the dataset, in
+the application's temporary workspace directory, which is removed when the application ends):
+another plan, even with the same question and table, does not see these answers. Keys are digests; the file holds the found values, their
+links and quotes, never the API key, and nothing of it is logged. The report's `web_lookup` block
+counts only requests actually made and has `answers_kept`: the number of rows a kept answer
+settled in that job (the repeat of a kept row counts too); it is 0 where the worker did not
+finish and could not say (a stopped run). `execution.metrics.persistent_cache_hits`
+still counts the operations read from the file (a kept answer repeated in one job is one hit and
+one in-memory reuse), so the two differ by those repeats and, in a plan with other steps, by
+their hits.
+
+**Resume.** A resume of a lookup job stays refused. It is not because it would repeat the
+lookups (it no longer would, for the rows kept). A resume exists to apply the user's decisions on
+names that need review, and a lookup plan has no name to resolve: its jobs have no resolution
+report and Review lists nothing, so the resume route answers 422 and `start_job` refuses a
+previous job or selections for such a draft (409, a second guard the route does not reach).
+Running the plan again is what continues it. How a plan that mixes lookup and source steps (not
+built yet) is resumed is left to the change that builds it; every job opens the plan's caches, so
+its lookup step would be answered from kept answers and not repeated.
 The key is handed to the worker process with its task and the client is made there; it is
 never written to a file, a log line, the audit or an error.
 
@@ -396,10 +428,12 @@ never written to a file, a log line, the audit or an error.
 
 ```json
 "web_lookup": {"configuration_id": "openai-web-lookup-p1-gpt-6-luna-low",
-               "requests": 5, "input_tokens": 5000, "output_tokens": 1000, "web_searches": 10}
+               "requests": 5, "input_tokens": 5000, "output_tokens": 1000, "web_searches": 10,
+               "answers_kept": 0}
 ```
 
-(numbers only; failed requests are counted; present for every terminal job of this kind,
+(numbers only; failed requests are counted; `answers_kept` is the number of rows a kept answer
+of an earlier run settled, see "Kept answers"; present for every terminal job of this kind,
 from the shared counters when the worker did not finish) and each entry of `rows` has
 `ai_found`: for each value written from the search, `{"column", "basis": "stated" |
 "concluded", "links": <number>}`. The links themselves are in the step evidence and in the
@@ -409,7 +443,8 @@ for are not listed. `step_provenance` names `web_lookup`, source `openai_web_sea
 `REQUEST_REFUSED` and `RESPONSE_INCOMPLETE` among others; the interface has no texts for
 them yet. The job status rules are unchanged: a run in which every row had a value written
 is `completed`; a row with `NOTHING_FOUND` is a failed row, so the job is `needs_review`,
-although there is nothing to decide in Review (resume is refused for such a job).
+although there is nothing to decide in Review (resume is refused for such a job; run the plan
+again, which asks only for the rows that were not answered, see "Kept answers").
 
 **The usage summary.** The spend is one `model` event with `purpose: "web_lookup"`, the
 model, `requests`, `input_tokens`, `output_tokens` and `web_searches`; `GET /api/usage`
@@ -517,7 +552,8 @@ a source record. A later run of that plan — a resume or **Retry same approved
 plan** — takes those over for `RESULT_REUSE_SECONDS` (one hour, `run_limits.py`).
 Only successes are kept: a name without a confirmed match is asked for again, a
 user's own selection never comes from a cache and is verified against the source
-each time, and distances are computed, not kept. Plans do not share the caches,
+each time, and distances are computed, not kept. The universal search's answers are
+kept the same way (see "Kept answers"), also in the values cache. Plans do not share the caches,
 so another policy or another task never reuses a decision made under this one.
 The report says how much was taken over (`execution.metrics.persistent_cache_hits`)
 and counts only the requests actually sent (`execution.provider_requests`); a

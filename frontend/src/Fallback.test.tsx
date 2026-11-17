@@ -1198,7 +1198,9 @@ it("says what became of a row that was not asked in time", async () => {
     await nav("export");
     const row = (await screen.findAllByTestId("row-outcome"))[2];
     expect(row).toHaveTextContent(t("results.cause.deadline"));
-    expect(row).not.toHaveTextContent(/run again/i);
+    // Running the plan again continues it, and the text names no lifetime that could drift
+    // from the one the server keeps answers for.
+    expect(t("results.cause.deadline")).not.toMatch(/\d/);
     expect(row).toHaveTextContent(t("results.empty"));
 });
 

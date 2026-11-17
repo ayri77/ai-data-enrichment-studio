@@ -1269,6 +1269,10 @@ class PlanRunService:
         if fallback:
             # Switched off, or the key removed, since the draft was made: not run.
             self.lookup_gate()
+            # A resume carries the user's decisions on names that were not settled; a
+            # fallback plan has no name to settle, so its jobs have none. Running the
+            # plan again (the run route) is what continues it: answers already given are
+            # kept. This refusal is not about repeated lookups.
             if resume_selections is not None or previous_job_id is not None:
                 raise WorkspaceError(
                     "review_not_available", "This job has nothing left to review.", 409
@@ -1507,6 +1511,9 @@ class PlanRunService:
                         if reported
                         else read_lookup_usage(counters, len(step_ids))
                     ),
+                    # Rows a kept answer of an earlier run settled, with no request. A
+                    # worker that did not finish has not said, so it is 0 there.
+                    "answers_kept": int(reported["answers_kept"]) if reported else 0,
                 }
             job["finished_at"] = timestamp()
             if job["status"] not in {"completed", "needs_review"}:

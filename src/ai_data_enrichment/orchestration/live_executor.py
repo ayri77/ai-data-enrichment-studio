@@ -57,6 +57,7 @@ from ai_data_enrichment.resolution.models import ResolutionPolicy
 from ai_data_enrichment.resolution.other_name import OtherNameResolutionService
 from ai_data_enrichment.resolution.resume import OtherName, ResumeSelection
 from ai_data_enrichment.resolution.sqlite_cache import SQLiteResolutionCache
+from ai_data_enrichment.run_limits import RESULT_REUSE_SECONDS
 
 # Where the values of each capability come from in a live run: the id of the
 # source that answers for it, or "local" for a calculation done in this
@@ -109,7 +110,7 @@ def build_live_executor(
     request_policies: Mapping[str, ProviderRequestPolicy] | None = None,
     transport: JsonTransport | None = None,
     reuse: tuple[SQLiteOperationCache, SQLiteResolutionCache] | None = None,
-    reuse_seconds: float = 3600,
+    reuse_seconds: float = RESULT_REUSE_SECONDS,
     routing_key: str | None = None,
     web_lookup: WebLookupOptions | None = None,
 ) -> JobExecutor:
@@ -129,8 +130,11 @@ def build_live_executor(
     A registry that holds ``web_lookup`` (the one built for a fallback plan) needs
     ``web_lookup``: without it the assembly refuses, so that no row fails one by one.
     The handler is bound under the source of ``FALLBACK_BINDINGS``, gets an operation
-    budget of ``max_rows`` for the job, is memoized in memory within the job and is
-    never reused across jobs. Without such a registry ``web_lookup`` is ignored.
+    budget of ``max_rows`` for the job and is memoized in memory within the job. With
+    ``reuse`` its successful answers are also kept for ``reuse_seconds`` in the plan's
+    value cache, like a value read from a source, and a later job takes them over before
+    the budget or the API is touched; failures are never kept. Without such a registry
+    ``web_lookup`` is ignored.
     """
 
     selections = dict(resume_selections or {})
@@ -268,8 +272,8 @@ def build_live_executor(
     }
     if lookup_handler is not None:
         # Bound under the fallback's own source, outside BINDINGS and LIVE_SOURCES. Being in
-        # `selected` makes its answers memoizable within the job; the persistent TTLs below
-        # are built from BINDINGS only, so nothing of it is ever stored across jobs.
+        # `selected` makes its answers memoizable within the job; the persistent TTL of its
+        # binding is added below, from the same lifetime as every other capability's.
         providers.register(
             capability_id=LOOKUP_CAPABILITY, provider_id=lookup_source, handler=lookup_handler
         )
@@ -313,6 +317,11 @@ def build_live_executor(
                     # A name is reused only where its resolution is audited.
                     and (binding.name_resolution is None or audited[binding.capability_id])
                 }
+                | (
+                    {(LOOKUP_CAPABILITY, lookup_source): reuse_seconds}
+                    if lookup_handler is not None and _LOOKUP_BINDING.reusable
+                    else {}
+                )
                 if reuse
                 else {}
             ),
@@ -324,12 +333,18 @@ def build_live_executor(
             **({"geocode": "1.2"} if audit_capitals else {}),
             **({"lookup_property": "1.0"} if reuse else {}),
             **({"road_distance": "1.0"} if reuse and with_roads else {}),
+            **({LOOKUP_CAPABILITY: "1.0"} if reuse and lookup_handler is not None else {}),
         },
         provider_versions={
             **({"resolve_entity": "wikidata-v1"} if audit_mountains else {}),
             **({"geocode": "open-meteo-v1"} if audit_capitals else {}),
             **({"lookup_property": "wikidata-v1"} if reuse else {}),
             **({"road_distance": routing_configuration} if reuse and with_roads else {}),
+            **(
+                {LOOKUP_CAPABILITY: lookup_handler.configuration_id}
+                if reuse and lookup_handler is not None
+                else {}
+            ),
         },
         resolution_services={
             item.capability_id: services[item.source_id]

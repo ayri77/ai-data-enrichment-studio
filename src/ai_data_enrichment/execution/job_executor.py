@@ -437,6 +437,7 @@ class JobExecutor:
             provider_requests=(
                 self._request_session.snapshot() if self._request_session is not None else {}
             ),
+            kept_answers=memo.kept_operations(),
             resolution_report=(
                 collector.finalize(
                     job_id=job_id or uuid4().hex,

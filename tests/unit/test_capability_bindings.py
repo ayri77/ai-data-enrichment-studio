@@ -145,7 +145,8 @@ def test_the_fallback_binding_is_found_by_the_helpers() -> None:
     assert find_binding("web_lookup") is found is FALLBACK_BINDINGS[0]
     assert found.source_id == "openai_web_search"
     assert found.trust is Trust.AI_FOUND and found.trust.value == "ai_found"
-    assert not found.reusable and not found.always_bound
+    # A successful answer is kept in the plan's cache, like a source-backed value.
+    assert found.reusable and not found.always_bound
     assert found.name_resolution is None
 
 

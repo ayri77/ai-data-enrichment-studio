@@ -156,6 +156,10 @@ class JobExecutionResult(BaseModel):
     records: tuple[RecordExecution, ...]
     metrics: JobExecutionMetrics
     provider_requests: dict[str, ProviderRequestCounters] = Field(default_factory=dict)
+    # Per capability, the operations (rows, for a capability asked once per row)
+    # settled by an answer an earlier job of the plan kept. Counted only where
+    # the persistent cache is used; the capability is absent otherwise.
+    kept_answers: dict[str, int] = Field(default_factory=dict)
     resolution_report: ResolutionJobReport | None = None
 
     @model_validator(mode="after")

@@ -6,12 +6,19 @@ from math import isfinite
 from ai_data_enrichment.execution.models import (
     EntityRef,
     Evidence,
+    FoundRecord,
+    FoundValue,
     GeoPoint,
     OperationResult,
     Quantity,
     RuntimeValue,
 )
 
+# A value type added later gets a new discriminator and leaves this string alone: an
+# entry of the older types reads exactly as before, and an entry of the new type is
+# rejected (and dropped) by a reader that predates it. Changing what an EXISTING type
+# stores (as geo points did with population and timezone) is done by requiring the new
+# keys: an older entry lacks them and is rejected, never read back with a guess.
 RESULT_FORMAT_VERSION = "operation-result:v1"
 
 
@@ -47,6 +54,56 @@ def _parse_hex_float(value: object) -> float:
     return number
 
 
+def _optional_string(value: object) -> str | None:
+    return None if value is None else _required_string(value)
+
+
+def _encode_found_value(item: FoundValue) -> dict[str, object]:
+    found: dict[str, object] | None
+    if item.value is None:
+        found = None
+    elif isinstance(item.value, str):
+        found = {"type": "text", "value": item.value}
+    else:
+        found = {"type": "float", "value": _hex_float(item.value)}
+    # Every key is always present, null where the reply gave nothing: absence is
+    # stated, never implied.
+    return {
+        "value": found,
+        "basis": item.basis,
+        "sources": list(item.sources),
+        "quote": item.quote,
+        "unit": item.unit,
+    }
+
+
+def _decode_found_value(raw: object) -> FoundValue:
+    obj = _required_object(raw, frozenset({"value", "basis", "sources", "quote", "unit"}))
+    stored = obj["value"]
+    value: str | float | None
+    if stored is None:
+        value = None
+    else:
+        typed = _decode_value(stored)
+        if isinstance(typed, str) or type(typed) is float:
+            value = typed
+        else:
+            raise ValueError("A cached found value must be text or a number.")
+    basis = obj["basis"]
+    if basis not in ("stated", "concluded", None):
+        raise ValueError("Cached basis must be stated, concluded or null.")
+    links = obj["sources"]
+    if not isinstance(links, list):
+        raise ValueError("Cached source links must be a list.")
+    return FoundValue(
+        value=value,
+        basis=basis,
+        sources=tuple(_required_string(link) for link in links),
+        quote=_optional_string(obj["quote"]),
+        unit=_optional_string(obj["unit"]),
+    )
+
+
 def _encode_value(value: RuntimeValue) -> dict[str, object]:
     if isinstance(value, str):
         return {"type": "text", "value": value}
@@ -67,6 +124,15 @@ def _encode_value(value: RuntimeValue) -> dict[str, object]:
         return {"type": "entity_ref", "source": value.source, "entity_id": value.entity_id}
     if isinstance(value, Quantity):
         return {"type": "quantity", "value": _hex_float(value.value), "unit": value.unit}
+    if isinstance(value, FoundRecord):
+        return {
+            "type": "found_record",
+            # A list, not an object: the slots keep the order they were found in.
+            "slots": [
+                {"name": name, "found": _encode_found_value(item)}
+                for name, item in value.slots.items()
+            ],
+        }
     raise ValueError("Unsupported cache runtime value type.")
 
 
@@ -110,6 +176,19 @@ def _decode_value(value: object) -> RuntimeValue:
             value=_parse_hex_float(obj["value"]),
             unit=_required_string(obj["unit"]),
         )
+    if tag == "found_record":
+        obj = _required_object(value, frozenset({"type", "slots"}))
+        raw_slots = obj["slots"]
+        if not isinstance(raw_slots, list):
+            raise ValueError("Cached slots must be an ordered list.")
+        slots: dict[str, FoundValue] = {}
+        for raw_slot in raw_slots:
+            entry = _required_object(raw_slot, frozenset({"name", "found"}))
+            name = _required_string(entry["name"])
+            if name in slots:
+                raise ValueError("Cached slot names must be unique.")
+            slots[name] = _decode_found_value(entry["found"])
+        return FoundRecord(slots=slots)
     raise ValueError("Unsupported cache value type discriminator.")
 
 

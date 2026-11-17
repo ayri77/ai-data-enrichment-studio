@@ -29,6 +29,7 @@ from ai_data_enrichment.capabilities.fallback import (
     fallback_registry,
 )
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan
+from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
 from ai_data_enrichment.ingestion.excel_profiler import profile_worksheet
 from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.orchestration.excel_runner import (
@@ -39,6 +40,7 @@ from ai_data_enrichment.orchestration.live_executor import WebLookupOptions, bui
 from ai_data_enrichment.output.excel_output_mapping import empty_output_fields
 from ai_data_enrichment.output.provenance import SHEET_HEADER, SourcesMode
 from ai_data_enrichment.providers.web_lookup import WebLookupUsage
+from ai_data_enrichment.resolution.sqlite_cache import SQLiteResolutionCache
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy, PlanValidator
 
 SHEET = "Mountains"
@@ -112,6 +114,7 @@ def run_fallback(
     table: str = "A1:D7",
     columns: dict[str, str] = OUTPUT_COLUMNS,
     api: RowApi | None = None,
+    reuse: tuple[SQLiteOperationCache, SQLiteResolutionCache] | None = None,
 ) -> Run:
     source = tmp_path / "source.xlsx"
     build(source)
@@ -133,6 +136,7 @@ def run_fallback(
             registry,
             max_rows=max_rows,
             web_lookup=WebLookupOptions(api=api, model="m", reasoning_effort=None, usage=usage),
+            reuse=reuse,
         ),
         max_rows=max_rows,
         validation_policy=PlanValidationPolicy(max_steps=12),
@@ -357,3 +361,78 @@ def test_a_row_with_every_target_filled_is_not_asked_and_a_partly_filled_row_is(
         assert sheet["B2"].comment is None and sheet["C2"].comment is None
     finally:
         workbook.close()
+
+
+def sheet_notes(path: Path) -> dict[str, str]:
+    """Every note of the first sheet by cell."""
+    workbook = load_workbook(path)
+    try:
+        return {
+            cell.coordinate: cell.comment.text
+            for row in workbook[SHEET].iter_rows()
+            for cell in row
+            if cell.comment is not None
+        }
+    finally:
+        workbook.close()
+
+
+def sources_rows(path: Path) -> list[tuple[Any, ...]]:
+    workbook = load_workbook(path)
+    try:
+        return [tuple(row) for row in workbook["Sources"].iter_rows(values_only=True)]
+    finally:
+        workbook.close()
+
+
+@pytest.mark.parametrize("mode", ["notes", "sheet"])
+def test_a_second_run_from_kept_answers_writes_the_same_workbook(
+    tmp_path: Path, mode: SourcesMode
+) -> None:
+    caches = tmp_path / "caches"
+    caches.mkdir()
+    (tmp_path / "one").mkdir()
+    (tmp_path / "two").mkdir()
+    with (
+        SQLiteOperationCache(caches / "values.sqlite") as values,
+        SQLiteResolutionCache(caches / "entities.sqlite") as entities,
+    ):
+        first = run_fallback(tmp_path / "one", mode, reuse=(values, entities))
+    assert len(first.api.calls) == 5
+
+    with (
+        SQLiteOperationCache(caches / "values.sqlite") as values,
+        SQLiteResolutionCache(caches / "entities.sqlite") as entities,
+    ):
+        # Nowhere and Broken failed and were not kept; they are the only rows asked.
+        def only_failures(kwargs: dict[str, Any]) -> Any:
+            text: str = kwargs["input"]
+            assert "- Mountain: Nowhere" in text or "- Mountain: Broken" in text, text
+            return answer(kwargs)
+
+        second = run_fallback(
+            tmp_path / "two",
+            mode,
+            api=RowApi(only_failures, api_key=KEY),
+            reuse=(values, entities),
+        )
+    assert len(second.api.calls) == second.usage.totals().requests == 2
+
+    # The same cells, the same notes, the same Sources rows: nothing is lost on the way
+    # through the file (links, basis, quote, unit, the kept cell).
+    assert cells(second.output) == cells(first.output)
+    assert sheet_notes(second.output) == sheet_notes(first.output)
+    if mode == "sheet":
+        assert sources_rows(second.output) == sources_rows(first.output)
+    assert second.result.preserved_cells == first.result.preserved_cells == ("D4",)
+    assert empty_output_fields(second.plan, second.result.job_result) == empty_output_fields(
+        first.plan, first.result.job_result
+    )
+    before = {record.record_id: record.row_result for record in first.result.job_result.records}
+    after = {record.record_id: record.row_result for record in second.result.job_result.records}
+    assert after == before  # values, evidence and error codes, row for row
+    metrics = second.result.job_result.metrics
+    assert (metrics.persistent_cache_hits, metrics.executed_handler_calls) == (3, 2)
+    # Four rows are settled by kept answers: Everest twice (one is a repeat), Lhotse, K2.
+    assert second.result.job_result.kept_answers == {"web_lookup": 4}
+    assert second.result.job_result.provider_requests["openai_web_search"].operations_started == 2
