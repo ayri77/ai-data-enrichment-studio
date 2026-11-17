@@ -154,8 +154,10 @@ FALLBACK_BINDINGS: tuple[CapabilityBinding, ...] = (
         capability_id="web_lookup",
         source_id="openai_web_search",
         trust=Trust.AI_FOUND,
-        # A model's answer is never stored in the persistent value cache.
-        reusable=False,
+        # A successful answer is kept in the plan's own value cache, like a value read
+        # from a source, so that running the plan again or resuming it does not ask
+        # and pay for the row again. Failures are never kept.
+        reusable=True,
         always_bound=False,
         # Needs the OpenAI key of the installation; nothing without it.
         requires_key=True,

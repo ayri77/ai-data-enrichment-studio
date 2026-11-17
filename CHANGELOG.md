@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- The universal search keeps its answers for the lifetime of one plan. A successful answer (the
+  codec now stores a found record with its evidence; the format string is unchanged because only
+  a new value type was added) is written to the plan's value cache and taken over by the next job
+  of the same plan for `RESULT_REUSE_SECONDS`, so running the plan again after `DEADLINE_REACHED`
+  asks and pays only for the rows not answered; failures are not kept (a row with nothing found
+  is asked again on every run), and another plan sees nothing. The fallback worker now opens the
+  plan's caches like every other run. The report's `web_lookup` gains `answers_kept`; the text of
+  `results.cause.deadline` says that running again continues. A resume of a lookup job stays
+  refused (there is nothing to decide). The key checks are unchanged: setting and key apply to
+  every job. Not verified by a live run.
 - The planner may name the columns it has no source for. Its answer gains `unfilled_targets`
   (empty by default; only with `ready`; no blank or repeated names; a ready answer that lists
   any must still have a step and an output), and when the context lists output targets it is

@@ -34,6 +34,7 @@ from ai_data_enrichment.providers.http_transport import JsonTransport
 from ai_data_enrichment.providers.openrouteservice import routing_key
 from ai_data_enrichment.providers.request_policy import ProviderRequestPolicy
 from ai_data_enrichment.providers.web_lookup import (
+    LOOKUP_CAPABILITY,
     WebLookupClient,
     WebLookupUsage,
     configuration_id,
@@ -329,6 +330,16 @@ def _found_values(
     return found
 
 
+def _open_reuse(opened: ExitStack, task: RunTask) -> Reuse | None:
+    """The plan's two caches, closed with the run; None where the task has no directory."""
+    if task.reuse_directory is None:
+        return None
+    return (
+        opened.enter_context(SQLiteOperationCache(task.reuse_directory / "values.sqlite")),
+        opened.enter_context(SQLiteResolutionCache(task.reuse_directory / "entities.sqlite")),
+    )
+
+
 def execute_workbook(
     task: RunTask,
     factory: ExecutorFactory,
@@ -396,6 +407,11 @@ def execute_workbook(
                 executor = build_live_executor(
                     registry,
                     max_rows=MAX_RUN_ROWS,
+                    # The plan's own caches, as for every other plan: an answer a
+                    # model gave for a row is taken over by a later run of the plan
+                    # for the same time, before the budget or the API is touched.
+                    reuse=_open_reuse(opened, task),
+                    reuse_seconds=RESULT_REUSE_SECONDS,
                     web_lookup=WebLookupOptions(
                         api=api,
                         model=lookup.model,
@@ -408,15 +424,9 @@ def execute_workbook(
                 )
             else:
                 registry = builtin_registry()
-                if task.reuse_directory is not None:
-                    options["reuse"] = (
-                        opened.enter_context(
-                            SQLiteOperationCache(task.reuse_directory / "values.sqlite")
-                        ),
-                        opened.enter_context(
-                            SQLiteResolutionCache(task.reuse_directory / "entities.sqlite")
-                        ),
-                    )
+                reuse = _open_reuse(opened, task)
+                if reuse is not None:
+                    options["reuse"] = reuse
                 executor = factory(capabilities, task.mountain_policy, MAX_RUN_ROWS, **options)
             runner = ExcelEnrichmentRunner(
                 registry=registry,
@@ -552,6 +562,8 @@ def execute_workbook(
             payload["web_lookup"] = {
                 "configuration_id": configuration_id(lookup.model, lookup.reasoning_effort),
                 **lookup_numbers(usage),
+                # Rows an earlier run's kept answer settled: no request, no budget.
+                "answers_kept": result.job_result.kept_answers.get(LOOKUP_CAPABILITY, 0),
             }
         (task.directory / "execution.json").write_text(json.dumps(payload), encoding="utf-8")
     except Exception as exc:

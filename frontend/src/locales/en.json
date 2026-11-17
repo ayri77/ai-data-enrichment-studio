@@ -787,7 +787,7 @@
     "results.filter.concluded": "Concluded by AI ({{count}})",
     "results.lookupGap": "No page could be named for “{{column}}”; this cell stays empty.",
     "results.cause.nothing_found": "No page could be named for any value of this row; its cells stay empty.",
-    "results.cause.deadline": "The time for this run ran out before this row was asked. The rows answered before it are in the result.",
+    "results.cause.deadline": "The time for this run ran out before this row was asked. The rows answered before it are in the result. Running the plan again continues: rows already answered are not asked again for a while.",
     "results.cause.request_refused": "The search service rejected the request for this row.",
     "results.cause.response_incomplete": "The search did not finish for this row, so no value was taken.",
     "results.cause.lookup_access": "The search service refused the request: the server's OpenAI key is not valid or its quota is used up.",

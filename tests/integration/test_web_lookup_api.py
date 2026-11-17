@@ -360,6 +360,7 @@ def test_create_approve_run_download_and_audit(
             "input_tokens": 5000,
             "output_tokens": 1000,
             "web_searches": 10,
+            "answers_kept": 0,  # a first run: nothing was kept before it
         }
         codes = {
             row["record_id"]: row["row_result"]["steps"][0]["result"]["error_code"]
@@ -798,6 +799,227 @@ def test_a_run_that_is_stopped_still_records_what_it_spent(
         ]
         assert [e["requests"] for e in events] == [spent["requests"]]
         assert events[0]["purpose"] == "web_lookup"
+
+
+# --- Answers kept for the plan --------------------------------------------------------
+
+
+def codes_of(w: World, job: dict[str, Any]) -> dict[str, Any]:
+    return {
+        row["record_id"]: row["row_result"]["steps"][0]["result"]["error_code"]
+        for row in w.report(job)["execution"]["records"]
+    }
+
+
+def test_running_the_plan_again_asks_only_the_rows_a_deadline_left_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # As in the deadline test above: a 52 s limit lets the first request begin and no more.
+    monkeypatch.setattr(plan_run, "MAX_TIMEOUT_SECONDS", 52)
+    with world(tmp_path, monkeypatch, delay=3.0) as w:
+        draft = w.draft(FOUND_ROWS, range_ref="A1:D4")
+        first = w.run(draft)
+        assert codes_of(w, first)[f"{SHEET}!3"] == "DEADLINE_REACHED"
+        assert len(calls(w.log)) == 1
+        first_cells = w.result_cells(first)
+        assert w.report(first)["web_lookup"]["answers_kept"] == 0
+
+        # The same approved plan again, with room for the rest: the route is the one for
+        # every run, and the plan is not approved a second time.
+        started = w.start(draft, timeout_seconds=200)
+        assert started.status_code == 202, started.text
+        second = w.wait(started.json())
+        assert second["status"] == "completed", second
+        asked = calls(w.log)[1:]
+        assert len(asked) == 2 and not any("Everest" in call["input"] for call in asked)
+
+        report = w.report(second)
+        assert codes_of(w, second) == {f"{SHEET}!{row}": None for row in (2, 3, 4)}
+        assert report["web_lookup"] == {
+            "configuration_id": CONFIGURATION,
+            "requests": 2,  # only what was actually asked
+            "input_tokens": 2000,
+            "output_tokens": 400,
+            "web_searches": 4,
+            "answers_kept": 1,  # Everest, from the first run
+        }
+        metrics = report["execution"]["metrics"]
+        assert (metrics["persistent_cache_hits"], metrics["executed_handler_calls"]) == (1, 2)
+        assert (
+            report["execution"]["provider_requests"]["openai_web_search"]["operations_started"] == 2
+        )
+        # All rows are in the result of the second job, the answered one as it was.
+        cells = w.result_cells(second)
+        for row in (2, 3, 4):
+            assert cells[f"E{row}"] == 8849 and cells[f"F{row}"] == "No"
+        assert {key: cells[key] for key in first_cells} == first_cells
+        # The audit is complete for every row, including the one taken from the first run.
+        assert [
+            (row["record_id"], [e["column"] for e in row["ai_found"]]) for row in report["rows"]
+        ] == [(f"{SHEET}!{r}", ["Height", "Notes", "Climbed in winter"]) for r in (2, 3, 4)]
+        assert {e["basis"] for row in report["rows"] for e in row["ai_found"]} == {
+            "stated",
+            "concluded",
+        }
+        assert report["step_provenance"] == [
+            {
+                "step_id": "lookup",
+                "capability": "web_lookup",
+                "source": "openai_web_search",
+                "trust": "ai_found",
+            }
+        ]
+        first_row = report["execution"]["records"][0]["row_result"]["steps"][0]["result"]
+        assert [item["reference"] for item in first_row["evidence"]] == [PAGE, PAGE_2]
+        # Only the requests made are in the spend: one event per job that made any.
+        events = [
+            e
+            for e in w.client.app.state.usage.summary()["recent"]  # type: ignore[attr-defined]
+            if e["kind"] == "model"
+        ]
+        assert sorted(e["requests"] for e in events) == [1, 2]
+
+        # A third run finds everything kept: no request, no cost, no event.
+        third = w.wait(w.start(draft, timeout_seconds=200).json())
+        assert third["status"] == "completed", third
+        assert len(calls(w.log)) == 3
+        spent = w.report(third)["web_lookup"]
+        assert (spent["requests"], spent["input_tokens"], spent["answers_kept"]) == (0, 0, 3)
+        assert w.result_cells(third) == w.result_cells(second)
+        assert w.report(third)["execution"]["metrics"]["persistent_cache_hits"] == 3
+        events = [
+            e
+            for e in w.client.app.state.usage.summary()["recent"]  # type: ignore[attr-defined]
+            if e["kind"] == "model"
+        ]
+        assert len(events) == 2
+
+
+def test_a_row_with_nothing_found_is_asked_again_on_every_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with world(tmp_path, monkeypatch) as w:
+        draft = w.draft(ROWS)
+        first = w.run(draft)
+        assert len(calls(w.log)) == 5
+        second = w.wait(w.start(draft).json())
+        asked = calls(w.log)[5:]
+        # Everest (twice), Lhotse and K2 were kept; Nowhere and Broken were not.
+        assert sorted("Nowhere" in c["input"] or "Broken" in c["input"] for c in asked) == [
+            True,
+            True,
+        ]
+        assert len(asked) == 2
+        assert codes_of(w, second) == codes_of(w, first)
+        spent = w.report(second)["web_lookup"]
+        assert (spent["requests"], spent["answers_kept"]) == (2, 4)
+        assert w.result_cells(second) == w.result_cells(first)
+
+
+def test_another_plan_does_not_see_the_answers_of_this_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with world(tmp_path, monkeypatch) as w:
+        dataset_id = w.upload(FOUND_ROWS)
+        drafts = []
+        for _ in range(2):  # the same question, table and columns
+            created = w.create(dataset_id, range_ref="A1:D4")
+            assert created.status_code == 201, created.text
+            drafts.append(created.json())
+        assert drafts[0]["plan_id"] != drafts[1]["plan_id"]
+        assert drafts[0]["plan"] == drafts[1]["plan"]
+        w.run(drafts[0])
+        assert len(calls(w.log)) == 3
+        other = w.run(drafts[1])
+        assert len(calls(w.log)) == 6  # asked for every row again
+        assert w.report(other)["web_lookup"]["answers_kept"] == 0
+        # Each plan has its own file, beside the dataset, and both are in the application's
+        # temporary directory.
+        files = sorted(w.directory.rglob("values.sqlite"))
+        assert len(files) == 2 and files[0].parent != files[1].parent
+        assert {f.parent.name for f in files} == {f"plan-{d['plan_id']}" for d in drafts}
+        # The first plan still has its answers.
+        again = w.wait(w.start(drafts[0]).json())
+        assert len(calls(w.log)) == 6 and w.report(again)["web_lookup"]["answers_kept"] == 3
+
+
+def test_another_upload_is_another_plan_and_shares_no_answers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    changed = [*FOUND_ROWS[:3], ["Makalu", "Nepal", 7, None]]  # Makalu's rank is not the same
+    with world(tmp_path, monkeypatch) as w:
+        w.run(w.draft(FOUND_ROWS, range_ref="A1:D4"))
+        assert len(calls(w.log)) == 3
+        # Another upload is another dataset and so another plan: nothing is shared with it.
+        second = w.run(w.draft(changed, range_ref="A1:D4"))
+        assert len(calls(w.log)) == 6
+        assert w.report(second)["web_lookup"]["answers_kept"] == 0
+
+
+def test_the_setting_and_the_key_apply_to_a_run_that_would_be_all_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with world(tmp_path, monkeypatch) as w:
+        draft = w.draft(FOUND_ROWS, range_ref="A1:D4")
+        w.run(draft)
+        assert len(calls(w.log)) == 3
+        w.service.settings = replace(w.service.settings, allow_web_lookup=False)
+        refused = w.start(draft)
+        assert refused.status_code == 403
+        assert refused.json()["error"]["code"] == "web_lookup_disabled"
+        w.service.settings = replace(w.service.settings, allow_web_lookup=True)
+        w.service.provider.remove_key()
+        keyless = w.start(draft)
+        assert keyless.status_code == 422
+        assert keyless.json()["error"]["code"] == "web_lookup_no_key"
+        assert len(w.service.jobs) == 1 and len(calls(w.log)) == 3
+
+
+def test_a_resume_of_a_lookup_job_is_refused_and_running_again_is_how_it_continues(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(plan_run, "MAX_TIMEOUT_SECONDS", 52)
+    with world(tmp_path, monkeypatch, delay=3.0) as w:
+        draft = w.draft(FOUND_ROWS, range_ref="A1:D4")
+        job = w.run(draft)
+        assert job["status"] == "needs_review" and len(calls(w.log)) == 1
+        # Review has nothing to decide: no name was resolved, so there is no report of
+        # decisions to answer. A resume has no choice to apply and is refused, whatever
+        # it is given, and it starts nothing: no job, no request.
+        review = w.client.get(f"/api/jobs/{job['job_id']}/review").json()
+        assert review["items"] == [] and review["informational"] == []
+        for decisions in ([{"operation_id": "op", "name": "x"}], []):
+            resumed = w.client.post(
+                f"/api/jobs/{job['job_id']}/resume", json={"decisions": decisions}
+            )
+            assert resumed.status_code == 422, resumed.text
+        assert list(w.service.jobs) == [job["job_id"]] and len(calls(w.log)) == 1
+        # What continues the run is the run route; it takes over the answered row.
+        again = w.wait(w.start(draft, timeout_seconds=200).json())
+        assert again["status"] == "completed" and again["previous_job_id"] is None
+        assert len(calls(w.log)) == 3
+
+
+def test_the_kept_answers_are_in_the_plans_directory_and_hold_no_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("DEBUG")
+    with world(tmp_path, monkeypatch) as w:
+        draft = w.draft(FOUND_ROWS, range_ref="A1:D4")
+        w.run(draft)
+        w.wait(w.start(draft).json())
+        [store] = list(w.directory.rglob("values.sqlite"))
+        assert store.parent.name == f"plan-{draft['plan_id']}"
+        assert store.stat().st_size > 0 and len(calls(w.log)) == 3
+        for name, data in everything_written(w.directory):
+            assert KEY.encode() not in data, name
+        out, err = capfd.readouterr()
+        # Nothing about the answers or the rows is logged by either run.
+        for text in (out + err, caplog.text):
+            assert KEY not in text and "Everest" not in text and PAGE not in text
 
 
 # --- The key --------------------------------------------------------------------------
