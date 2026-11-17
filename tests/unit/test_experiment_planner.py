@@ -78,3 +78,290 @@ def test_the_image_carries_every_example_and_its_prepared_plan() -> None:
     image = Path("Dockerfile").read_text(encoding="utf-8")
     for sample in sample_catalog.SAMPLES:
         assert sample.workbook in image and sample.plan in image
+
+
+# --- the route check in the measurement -------------------------------------------------
+
+import copy  # noqa: E402
+import json  # noqa: E402
+
+from scripts import experiment_planner  # noqa: E402
+from scripts.experiment_planner import (  # noqa: E402
+    has_literal_input,
+    judge_route,
+    print_route_summary,
+    rejudge,
+    route_line,
+    route_summary,
+)
+from tests.support.planning import ScriptedPlanClient, ready_response  # noqa: E402
+
+
+def _plan(case: str = "capitals") -> dict[str, Any]:
+    return cast(dict[str, Any], ready_response(case)["plan"])
+
+
+def _record(
+    run: int, status: str, valid: bool, plan: dict[str, Any] | None = None
+) -> dict[str, object]:
+    return {
+        "run": run,
+        "status": status,
+        "valid": valid,
+        "attempts": [],
+        "request_seconds": [1.5],
+        "plan": plan,
+    }
+
+
+def _deviating(case: str = "capitals") -> dict[str, Any]:
+    plan = _plan(case)
+    # Types and names all check out, so this passes validation; it asks for the wrong column.
+    plan["steps"][1]["inputs"]["country"]["name"] = "Country_From"
+    return plan
+
+
+def _unused() -> dict[str, Any]:
+    plan = _plan()
+    plan["steps"].append(copy.deepcopy(plan["steps"][0]) | {"id": "idle"})
+    return plan
+
+
+def _mixed_batch() -> list[dict[str, object]]:
+    two_deviations = _plan()
+    two_deviations["steps"][2]["parameters"]["unit"] = "mi"
+    two_deviations["outputs"][0]["expected_unit"] = "mi"
+    literal = _plan()
+    literal["steps"][0]["inputs"]["city"] = {"kind": "literal", "value": "Oslo"}
+    records = [
+        _record(1, "ready", True, _plan()),
+        _record(2, "ready", True, _unused()),
+        _record(3, "ready", True, _deviating()),
+        _record(4, "ready", True, two_deviations),
+        _record(5, "ready", True, literal),
+        _record(6, "ready", False, _plan()),  # invalid: not judged, even though the plan is fine
+        _record(7, "unsupported", False, None),  # refused
+        _record(8, "planning_error", False, None),
+    ]
+    for record in records:
+        judge_route(record, "capitals")
+    return records
+
+
+def test_only_a_valid_ready_plan_is_judged_and_the_line_says_how() -> None:
+    lines = [route_line(r) for r in _mixed_batch()]
+    assert lines == [
+        "route: expected",
+        "route: expected (UNUSED_STEP)",
+        "route: deviates (WRONG_SOURCE_COLUMN)",
+        "route: deviates (WRONG_PARAMETER, WRONG_UNIT)",
+        "route: deviates (LITERAL_INPUT)",
+        "route: not judged (no valid plan)",
+        "route: not judged (refused)",
+        "route: not judged (no valid plan)",
+    ]
+
+
+def test_the_summary_keeps_the_validity_count_and_adds_the_route_numbers() -> None:
+    summary = route_summary(_mixed_batch(), 8)
+    assert summary == {
+        "success_count": 5,
+        "valid_on_expected_route": 2,
+        "valid_deviating_route": 3,
+        "valid_not_judged": 0,
+        "deviation_counts": {
+            "LITERAL_INPUT": 1,
+            "WRONG_PARAMETER": 1,
+            "WRONG_SOURCE_COLUMN": 1,
+            "WRONG_UNIT": 1,
+        },
+        "note_counts": {"UNUSED_STEP": 1},
+        "refused": 1,
+        "invalid": 2,
+        "plans_with_literal_inputs": 1,
+        "headline": "2 of 8: valid and on the expected route",
+    }
+
+
+def test_the_console_summary_shows_every_number_and_warns_about_literals(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    print_route_summary(route_summary(_mixed_batch(), 8), 8)
+    out = capsys.readouterr().out
+    assert "Valid ready plans: 5/8" in out
+    assert "Valid plans on the expected route: 2/8" in out
+    assert (
+        "Valid plans that deviate: 3/8 "
+        "(LITERAL_INPUT x1, WRONG_PARAMETER x1, WRONG_SOURCE_COLUMN x1, WRONG_UNIT x1)" in out
+    )
+    assert "Noted, not failed: UNUSED_STEP in 1 run(s)" in out
+    assert "Refused: 1 | invalid: 2" in out
+    assert "Headline: 2 of 8: valid and on the expected route" in out
+    assert "WARNING: 1 plan(s) contain a literal input" in out
+
+
+def test_a_plan_of_an_older_schema_is_neither_on_nor_off_the_route() -> None:
+    record = _record(1, "ready", True, {"steps": "not a plan"})
+    judge_route(record, "capitals")
+    assert route_line(record) == "route: not judged (plan unreadable)"
+    assert route_summary([record], 1)["valid_not_judged"] == 1
+
+
+class _NoApi:
+    """Stands in for the OpenAI client object; the scripted plan client never uses it."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None: ...
+
+    def __enter__(self) -> "_NoApi":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+
+def _fake_measurement(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, answers: list[str | dict[str, Any]]
+) -> Path:
+    scripted = ScriptedPlanClient(*answers)
+    monkeypatch.setattr(experiment_planner, "OpenAI", _NoApi)
+    monkeypatch.setattr(experiment_planner, "OpenAIPlanClient", lambda **_: scripted)
+    monkeypatch.setenv("OPENAI_API_KEY", "not-a-key")
+    out = tmp_path / "out"
+    experiment_planner.run(
+        [
+            "--case", "capitals", "--model", "fake", "--repeat", str(len(answers)),
+            "--repairs", "0", "--out", str(out),
+        ]
+    )  # fmt: skip
+    (directory,) = out.iterdir()
+    return directory
+
+
+def test_a_measurement_with_a_fake_model_reports_and_saves_the_route_numbers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ready = lambda plan: {"status": "ready", "plan": plan, "reason": None}  # noqa: E731
+    directory = _fake_measurement(
+        monkeypatch,
+        tmp_path,
+        [
+            ready(_plan()),
+            ready(_deviating()),
+            ready(_unused()),
+            {"status": "unsupported", "plan": None, "reason": "no"},
+            "this is not json",
+        ],
+    )
+    out = capsys.readouterr().out
+    assert out.count("route: expected") == 2
+    assert "route: deviates (WRONG_SOURCE_COLUMN)" in out
+    assert "route: not judged (refused)" in out
+    assert "Headline: 2 of 5: valid and on the expected route" in out
+
+    saved = json.loads((directory / "summary.json").read_text("utf-8"))
+    assert saved["success_count"] == 3  # unchanged meaning: valid ready plans
+    assert saved["valid_on_expected_route"] == 2
+    assert saved["valid_deviating_route"] == 1
+    assert saved["deviation_counts"] == {"WRONG_SOURCE_COLUMN": 1}
+    assert saved["headline"] == "2 of 5: valid and on the expected route"
+    runs = saved["runs"]
+    assert [r["route"]["verdict"] for r in runs] == [
+        "expected", "deviates", "expected", "not_judged", "not_judged",
+    ]  # fmt: skip
+    assert runs[1]["route"]["deviations"][0]["code"] == "WRONG_SOURCE_COLUMN"
+    assert runs[1]["route"]["deviations"][0]["blocking"] is True
+    assert runs[2]["route"]["deviations"][0]["blocking"] is False
+
+    # The same directory judged again later, offline: the same verdicts, a separate file.
+    capsys.readouterr()
+    experiment_planner.run(["--routes-only", str(directory)])
+    again = capsys.readouterr().out
+    assert "Headline: 2 of 5: valid and on the expected route" in again
+    routes = json.loads((directory / "routes.json").read_text("utf-8"))
+    assert routes["valid_deviating_route"] == 1
+    assert [r["route"]["verdict"] for r in routes["runs"]] == [r["route"]["verdict"] for r in runs]
+    assert json.loads((directory / "summary.json").read_text("utf-8")) == saved
+
+
+def test_routes_only_judges_a_run_saved_before_the_route_check_existed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    old = {
+        "case": "capitals",
+        "success_count": 2,
+        "runs": [
+            {k: v for k, v in _record(1, "ready", True, _plan()).items()},
+            {k: v for k, v in _record(2, "ready", True, _deviating()).items()},
+        ],
+    }
+    (tmp_path / "summary.json").write_text(json.dumps(old), encoding="utf-8")
+    experiment_planner.run(["--routes-only", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert "Headline: 1 of 2: valid and on the expected route" in out
+    assert "route: deviates (WRONG_SOURCE_COLUMN)" in out
+
+
+def test_routes_only_refuses_what_it_cannot_judge(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit):  # no summary.json
+        experiment_planner.run(["--routes-only", str(tmp_path)])
+    (tmp_path / "summary.json").write_text(json.dumps({"case": "other", "runs": []}), "utf-8")
+    with pytest.raises(SystemExit):  # a case without an expected route
+        experiment_planner.run(["--routes-only", str(tmp_path)])
+    (tmp_path / "summary.json").write_text(json.dumps({"case": "capitals", "runs": []}), "utf-8")
+    with pytest.raises(SystemExit):  # another case than the one named
+        experiment_planner.run(["--routes-only", str(tmp_path), "--case", "mountains"])
+    with pytest.raises(SystemExit):  # neither a case nor a directory
+        experiment_planner.run([])
+
+
+def test_rejudge_returns_the_numbers(tmp_path: Path) -> None:
+    saved = {"case": "capitals", "runs": [_record(1, "ready", True, _plan())]}
+    (tmp_path / "summary.json").write_text(json.dumps(saved), encoding="utf-8")
+    assert rejudge(tmp_path)["valid_on_expected_route"] == 1
+
+
+# --- what a saved plan can hold ---------------------------------------------------------
+
+
+def _cell_values(workbook: str) -> set[str]:
+    from openpyxl import load_workbook
+
+    book = load_workbook(workbook, read_only=True)
+    try:
+        return {
+            str(cell)
+            for sheet in book.worksheets
+            for row in list(sheet.iter_rows(values_only=True))[1:]
+            for cell in row
+            if cell is not None
+        }
+    finally:
+        book.close()
+
+
+@pytest.mark.parametrize("sample", sample_catalog.SAMPLES, ids=lambda s: s.sample_id)
+def test_the_structure_of_a_prepared_plan_holds_no_cell_value_but_its_assumptions_can(
+    sample: sample_catalog.Sample,
+) -> None:
+    plan = sample_catalog.prepared_plan(sample)
+    assert plan is not None
+    structure = json.dumps({k: v for k, v in plan.items() if k != "assumptions"})
+    values = _cell_values(sample.workbook)
+    assert values
+    for value in values:
+        assert f'"{value}"' not in structure, value
+        if len(value) >= 4:
+            assert value not in structure, value
+    assert not has_literal_input(_record(1, "ready", True, plan))
+    # The assumptions are free text, and the known-good plans of the Capitals tables quote
+    # a city of the table ("including Istanbul") in them.
+    quoted = [v for v in values if v in " ".join(plan["assumptions"])]
+    assert quoted == (["Istanbul"] if sample.sample_id.startswith("capitals") else [])
+
+
+def test_a_plan_can_hold_a_cell_value_through_a_literal_and_the_script_counts_such_plans() -> None:
+    plan = _plan()
+    cell = sorted(_cell_values("samples/capitals.xlsx"))[0]
+    plan["steps"][0]["inputs"]["city"] = {"kind": "literal", "value": cell}
+    assert json.dumps(cell) in json.dumps(plan)
+    assert has_literal_input(_record(1, "ready", True, plan))

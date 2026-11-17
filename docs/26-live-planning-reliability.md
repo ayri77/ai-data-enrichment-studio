@@ -419,6 +419,89 @@ The first column is from the script's output; for the second the owner reported 
 
 What this shows and what it does not: the planner returns a valid plan for these six tasks with the changed contract, without guidance about fields. The script counts valid plans; it does not compare a plan with an expected one, so it would not notice a valid plan that takes a different route. That is why the elevation of a place record is not offered as a field (it would be a second, shorter route to "elevation of a mountain").
 
+### Route check
+
+Every number above counts **valid** plans: plans that pass the validator. A valid plan can still
+be wrong in substance, and the validator cannot see it, because it knows capabilities and
+types, not the task. Examples: a mountain's height read from a place record instead of the
+elevation of a resolved mountain; the right kind of number written into the wrong column; a
+step that looks up an entity literally named `fake_age_entity` and writes its elevation into a
+column called "age" (seen live on 2026-11-16 with another model).
+
+`scripts/experiment_planner.py` therefore also compares each valid plan with the **expected
+route** of its case, stated as data in `scripts/planner_routes.py`: for every output column,
+which capability and field must produce it, the parameters that give it its meaning
+(`property = elevation`, `entity_type = mountain`, the unit, and no `required_role` where
+the instruction says "literal cities"; for `capitals_coordinates` and `capitals_population`, whose
+instruction only says "the city", `required_role` may be absent or `country_capital`, and when
+it is set the run notes `OPTIONAL_PARAMETER_SET` without failing; any other value deviates), where each input must come from (a named table column, or the result of a step of a
+given capability, checked the same way down the chain; a literal is never accepted as an input),
+the unit on the output mapping, and the capabilities a plan may use at all. A step that feeds no
+output is reported (`UNUSED_STEP`) and does not fail the route. Each deviation has a code
+(`WRONG_CAPABILITY`, `WRONG_FIELD`, `WRONG_PARAMETER`, `LITERAL_INPUT`, `WRONG_SOURCE_COLUMN`,
+`WRONG_UPSTREAM`, `MISSING_INPUT`, `UNEXPECTED_INPUT`, `UNEXPECTED_CAPABILITY`,
+`MISSING_TARGET`, `EXTRA_TARGET`, `WRONG_UNIT`; `UNUSED_STEP` and `OPTIONAL_PARAMETER_SET` are
+notes, not failures) and a sentence naming steps, targets and headers,
+never a cell value or the value of a constant. The expectations of the four examples are
+checked against their prepared plans by a test, so they cannot drift from the known-good routes;
+`capitals_coordinates` and `capitals_population` have no prepared plan and were written by hand.
+
+The run prints `route: expected` or `route: deviates (CODE, ...)` after each run, and the
+summary adds the valid plans on the expected route, the valid plans that deviate (with a count
+per code) and the headline from now on: **"N of M: valid and on the expected route"**.
+`summary.json` carries the same numbers and, per run, the verdict and the deviations. The exit
+code is unchanged. Invalid plans and refusals are counted as before and are not judged.
+
+**What it cannot judge.** It knows the expected route of the six measured cases and nothing
+else: it says nothing about any other table, instruction or task, and a plan outside them can
+only be read by a person. It does not run the plan or check any result. It cannot tell a
+different but equally correct route from a wrong one: the expectation is the known-good one (two
+geodesic ends may be swapped; the order of steps and their ids do not matter). It trusts the
+`valid` flag the run recorded and does not validate again.
+
+**Status of the recorded results.** Every result in this document counted validity only.
+**None of them has a route verdict yet**, including the 10 of 10 rows of 2026-11-13 to
+2026-11-15; a plan among them may have been valid and off the route. Plans were not saved as
+files before this section, but `summary.json` of each run holds them, so a past measurement
+whose directory still exists can be judged offline (below). Otherwise the baseline is measured
+again.
+
+**What a saved plan can hold.** A plan is structure: column headers, capability names,
+parameters, units. It can also hold cell values: through a literal input (the model copies a
+cell into a constant, which is what `LITERAL_INPUT` reports), through a parameter, and through
+its free-text `assumptions` (the prepared Capitals plans themselves name "Istanbul" there), and
+`summary.json` also holds the model's `reason`. Treat `artifacts/planner-experiments/` as data,
+not only as structure; it is ignored by git. The script warns when a run contains a literal
+input.
+
+To measure the baseline (the planner as it is today, `gpt-6-luna` at the measured effort `low`,
+six cases, 10 runs each; PowerShell, from the repository root; `capitals_roads` needs the routing
+key in `.env`):
+
+```
+uv run --env-file .env python -m scripts.experiment_planner --case capitals --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets distance
+uv run --env-file .env python -m scripts.experiment_planner --case mountains --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets height
+uv run --env-file .env python -m scripts.experiment_planner --case capitals_roads --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets distance,road,detour
+uv run --env-file .env python -m scripts.experiment_planner --case mountains_gaps --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets height
+uv run --env-file .env python -m scripts.experiment_planner --case capitals_coordinates --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets latitude,longitude
+uv run --env-file .env python -m scripts.experiment_planner --case capitals_population --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets population
+```
+
+(The script has no default model of its own: `--model` or `OPENAI_MODEL` is required, and the
+application's default is `gpt-6-luna`.) To judge the plans of an earlier run directory without
+calling the model (no key and no network; it writes `routes.json` beside `summary.json` and
+leaves `summary.json` as it was):
+
+```
+uv run python -m scripts.experiment_planner --routes-only artifacts/planner-experiments/20261115T101500Z-ab12cd34
+```
+
+Record the results as "N of 10: valid and on the expected route", with the deviation codes of
+the others, next to the validity count. The route check is the instrument for the planned change
+that lets the planner hand columns it cannot fill to a web search: measure the baseline first,
+then again after the change, and look at whether columns it can fill are being handed away
+(`MISSING_TARGET`) or reached by shortcuts (`WRONG_CAPABILITY`, `LITERAL_INPUT`).
+
 ### Where models are described
 
 `src/ai_data_enrichment/planning/model_catalog.py` is the one place. Each `ModelSpec` has
