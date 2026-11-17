@@ -533,11 +533,11 @@ The fix for the refusal is a sentence in the planner's instruction, which change
 planner is shown. It goes in together with the next change to the planner (naming the columns
 it cannot fill), so that one new measurement covers both.
 
-### Naming the columns it cannot fill (not measured)
+### Naming the columns it cannot fill (measured 2026-11-17)
 
-**None of this has been measured.** The change is made and tested offline with scripted
-answers only; no model has seen the new texts. Every number in this document above this
-section describes the planner without them.
+The change was made and tested offline, then measured by the owner on the branch before
+merging (see "Result" below). Every number in this document above this section describes the
+planner without these texts.
 
 **What changed.** Until now a plan had to write exactly the output columns the user chose
 (`OUTPUT_TARGET_MISMATCH`). With five chosen columns and a source for four, the planner had to
@@ -643,6 +643,38 @@ of each run and counts the valid plans that handed away a target the case expect
 **Not connected to the search.** Nothing in this step offers or starts the universal search for
 the listed columns; the search is offered exactly as before (`fallbackOffer`, which gives
 nothing for a runnable plan).
+
+#### Result (2026-11-17, by the owner, on the branch before merging)
+
+`gpt-6-luna`, effort `low`, six capabilities offered, ten runs per case, the commands above.
+
+| Case | Valid and on the expected route | Named as unfilled | Handed away wrongly | Refused |
+| --- | --- | --- | --- | --- |
+| `capitals` | 10 of 10 | none | 0 | 0 |
+| `mountains` | 10 of 10 | none | 0 | 0 |
+| `capitals_roads` | 10 of 10 | none | 0 | 0 |
+| `mountains_gaps` | 10 of 10 | none | 0 | 0 |
+| `capitals_coordinates` | 10 of 10 | none | 0 | 0 |
+| `capitals_population` | 10 of 10 | none | 0 | 0 |
+| `mountains_age` | 10 of 10 | `age`, in all ten | 0 | 0 |
+| `capitals_mayor` | 10 of 10 | `mayor`, in all ten | 0 | 0 |
+| **Total** | **80 of 80** | | **0** | **0** |
+
+- **Every criterion set before the measurement is met.** The six existing cases stay on the
+  expected route and no plan names a target it can fill.
+- **The refusal on `mountains_gaps` did not recur** (10 of 10, against 9 of 10 in the
+  baseline). One sentence about what a run does with filled cells is the only change that
+  bears on it; ten runs do not prove the refusal is gone, they show it did not happen.
+- **Both mixed cases name exactly the column that has no source**, in every run, and fill the
+  other one by its expected route. No run refused the whole task, so the unchanged sentence
+  "If no supported chain exists or intent is insufficiently specified, abstain" did not stand
+  in the way.
+- Every answer was accepted at the first attempt; no repair request was needed.
+- Requests took 2 to 11 s; none came near the server's 30 s limit.
+
+What this does not show: a task with more than one column without a source; a column that
+looks like something a capability produces but means something else; other models. Two
+mixed cases are a first look, not a map of where the planner draws the line.
 
 ### Where models are described
 

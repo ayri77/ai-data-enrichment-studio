@@ -18,9 +18,11 @@
   baseline refusal on `mountains_gaps`), and the abstention challenge now allows partial plans.
   The route check gains `TARGET_HANDED_AWAY` / `TARGET_NOT_HANDED_AWAY` and two cases,
   `mountains_age` and `capitals_mayor`. The planner is not told, and nothing in this change
-  offers or starts, a web search for the listed columns. **Not measured**: tested offline with
-  scripted answers only; the planner-surface snapshots changed and the live measurement in
-  `docs/26-live-planning-reliability.md` is still to be run before merging.
+  offers or starts, a web search for the listed columns. **Measured by the owner on 2026-11-17
+  before merging** (`gpt-6-luna`, ten runs per case): 80 of 80 valid and on the expected route
+  over the six existing cases and the two new ones, no target handed away wrongly, no refusal;
+  the table is in `docs/26-live-planning-reliability.md`. Not measured: other models, tasks
+  with several columns without a source.
 - The usage summary survives a restart and opens on one's own machine without setup. Events can
   be kept in a file (`UsageStore`; one JSON object per line, appended per event, replayed through the
   same counting at start, so totals, the events by kind and the latest 300 events come back; a
