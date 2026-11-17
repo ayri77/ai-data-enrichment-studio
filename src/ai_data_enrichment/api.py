@@ -34,7 +34,12 @@ from ai_data_enrichment.plan_run_worker import ApiFactory, ExecutorFactory, buil
 from ai_data_enrichment.planning.llm_planner import PlanCompletionClient
 from ai_data_enrichment.provider_settings import ProviderConfiguration, configuration_router
 from ai_data_enrichment.run_limits import MAX_TABLE_CELLS, MAX_TABLE_ROWS
-from ai_data_enrichment.usage import VISITOR, UsageLog
+from ai_data_enrichment.usage import (
+    VISITOR,
+    UsageLog,
+    store_for,
+    summary_open_without_code,
+)
 from ai_data_enrichment.workspace_errors import WorkspaceError
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -192,7 +197,7 @@ def create_app(
     lock = asyncio.Lock()
     settings = settings or PlanRunSettings.from_environment()
     provider = ProviderConfiguration.from_environment(settings.llm_model)
-    usage = UsageLog(emit=usage_lines)
+    usage = UsageLog(emit=usage_lines, store=store_for(settings.usage_file))
     codes = {
         **({SHARED_VISITOR: access_code} if access_code is not None else {}),
         **(access_codes or {}),
@@ -216,6 +221,7 @@ def create_app(
                 yield
             finally:
                 await plan_run.close()
+                usage.close()
                 datasets.clear()
                 provider.remove_key()
 
@@ -314,11 +320,16 @@ def create_app(
 
     @app.get("/api/usage")
     async def usage_summary(request: Request):
-        """What was used since this process started; for the holder of the admin code."""
-        if admin_code is None:
+        """What was used, as far back as it is kept; for the holder of the admin code."""
+        open_here = summary_open_without_code(
+            local=local_browser_configuration,
+            access_codes_set=bool(codes),
+            admin_code_set=admin_code is not None,
+        )
+        if admin_code is None and not open_here:
             raise WorkspaceError("usage_disabled", "No admin code is set on this server.", 404)
         offered = request.headers.get("x-admin-code", "")
-        if not compare_digest(offered.encode(), admin_code.encode()):
+        if admin_code is not None and not compare_digest(offered.encode(), admin_code.encode()):
             # Guessing is slowed and limited together with the visitor codes.
             now = monotonic()
             while failed_attempts and now - failed_attempts[0] > ACCESS_WINDOW_SECONDS:

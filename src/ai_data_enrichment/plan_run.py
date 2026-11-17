@@ -101,7 +101,7 @@ from ai_data_enrichment.run_limits import (
 )
 from ai_data_enrichment.spellings import SuggestionError, suggest_names
 from ai_data_enrichment.task_ideas import TaskIdeaError, propose_tasks
-from ai_data_enrichment.usage import UsageLog
+from ai_data_enrichment.usage import UsageLog, parse_usage_file
 from ai_data_enrichment.validation.plan_validator import PlanValidationPolicy, PlanValidator
 from ai_data_enrichment.workspace_errors import WorkspaceError
 
@@ -182,6 +182,9 @@ class PlanRunSettings:
     # The universal-search fallback: every row costs a model request and a search fee.
     allow_web_lookup: bool = False
     web_lookup_model: str = WEB_LOOKUP_DEFAULT_MODEL
+    # `ENRICHMENT_USAGE_FILE`: None when unset (the entry point decides), "off", or the
+    # path of the file that keeps the usage events across restarts.
+    usage_file: str | None = None
 
     def __post_init__(self) -> None:
         if not _MODEL_ID.fullmatch(self.web_lookup_model):
@@ -197,6 +200,7 @@ class PlanRunSettings:
             llm_model=os.getenv("OPENAI_MODEL") or None,
             allow_web_lookup=os.getenv("ENRICHMENT_ALLOW_WEB_LOOKUP") == "1",
             web_lookup_model=model or WEB_LOOKUP_DEFAULT_MODEL,
+            usage_file=parse_usage_file(os.getenv("ENRICHMENT_USAGE_FILE")),
         )
 
 

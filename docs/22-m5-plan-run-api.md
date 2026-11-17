@@ -397,7 +397,7 @@ although there is nothing to decide in Review (resume is refused for such a job)
 
 **The usage summary.** The spend is one `model` event with `purpose: "web_lookup"`, the
 model, `requests`, `input_tokens`, `output_tokens` and `web_searches`; `GET /api/usage`
-sums `web_searches` per visitor beside the other numbers. A run that times out, is
+sums `web_searches` per visitor beside the other numbers. The summary also says whether it is kept across restarts (`persistent`, `since`, `skipped_lines`, and a `reason` when it is not); see [hosted demo](27-hosted-demo.md), "Usage summary". A run that times out, is
 cancelled or whose worker dies still records the requests that had returned (the worker
 copies the four numbers to shared memory after each request); a request still in flight
 when the worker is stopped cannot be counted, although the provider may bill it.

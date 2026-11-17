@@ -71,14 +71,49 @@ either.
   It lists every label, used or not, the events by kind and the latest 300
   events. The code opens `GET /api/usage` and nothing else; a visitor's code
   does not open it; without the variable the route answers 404
-  `usage_disabled` and the page says that no admin code is set.
-- **Locally.** The local launcher reads the same variable: with
-  `ENRICHMENT_ADMIN_CODE` in `.env` and `--env-file .env`, `/#usage` works on
-  `127.0.0.1` too, and everything counts under the label `local`. Access codes
-  are read by the hosted entry point only.
-- **What survives a restart.** The summary is kept in memory, so a restart, a
-  deploy or the free instance going to sleep clears it. Each event is also one
-  line on standard output, `usage {"at": …, "who": "guest03", "kind":
+  `usage_disabled` and the page says that no admin code is set. A hosted
+  application never answers without the admin code.
+- **Locally.** The local launcher reads the same variable and everything counts
+  under the label `local`. The rule for the summary is one small function
+  (`summary_open_without_code` in `usage.py`): it opens **without a code only when
+  the application was started by the local launcher (it listens on `127.0.0.1`
+  alone) and neither access codes nor an admin code are set**. With
+  `ENRICHMENT_ADMIN_CODE` set (in `.env`, with `--env-file .env`) the code is
+  required, locally too. Access codes are read by the hosted entry point only.
+  In Advanced mode a local studio links to `/#usage` beside the server line; a
+  hosted demo does not link visitors to it.
+- **What is kept, and where.** The summary is counted in memory and, where a
+  file is set, also appended to it, one JSON object per line holding exactly
+  what the event holds (numbers and fixed words, the label of the code, the
+  time) and nothing else. A new process reads the file back through the same
+  counting, so totals, the events by kind and the latest 300 events are what
+  they were. The summary then says "kept across restarts since" the time of the
+  first counted event; `since` in the response is that time and
+  `process_started_at` is the start of this process.
+    - **Local launcher: on by default**, in
+      `ai-data-enrichment-studio/usage/events.jsonl` below `$XDG_STATE_HOME`
+      (else `%LOCALAPPDATA%` on Windows, else `~/.local/state`), never inside the
+      working directory. `ENRICHMENT_USAGE_FILE=<path>` names another file;
+      `ENRICHMENT_USAGE_FILE=off` switches it off.
+    - **Hosted application: off by default**, as before. `ENRICHMENT_USAGE_FILE=<path>`
+      switches it on. **On a host whose disk does not survive a restart (the
+      free Render instance, any redeploy) the file lasts only until the next
+      restart or redeploy**, so it keeps nothing there; a persistent disk, or a
+      store that lives elsewhere, is needed for that. The store is one small
+      interface (`UsageStore`); a database is one more class, not written yet.
+    - **Size.** Above 5 MB the file is rewritten once: a `{"kind": "totals", …}`
+      record with the sums per visitor and per kind and the time of the first
+      event, then the latest 300 events; the old file is replaced atomically.
+      Totals and `since` are kept; what is lost is every event older than the
+      latest 300 as a line (the page never listed more).
+    - **When writing fails** (full disk, no permission) one warning is logged
+      without any event content, the request goes on, counting continues in
+      memory, and the response says `persistent: false` with `reason:
+      "write_failed"` until the next restart. Without a file the reason is `off`.
+      Lines of the file that are not valid events are skipped and counted in
+      `skipped_lines`; the page shows that number only when it is not zero.
+- **What else survives a restart.** Each event is also one line on standard
+  output on a hosted demo, `usage {"at": …, "who": "guest03", "kind":
   "run_finished", …}`, which Render keeps with the service's logs (7 days in a
   Hobby workspace, by Render's documentation of 2026-11-14). Search the logs
   for `usage {` to read what a restart took from the page.
@@ -96,6 +131,7 @@ either.
 | `ENRICHMENT_ACCESS_CODES` | one of the two | One code per visitor, `label:code` entries |
 | `ENRICHMENT_ACCESS_CODE` | one of the two | One code, counted as `shared` |
 | `ENRICHMENT_ADMIN_CODE` | no | Opens the usage summary at `/#usage`; at least 12 characters |
+| `ENRICHMENT_USAGE_FILE` | no | Path of the file that keeps the usage events across restarts. Unset: on for the local launcher (state folder), off for a hosted application; `off` switches it off. Lasts only until the next restart on a host with an ephemeral disk |
 | `OPENAI_API_KEY` | for live planning | Used only on the server |
 | `OPENAI_MODEL` | no | A model of the catalog (`planning/model_catalog.py`): `gpt-6-luna` (the default when unset, and what `render.yaml` sets) and `gpt-4.1-mini` were measured for planning; `gpt-4.1` was not. Measure a model before serving it: [live planning reliability](26-live-planning-reliability.md) |
 | `OPENROUTESERVICE_API_KEY` | no | Offers the driving distance by road; one account's daily quota is shared by all visitors. See [road distance and ratio](30-road-distance-and-ratio.md) |

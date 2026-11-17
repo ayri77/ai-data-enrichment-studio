@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- The usage summary survives a restart and opens on one's own machine without setup. Events can
+  be kept in a file (`UsageStore`; one JSON object per line, appended per event, replayed through the
+  same counting at start, so totals, the events by kind and the latest 300 events come back; a
+  line that is not a valid event is skipped and counted as `skipped_lines`; above 5 MB the file
+  is rewritten once as a totals record plus the latest 300 events; a failed write logs one
+  warning without content and the counting goes on in memory with `persistent: false`,
+  `reason: "write_failed"`). The local launcher keeps it by default in the user's state folder
+  (`usage/events.jsonl`, not in the working directory); a hosted application keeps nothing
+  unless `ENRICHMENT_USAGE_FILE` names a file (which lasts only until the next restart on an
+  ephemeral disk); `ENRICHMENT_USAGE_FILE=off` switches it off. The file holds exactly the events
+  as before: numbers and fixed words, tested after a whole plan, run and download with marker
+  texts in the file name, the cells and the task. `GET /api/usage` opens without a code only when
+  the launcher started the app and neither access codes nor an admin code are set (an admin code
+  is required as before, and a hosted application never answers without it); the response gains
+  `persistent`, `since`, `process_started_at`, `skipped_lines` and `reason`; the usage page
+  says "kept since" or "cleared by a restart", and Advanced mode links to it. Tested offline
+  only: not run on Windows or macOS (the state-folder rule is untested there), not measured
+  with a real 5 MB file or a long-running server, not tried on an actual ephemeral host.
 - "Suggest a task" could propose to invent values and could name internal functions: for
   mountains with a column that no capability can fill (geological age) it suggested filling that
   column with "an invented approximate age" and wrote `resolve_entity`, `lookup_property` and

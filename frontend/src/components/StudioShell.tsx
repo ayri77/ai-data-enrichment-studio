@@ -136,6 +136,8 @@ export function StudioShell({
                     <span className="connection-note">
                         {t("sourceUnchanged")}
                     </span>
+                    {/* The owner's own page; on a hosted demo visitors are not sent to it. */}
+                    {!hosted && <a href="#usage">{t("usage.link")}</a>}
                 </div>
             </Advanced>
             <main id="workspace" tabIndex={-1}>

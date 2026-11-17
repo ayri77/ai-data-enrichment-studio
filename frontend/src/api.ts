@@ -120,10 +120,20 @@ export interface VisitorUsage {
     /** Requests that left for each source during the visitor's runs. */
     source_requests: Record<string, number>;
 }
-/** Counted events since the server started: numbers and fixed words only. */
+/** Counted events: numbers and fixed words only. */
 export interface UsageSummary {
+    /** When this server process started (also `process_started_at`). */
     started_at: string;
+    process_started_at: string;
     now: string;
+    /** The first counted event; after a restart, older than the process. */
+    since: string | null;
+    /** True when the counts are kept in a file across restarts. */
+    persistent: boolean;
+    /** Why they are not kept: switched off, or the file could not be written. */
+    reason?: "off" | "write_failed";
+    /** Lines of the usage file that could not be read and were skipped. */
+    skipped_lines: number;
     events: Record<string, number>;
     visitors: VisitorUsage[];
     recent: ({ at: string; who: string; kind: string } & Record<
