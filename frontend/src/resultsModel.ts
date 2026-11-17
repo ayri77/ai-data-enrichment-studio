@@ -133,6 +133,8 @@ export interface ResultColumn {
     digits?: number;
     /** The capability of the step that fills the column, when the plan has it. */
     capability?: string;
+    /** The step that fills the column, when the plan has it. */
+    stepId?: string;
 }
 
 /** Five decimals are about a metre on the ground. */
@@ -204,6 +206,7 @@ export const outputColumns = (plan: EnrichmentPlan | null): ResultColumn[] =>
             undefined,
         capability: plan?.steps.find((step) => step.id === output.step_id)
             ?.capability,
+        stepId: output.step_id,
         ...(output.value_field === "latitude" ||
         output.value_field === "longitude"
             ? { digits: COORDINATE_DIGITS }
@@ -211,6 +214,33 @@ export const outputColumns = (plan: EnrichmentPlan | null): ResultColumn[] =>
               ? { digits: COUNT_DIGITS }
               : {}),
     }));
+
+/**
+ * What the audit says about where each step's values come from and what stands
+ * behind them, by step: a mixed run has a different kind of trust per column.
+ */
+export function stepTrust(
+    report: AuditReport | null,
+): Map<string, { source: string; trust: string }> {
+    return new Map(
+        (report?.step_provenance ?? []).map((item) => [
+            item.step_id,
+            { source: item.source, trust: item.trust },
+        ]),
+    );
+}
+
+/** The columns a plan has the web search fill, by their headers. */
+export function searchedColumns(plan: EnrichmentPlan | null): string[] {
+    const lookup = new Set(
+        (plan?.steps ?? [])
+            .filter((step) => step.capability === LOOKUP_CAPABILITY)
+            .map((step) => step.id),
+    );
+    return (plan?.outputs ?? [])
+        .filter((output) => lookup.has(output.step_id))
+        .map((output) => output.target_column);
+}
 
 /** Join the published row list with step results from the same audit. */
 export function resultRows(

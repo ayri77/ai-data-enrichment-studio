@@ -3,25 +3,42 @@ import { ArrowRight, CircleAlert, LoaderCircle, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { LookupKind, PlanDraft, Preview, SourcesInWorkbook } from "../api";
 import {
+    columnGroups,
     contextBlocker,
     defaultFallbackForm,
+    defaultMixedForm,
     fallbackOffer,
     formFromDraft,
     formProblems,
     MAX_QUESTION,
     MAX_UNIT,
+    mixedTargets,
     readLookupTask,
+    searchedMapping,
     settingFor,
     targetNames,
     type FallbackForm,
     type TargetSetting,
 } from "../fallbackModel";
+import { columnLabels } from "../planModel";
+import type { OutputTarget } from "../workflowModel";
 import type { PlannerAnswer, SearchRefusal, Workflow } from "../useWorkflow";
 import { PlanInvalid, PlanRefusal } from "./PlanDescription";
 import { Button } from "./ui/button";
 
-/** The one line that must stay true wherever a universal-search plan is shown. */
-export function FallbackBanner({ done = false }: { done?: boolean }) {
+/**
+ * The one line that must stay true wherever a universal-search plan is shown.
+ * For a mixed plan it names the columns the search fills: only those values
+ * are found by it and not verified.
+ */
+export function FallbackBanner({
+    done = false,
+    searched,
+}: {
+    done?: boolean;
+    /** The columns of a mixed plan that the web search fills, as the page names them. */
+    searched?: string;
+}) {
     const { t } = useTranslation();
     return (
         <p
@@ -30,8 +47,33 @@ export function FallbackBanner({ done = false }: { done?: boolean }) {
             data-testid="fallback-banner"
         >
             <Search aria-hidden="true" />
-            {t(done ? "fallback.bannerDone" : "fallback.banner")}
+            {searched
+                ? t(
+                      done
+                          ? "fallback.mixed.bannerDone"
+                          : "fallback.mixed.banner",
+                      {
+                          columns: searched,
+                      },
+                  )
+                : t(done ? "fallback.bannerDone" : "fallback.banner")}
         </p>
+    );
+}
+
+/** The banner of a mixed plan, from the plan itself. */
+export function MixedBanner({
+    draft,
+    done = false,
+}: {
+    draft: Pick<PlanDraft, "plan" | "output_columns" | "searched_targets">;
+    done?: boolean;
+}) {
+    return (
+        <FallbackBanner
+            done={done}
+            searched={columnLabels(columnGroups(draft).searched)}
+        />
     );
 }
 
@@ -58,8 +100,11 @@ export function FallbackSwitch({ w }: { w: Workflow }) {
     );
 }
 
-/** What the view shows while the search plan is built. */
-export function FallbackProgress() {
+/**
+ * What the view shows while the search plan is built; with `columns`, the
+ * search for the columns a plan has no source for that is added to it.
+ */
+export function FallbackProgress({ columns }: { columns?: number }) {
     const { t } = useTranslation();
     return (
         <p
@@ -68,7 +113,9 @@ export function FallbackProgress() {
             data-testid="fallback-progress"
         >
             <LoaderCircle className="spin" aria-hidden="true" />
-            {t("fallback.auto.building")}
+            {columns !== undefined
+                ? t("fallback.mixed.building", { count: columns })
+                : t("fallback.auto.building")}
         </p>
     );
 }
@@ -259,6 +306,19 @@ export function FallbackPlanExtras({
  * with their kinds, where the links go. It starts from the choices it is given
  * and builds the search plan from what is in it.
  */
+/**
+ * Which columns the form fills, and what it does with what is chosen. The
+ * default is the whole task's search plan; a mixed plan restricts the form to
+ * the columns the planner left without a source and builds from its draft.
+ */
+interface EditorScope {
+    /** The output columns the search fills; the others are not offered. */
+    mapping: OutputTarget[];
+    /** Further columns the plan writes: they cannot identify a row either. */
+    written: string[];
+    send: (form: FallbackForm) => Promise<SearchRefusal | null>;
+}
+
 function FallbackEditor({
     w,
     preview,
@@ -266,13 +326,15 @@ function FallbackEditor({
     refusal: shown = null,
     submit,
     onCancel,
+    scope,
 }: {
     w: Workflow;
     preview: Preview;
     initial: FallbackForm;
     refusal?: SearchRefusal | null;
-    submit: "fallback.build" | "fallback.change.save";
+    submit: "fallback.build" | "fallback.change.save" | "fallback.mixed.build";
     onCancel?: () => void;
+    scope?: EditorScope;
 }) {
     const { t } = useTranslation();
     const [question, setQuestion] = useState(initial.question);
@@ -284,15 +346,18 @@ function FallbackEditor({
     const [sources, setSources] = useState<SourcesInWorkbook>(initial.sources);
     const [refusal, setRefusal] = useState<SearchRefusal | null>(shown);
     const form: FallbackForm = { question, context, settings, sources };
-    const targets = targetNames(w.mapping);
+    const mapping = scope?.mapping ?? w.mapping;
+    const written = scope?.written ?? [];
+    const targets = targetNames(mapping);
     const letters = new Map(
-        w.mapping.map((entry) => [
+        mapping.map((entry) => [
             entry.mode === "existing" ? entry.name : entry.name.trim(),
             entry.column,
         ]),
     );
-    const problems = formProblems(form, w.mapping, preview);
-    const waiting = w.operation?.kind === "fallback";
+    const problems = formProblems(form, mapping, preview);
+    const waiting =
+        w.operation?.kind === "fallback" || w.operation?.kind === "mixed";
     const rows = /^\d+$/.test(w.runCount)
         ? Math.min(Number(w.runCount), w.maxRows)
         : w.maxRows;
@@ -306,7 +371,7 @@ function FallbackEditor({
         setSettings((old) => ({
             ...old,
             [name]: {
-                ...settingFor({ settings: old }, name, w.mapping, preview),
+                ...settingFor({ settings: old }, name, mapping, preview),
                 ...change,
             },
         }));
@@ -318,7 +383,7 @@ function FallbackEditor({
                 event.preventDefault();
                 if (problems.length || w.locked) return;
                 void w.action(async () => {
-                    setRefusal(await w.createFallback(form));
+                    setRefusal(await (scope?.send ?? w.createFallback)(form));
                 }, "fallback");
             }}
         >
@@ -343,9 +408,11 @@ function FallbackEditor({
                 <legend>{t("fallback.context")}</legend>
                 <p className="muted">{t("fallback.contextHint")}</p>
                 {preview.profile.columns.map((column) => {
-                    const blocker = targets.includes(column.name)
-                        ? "target"
-                        : contextBlocker(column.inferred_type);
+                    const blocker =
+                        targets.includes(column.name) ||
+                        written.includes(column.name)
+                            ? "target"
+                            : contextBlocker(column.inferred_type);
                     return (
                         <label key={column.name} className="fallback-check">
                             <input
@@ -377,7 +444,7 @@ function FallbackEditor({
                 <legend>{t("fallback.targets")}</legend>
                 <p className="muted">{t("fallback.targetsHint")}</p>
                 {targets.map((name) => {
-                    const setting = settingFor(form, name, w.mapping, preview);
+                    const setting = settingFor(form, name, mapping, preview);
                     return (
                         <div className="fallback-target" key={name}>
                             <strong>
@@ -505,5 +572,173 @@ function FallbackEditor({
                 )}
             </div>
         </form>
+    );
+}
+
+/**
+ * Under the notice for the columns a plan has no source for: a button that
+ * adds a web search for them, and the checkbox that makes it automatic. A
+ * press does what the switch does for this plan. When the server refused to
+ * build the plan, its message stands with the form, and the plan on the
+ * screen stays as it is.
+ */
+export function UnfilledSearch({
+    w,
+    draft,
+    preview,
+}: {
+    w: Workflow;
+    draft: PlanDraft;
+    preview: Preview | null;
+}) {
+    const { t } = useTranslation();
+    const targets = mixedTargets(draft);
+    return (
+        <div className="unfilled-search" data-testid="unfilled-search">
+            <p>{t("fallback.mixed.offer")}</p>
+            {w.searchRefusal && preview ? (
+                <FallbackEditor
+                    w={w}
+                    preview={preview}
+                    initial={defaultMixedForm(draft, w.mapping, preview)}
+                    refusal={w.searchRefusal}
+                    submit="fallback.mixed.build"
+                    scope={{
+                        mapping: searchedMapping(
+                            targets,
+                            w.mapping,
+                            draft.output_columns,
+                        ),
+                        written: Object.keys(draft.output_columns),
+                        send: (form) =>
+                            w.createMixed(draft.plan_id, targets, form),
+                    }}
+                />
+            ) : (
+                <div className="fallback-offer-actions">
+                    <Button
+                        variant="outline"
+                        disabled={w.locked}
+                        onClick={() =>
+                            void w.action(w.searchColumnsInstead, "mixed")
+                        }
+                    >
+                        <Search aria-hidden="true" />
+                        {t("fallback.mixed.search")}
+                    </Button>
+                    <label className="fallback-check">
+                        <input
+                            type="checkbox"
+                            checked={w.autoSearch}
+                            onChange={(e) => w.setAutoSearch(e.target.checked)}
+                        />
+                        <span>{t("fallback.autoNext")}</span>
+                    </label>
+                </div>
+            )}
+        </div>
+    );
+}
+
+/**
+ * At the top of a mixed plan, in plain words: which columns the system fills
+ * from its sources and which it has no source for, so that they are searched
+ * on the web with AI.
+ */
+export function MixedPlanNotice({ draft }: { draft: PlanDraft }) {
+    const { t } = useTranslation();
+    const { filled, searched } = columnGroups(draft);
+    return (
+        <div
+            className="notice mixed-notice"
+            role="note"
+            data-testid="mixed-notice"
+        >
+            <p data-testid="mixed-filled">
+                {t("fallback.mixed.filled", { columns: columnLabels(filled) })}
+            </p>
+            <p data-testid="mixed-searched">
+                {t("fallback.mixed.searched", {
+                    columns: columnLabels(searched),
+                })}
+            </p>
+        </div>
+    );
+}
+
+/**
+ * Under the description of a mixed plan: which columns are sent, how to change
+ * what is sent and the kinds of values of the searched columns (the plan is
+ * built again from the same planner draft), and the way back to the system's
+ * sources only.
+ */
+export function MixedPlanExtras({
+    w,
+    draft,
+    preview,
+}: {
+    w: Workflow;
+    draft: PlanDraft;
+    preview: Preview | null;
+}) {
+    const { t } = useTranslation();
+    const [editing, setEditing] = useState(false);
+    const lookup = readLookupTask(draft.plan, draft.output_columns);
+    const targets = draft.searched_targets ?? [];
+    const base = draft.planner_plan_id;
+    return (
+        <div className="fallback-extras" data-testid="mixed-extras">
+            {lookup && (
+                <p data-testid="fallback-sent">
+                    {t("fallback.sent", { columns: lookup.context.join(", ") })}
+                </p>
+            )}
+            {preview && base && !w.job && !editing && (
+                <div className="fallback-offer-actions">
+                    <Button
+                        variant="outline"
+                        disabled={w.locked}
+                        onClick={() => setEditing(true)}
+                    >
+                        {t("fallback.change.open")}
+                    </Button>
+                    <button
+                        type="button"
+                        className="inline-link"
+                        disabled={w.locked}
+                        onClick={() => void w.action(w.useSourcesOnly, "mixed")}
+                    >
+                        {t("fallback.mixed.only")}
+                    </button>
+                </div>
+            )}
+            {preview && base && !w.job && editing && (
+                <section
+                    className="fallback-offer"
+                    data-testid="fallback-change"
+                    aria-label={t("fallback.change.open")}
+                >
+                    <FallbackEditor
+                        w={w}
+                        preview={preview}
+                        initial={
+                            formFromDraft(draft) ??
+                            defaultMixedForm(draft, w.mapping, preview)
+                        }
+                        submit="fallback.change.save"
+                        onCancel={() => setEditing(false)}
+                        scope={{
+                            mapping: searchedMapping(
+                                targets,
+                                w.mapping,
+                                draft.output_columns,
+                            ),
+                            written: Object.keys(draft.output_columns),
+                            send: (form) => w.createMixed(base, targets, form),
+                        }}
+                    />
+                </section>
+            )}
+        </div>
     );
 }

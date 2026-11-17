@@ -55,7 +55,7 @@ book.save(sys.argv[1])
 }
 
 const SWITCH_LABEL =
-    "If the system has no source for this task, search the web with AI";
+    "If the system has no source for the task or for some of its columns, search the web with AI for them";
 
 // Two more columns to fill, both new (the stand-in answers for three).
 async function threeColumns(page: Page, task: string) {

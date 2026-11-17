@@ -16,12 +16,16 @@ import {
 import { columnLetter, parseRange } from "./range";
 import {
     buildFallbackRequest,
+    buildMixedRequest,
     couldOfferFallback,
     defaultFallbackForm,
+    defaultMixedForm,
     fallbackOffer,
     formProblems,
+    partialColumns,
     readFallbackSwitch,
     saveFallbackSwitch,
+    searchedMapping,
     type FallbackForm,
 } from "./fallbackModel";
 import { DEMO_LIMITS, type Limits } from "./useLimits";
@@ -50,6 +54,7 @@ export type Workspace = "dataset" | "plan" | "execution" | "review" | "export";
 export type Operation =
     | "plan"
     | "fallback"
+    | "mixed"
     | "check"
     | "prepared"
     | "validate"
@@ -426,7 +431,15 @@ export function useWorkflow(
                 webLookup &&
                 !supplied &&
                 fallbackOffer(draft, true) !== null;
+            // A plan that can be run but leaves columns without a source gets
+            // a web search for just those columns, added to it.
+            const partial =
+                autoSearch &&
+                webLookup &&
+                !supplied &&
+                partialColumns(draft).length > 0;
             if (search) setOperation({ kind: "fallback", since: Date.now() });
+            if (partial) setOperation({ kind: "mixed", since: Date.now() });
             setPlan(draft);
             setWorkspace("plan");
             // The refusal view and the view of a plan that failed the check
@@ -442,6 +455,97 @@ export function useWorkflow(
                 )
                     setSearchRefusal(refusal);
             }
+            if (partial) {
+                const refusal = await searchColumns(draft);
+                if (
+                    refusal &&
+                    mounted.current &&
+                    revision === generation.current
+                )
+                    setSearchRefusal(refusal);
+            }
+        }
+    }
+    /**
+     * Ask for the mixed plan with the defaults, for a planner draft that left
+     * columns without a source. A refusal is returned, not raised.
+     */
+    async function searchColumns(
+        base: PlanDraft | null = plan && !plan.kind ? plan : null,
+    ): Promise<SearchRefusal | null> {
+        if (!preview || !base) return null;
+        const form = defaultMixedForm(base, mapping, preview);
+        // Nothing to identify a row by: the form says so and asks for a choice.
+        if (
+            formProblems(
+                form,
+                searchedMapping(
+                    base.unfilled_targets ?? [],
+                    mapping,
+                    base.output_columns,
+                ),
+                preview,
+            ).includes("context")
+        )
+            return { code: "fallback_plan_invalid", message: "" };
+        return createMixed(base.plan_id, base.unfilled_targets ?? [], form);
+    }
+    /** The button under the notice: the same as the switch does, for this plan. */
+    async function searchColumnsInstead() {
+        const refusal = await searchColumns();
+        if (mounted.current) setSearchRefusal(refusal);
+    }
+    /**
+     * Ask the server for a mixed plan built from a planner draft: its steps
+     * stay, a web search for `targets` is added. A refusal is returned, not
+     * raised; the plan on the screen stays until a new one replaces it.
+     */
+    async function createMixed(
+        planId: string,
+        targets: string[],
+        form: FallbackForm,
+    ): Promise<SearchRefusal | null> {
+        if (!webLookup || !preview || locked) return null;
+        const revision = generation.current;
+        try {
+            const draft = await api.createFallbackPlan(
+                buildMixedRequest({
+                    planId,
+                    targets,
+                    preview,
+                    mapping,
+                    form,
+                }),
+            );
+            if (mounted.current && revision === generation.current) {
+                invalidate();
+                // Consent is what a run needs; pressing the button in Basic gives it.
+                if (options.implicitConsent) setNetwork(true);
+                setPlan(draft);
+                setWorkspace("plan");
+            }
+            return null;
+        } catch (err) {
+            return {
+                code: code(err),
+                message: err instanceof WorkspaceApiError ? err.message : "",
+            };
+        }
+    }
+    /**
+     * Back from a mixed plan to the planner draft it was built from: it is
+     * stored on the server (an existing route returns it), so nothing is kept
+     * here. The plan with the system's sources only is shown again.
+     */
+    async function useSourcesOnly() {
+        const from = plan?.planner_plan_id;
+        if (!from || locked || plan?.kind !== "mixed") return;
+        const revision = generation.current;
+        const base = await api.getPlan(from);
+        if (mounted.current && revision === generation.current) {
+            invalidate();
+            setPlan(base);
+            setWorkspace("plan");
         }
     }
     /**
@@ -810,6 +914,9 @@ export function useWorkflow(
         action,
         create,
         createFallback,
+        createMixed,
+        searchColumnsInstead,
+        useSourcesOnly,
         searchInstead,
         autoSearch,
         setAutoSearch,

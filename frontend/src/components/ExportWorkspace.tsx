@@ -14,7 +14,7 @@ import {
     provenanceLabel,
     useOffered,
 } from "../capabilities";
-import { isFallbackRun } from "../fallbackModel";
+import { columnGroups, isFallbackRun, isMixedRun } from "../fallbackModel";
 import { useAdvanced } from "../mode";
 import type { Workflow } from "../useWorkflow";
 import {
@@ -26,16 +26,18 @@ import {
     lookupSummary,
     outputColumns,
     resultRows,
+    searchedColumns,
     sortRows,
+    stepTrust,
     type ResultColumn,
     type ResultRow,
     type RowFilter,
     type Sort,
 } from "../resultsModel";
-import { unfilledColumns } from "../planModel";
+import { columnLabels, unfilledColumns } from "../planModel";
 import { Button } from "./ui/button";
 import { Back, EmptyState, ModeNotice, StartOver } from "./WorkspaceViews";
-import { FallbackBanner } from "./FallbackSearch";
+import { FallbackBanner, MixedBanner } from "./FallbackSearch";
 
 function SortHeader({
     label,
@@ -81,6 +83,9 @@ function Note({ row, w }: { row: ResultRow; w: Workflow }) {
         w.job?.status === "needs_review" &&
         w.review?.job_id === w.job.job_id &&
         w.review.items.length > 0;
+    // Only a column the web search fills has no page to name; the others are
+    // empty for the source's own reasons.
+    const searched = searchedColumns(w.plan?.plan ?? null);
     // A name the source did not find may be known to it under another one.
     const canSearch =
         !row.filled &&
@@ -165,7 +170,7 @@ function Note({ row, w }: { row: ResultRow; w: Workflow }) {
                         className="result-cause"
                         data-testid="result-gap"
                     >
-                        {row.lookup
+                        {row.lookup && searched.includes(gap.column)
                             ? t("results.lookupGap", { column: gap.column })
                             : t("results.cause.no_value", {
                                   field: t(`plan.field.${gap.field}`, {
@@ -268,9 +273,12 @@ function Detail({ row, span }: { row: ResultRow; span: number }) {
 function Stats({
     rows,
     columns,
+    trust,
 }: {
     rows: ResultRow[];
     columns: ResultColumn[];
+    /** What the audit says about each step; the plan's capability otherwise. */
+    trust: ReturnType<typeof stepTrust>;
 }) {
     const { t, i18n } = useTranslation();
     const locale = i18n.resolvedLanguage ?? "en";
@@ -283,7 +291,8 @@ function Stats({
                     formatValue(value, locale, column.unit, column.digits);
                 const how = provenanceLabel(
                     t,
-                    capabilityProvenance(offered, column.capability),
+                    (column.stepId ? trust.get(column.stepId) : undefined) ??
+                        capabilityProvenance(offered, column.capability),
                 );
                 return (
                     <li key={column.key}>
@@ -370,6 +379,18 @@ function ResultTable({ w }: { w: Workflow }) {
     );
     const lookup = isFallbackRun(w.job, w.plan) || rows.some((r) => r.lookup);
     const summary = lookupSummary(rows);
+    const mixed = isMixedRun(w.job, w.plan);
+    const trust = useMemo(() => stepTrust(w.report), [w.report]);
+    // A mixed run names the columns the web search filled: the other columns
+    // come from the system's sources.
+    const searched = w.plan
+        ? columnGroups({
+              plan: w.plan.plan,
+              output_columns: w.plan.output_columns,
+              searched_targets:
+                  w.plan.searched_targets ?? w.report?.searched_targets,
+          }).searched
+        : [];
     // Chosen columns the plan had no source for: named once, above the table.
     const unfilled = w.plan ? unfilledColumns(w.plan) : [];
     const spend = w.report?.web_lookup;
@@ -388,7 +409,18 @@ function ResultTable({ w }: { w: Workflow }) {
                     className="fallback-summary"
                     data-testid="fallback-summary"
                 >
-                    <FallbackBanner done />
+                    {mixed && w.plan ? (
+                        <MixedBanner draft={w.plan} done />
+                    ) : (
+                        <FallbackBanner done />
+                    )}
+                    {mixed && searched.length > 0 && (
+                        <p data-testid="lookup-columns">
+                            {t("results.lookup.searched", {
+                                columns: columnLabels(searched),
+                            })}
+                        </p>
+                    )}
                     <p>
                         {t("results.lookup.summary", {
                             asked: summary.asked,
@@ -405,6 +437,10 @@ function ResultTable({ w }: { w: Workflow }) {
                                 searches: spend.web_searches,
                                 configuration: spend.configuration_id,
                             })}
+                            {!!spend.answers_kept &&
+                                ` · ${t("results.lookup.kept", {
+                                    count: spend.answers_kept,
+                                })}`}
                         </p>
                     )}
                 </div>
@@ -412,9 +448,7 @@ function ResultTable({ w }: { w: Workflow }) {
             {unfilled.length > 0 && (
                 <p className="muted" data-testid="unfilled-summary">
                     {t("results.unfilled", {
-                        columns: unfilled
-                            .map((c) => `“${c.name}” (${c.letter})`)
-                            .join(", "),
+                        columns: columnLabels(unfilled),
                     })}
                 </p>
             )}
@@ -438,7 +472,7 @@ function ResultTable({ w }: { w: Workflow }) {
                         </button>
                     ))}
                 </div>
-                <Stats rows={rows} columns={outputs} />
+                <Stats rows={rows} columns={outputs} trust={trust} />
             </div>
             <div
                 className="outcome-table panel-scroll"
@@ -739,7 +773,9 @@ export function ExportWorkspace({
                             {t(
                                 isFallbackRun(w.job, w.plan)
                                     ? "fallback.unresolved"
-                                    : "workflow.unresolved",
+                                    : isMixedRun(w.job, w.plan)
+                                      ? "fallback.mixed.unresolved"
+                                      : "workflow.unresolved",
                             )}
                         </p>
                     )}

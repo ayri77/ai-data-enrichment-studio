@@ -124,7 +124,8 @@ describe("where the search is offered", () => {
         expect(offersFallback(null, false)).toBe(false);
         expect(fallbackOffer(null, true)).toBeNull();
         // A partial plan from the planner (columns named as having no source) is a
-        // runnable plan: it offers nothing, and the search is not started for them.
+        // runnable plan: it offers no whole-task search; what it can have is the
+        // search for those columns alone (see "a mixed plan" below).
         const partial: PlanDraft = {
             ...valid,
             unfilled_targets: ["age"],
@@ -132,7 +133,9 @@ describe("where the search is offered", () => {
         };
         expect(fallbackOffer(partial, true)).toBeNull();
         expect(offersFallback(partial, true)).toBe(false);
-        expect(couldOfferFallback(partial)).toBe(false);
+        // The limits are read again for it all the same: the button for the
+        // columns appears once the server says it can search.
+        expect(couldOfferFallback(partial)).toBe(true);
         // The limits are read again for exactly the cases that may offer it.
         expect(couldOfferFallback(invalid)).toBe(true);
         expect(couldOfferFallback(refused)).toBe(true);

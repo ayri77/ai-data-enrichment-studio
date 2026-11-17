@@ -2,8 +2,22 @@
 
 ## Unreleased
 
-- Mixed plans on the server (the interface does not use them yet; nothing was run live, every
-  test uses fake clients). `POST /api/fallback-plans` accepts `plan_id`, a planner draft with
+- Mixed plans, on the server and in the interface (nothing was run live: every test, in the
+  browser too, uses fake clients and the offline stand-in for the model). The switch under the
+  task now reads "If the system has no source for the task or for some of its columns, search
+  the web with AI for them". A planner draft that passed the check and left columns unfilled gets
+  the web search for those columns added at once (switch on) or after a press of a button in the
+  notice for the columns without a source (switch off, with the same checkbox as for the whole
+  task); the mixed plan has a notice naming the columns of the sources and the searched ones, the
+  search as a marked step in the picture and the list, the usual button for what is sent and the
+  kinds (restricted to the searched columns, built again from the same planner draft), and a link
+  "Use only the system's sources", which fetches the stored planner draft with the existing
+  `GET /api/plans/{id}`. A refusal keeps the partial plan, with the server's message and the form.
+  Review is that of a planner job; Results take each column's trust from `step_provenance`, mark
+  the searched cells and name the searched columns; the Advanced spend line adds
+  `answers_kept`, also for the search of the whole task. A mixed run that ends in "needs review"
+  no longer says its results hold only verified values. The server side:
+  `POST /api/fallback-plans` accepts `plan_id`, a planner draft with
   `unfilled_targets`, and answers a new draft of kind `mixed`: the planner's plan unchanged plus
   one `web_lookup` step (`build_mixed_plan`) for exactly those columns, with `searched_targets`
   and `planner_plan_id` inside the fingerprint; the planner draft is kept and never dropped to

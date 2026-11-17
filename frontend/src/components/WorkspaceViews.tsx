@@ -42,12 +42,20 @@ import {
     FallbackPlanNotice,
     FallbackProgress,
     FallbackSwitch,
+    MixedBanner,
+    MixedPlanExtras,
+    MixedPlanNotice,
+    UnfilledSearch,
     PlannerAnswerView,
 } from "./FallbackSearch";
 import {
     isFallbackDraft,
     isFallbackRun,
+    isMixedDraft,
+    isMixedRun,
     fallbackOffer,
+    partialColumns,
+    unfilledWording,
 } from "../fallbackModel";
 
 /** What is still missing before a plan can be built, next to the button itself. */
@@ -874,10 +882,29 @@ export function PlanWorkspace({
     const searching =
         w.operation?.kind === "fallback" && !!draft && !draft.kind;
     const search = isFallbackDraft(draft);
+    const mixed = isMixedDraft(draft);
+    // The web search for the columns a runnable plan has no source for is
+    // being added to it.
+    const searchingColumns =
+        w.operation?.kind === "mixed" && partialColumns(draft).length > 0;
+    // The notice for the columns without a source, with the way to search
+    // the web for them where the server can do it.
+    const unfilled = draft ? (
+        <UnfilledNotice draft={draft}>
+            {unfilledWording(draft, w.webLookup) === "offer" && (
+                <UnfilledSearch w={w} draft={draft} preview={preview} />
+            )}
+        </UnfilledNotice>
+    ) : null;
     const banner = search ? (
         <div className="fallback-banner-row">
             {w.planner && <FallbackPlanNotice planner={w.planner} />}
             <FallbackBanner />
+        </div>
+    ) : mixed && draft ? (
+        <div className="fallback-banner-row">
+            <MixedPlanNotice draft={draft} />
+            <MixedBanner draft={draft} />
         </div>
     ) : null;
     return (
@@ -904,6 +931,12 @@ export function PlanWorkspace({
                     <div className="plan-words panel-scroll">
                         <FallbackProgress />
                     </div>
+                ) : searchingColumns ? (
+                    <div className="plan-words panel-scroll">
+                        <FallbackProgress
+                            columns={draft.unfilled_targets?.length ?? 0}
+                        />
+                    </div>
                 ) : !draft.plan ? (
                     <div className="plan-words panel-scroll">
                         <PlanRefusal
@@ -922,8 +955,18 @@ export function PlanWorkspace({
                     </div>
                 ) : advanced ? (
                     <>
-                        <UnfilledNotice draft={draft} />
+                        {unfilled}
                         <PlanGraph key={draft.fingerprint} draft={draft} />
+                        {mixed && (
+                            <div className="plan-words">
+                                <MixedPlanExtras
+                                    key={draft.plan_id}
+                                    w={w}
+                                    draft={draft}
+                                    preview={preview}
+                                />
+                            </div>
+                        )}
                         {search && (
                             <div className="plan-words">
                                 <FallbackPlanExtras
@@ -955,8 +998,16 @@ export function PlanWorkspace({
                                 )}
                             </PlanInvalid>
                         )}
-                        <UnfilledNotice draft={draft} />
+                        {unfilled}
                         <PlanDescription draft={draft} />
+                        {mixed && (
+                            <MixedPlanExtras
+                                key={draft.plan_id}
+                                w={w}
+                                draft={draft}
+                                preview={preview}
+                            />
+                        )}
                         {search && (
                             <>
                                 <FallbackPlanExtras
@@ -1299,6 +1350,7 @@ export function ExecutionWorkspace({
     // Basic has nothing left to control once a run exists and is not running.
     const controls = advanced || !w.job || w.active;
     const fallback = isFallbackRun(w.job, w.plan);
+    const mixed = isMixedRun(w.job, w.plan);
     const outcome =
         !advanced && w.job
             ? runOutcome(
@@ -1350,9 +1402,13 @@ export function ExecutionWorkspace({
                     ))}
                     <RunProgress w={w} />
                     <ModeNotice w={w} />
-                    {fallback && (
+                    {(fallback || mixed) && (
                         <>
-                            <FallbackBanner />
+                            {mixed ? (
+                                w.plan && <MixedBanner draft={w.plan} />
+                            ) : (
+                                <FallbackBanner />
+                            )}
                             <p className="muted" data-testid="fallback-sources">
                                 {t(
                                     `fallback.runSources.${w.plan?.sources_in_workbook ?? "none"}`,
@@ -1384,7 +1440,9 @@ export function ExecutionWorkspace({
                                         w.job!.status === "needs_review"
                                             ? fallback
                                                 ? "fallback.unresolved"
-                                                : "workflow.unresolved"
+                                                : mixed
+                                                  ? "fallback.mixed.unresolved"
+                                                  : "workflow.unresolved"
                                             : "ws.terminalHint",
                                     )
                                   : t("ws.startHint")}

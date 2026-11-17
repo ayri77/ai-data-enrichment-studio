@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { PlanDraft } from "../api";
+import { LOOKUP_CAPABILITY } from "../fallbackModel";
 import { describePlan } from "../planModel";
 import type { StepOutcome } from "../runModel";
 import { dependencies, graphLayout } from "../workflowModel";
@@ -91,6 +92,11 @@ export function PlanDiagram({
                             style={{ left: at.x, top: at.y, width: NODE }}
                             aria-pressed={selected === line.id}
                             data-step={line.id}
+                            data-lookup={
+                                line.capability === LOOKUP_CAPABILITY
+                                    ? "true"
+                                    : undefined
+                            }
                             onClick={() =>
                                 onSelect(selected === line.id ? "" : line.id)
                             }
@@ -104,6 +110,14 @@ export function PlanDiagram({
                                 </span>
                                 {t(`plan.do.${line.action}`, line.values)}
                             </strong>
+                            {line.capability === LOOKUP_CAPABILITY && (
+                                <span
+                                    className="node-ai"
+                                    data-testid="node-ai-search"
+                                >
+                                    {t("plan.diagram.aiSearch")}
+                                </span>
+                            )}
                             {line.writes.map((write) => (
                                 <span
                                     className="plan-step-writes"

@@ -289,9 +289,9 @@ it("summarizes numeric columns and formats values for reading", () => {
             assumptions: [],
         } as EnrichmentPlan),
     ).toEqual([
-        { key: "lat", label: "lat", unit: undefined, digits: 5 },
-        { key: "lon", label: "lon", unit: undefined, digits: 5 },
-        { key: "km", label: "km", unit: "km" },
+        { key: "lat", label: "lat", unit: undefined, digits: 5, stepId: "c" },
+        { key: "lon", label: "lon", unit: undefined, digits: 5, stepId: "c" },
+        { key: "km", label: "km", unit: "km", stepId: "d" },
     ]);
     expect(formatValue("Kyiv", "en")).toBe("Kyiv");
     expect(describeValue({ latitude: 50.4547, longitude: 30.5238 }, "en")).toBe(
@@ -526,8 +526,8 @@ it("shows a population without decimals and a timezone as text", () => {
     } as EnrichmentPlan;
     const columns = outputColumns(facts);
     expect(columns).toEqual([
-        { key: "pop", label: "pop", unit: undefined, digits: 0 },
-        { key: "tz", label: "tz", unit: undefined },
+        { key: "pop", label: "pop", unit: undefined, digits: 0, stepId: "c" },
+        { key: "tz", label: "tz", unit: undefined, stepId: "c" },
     ]);
     const shown = (index: number, value: number | string) =>
         formatValue(value, "en", columns[index].unit, columns[index].digits);

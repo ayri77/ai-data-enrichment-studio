@@ -547,7 +547,7 @@ its report have `"kind": "mixed"`.
   kind of trust. The usage summary has the planner's `model` event (purpose `plan`) and the
   lookup's (purpose `web_lookup`), as for the two separate drafts.
 
-The interface does not use any of this yet.
+The interface uses it: see "The universal search" in [the interface](24-five-workspace-ui.md#the-universal-search).
 
 ## Review and resume
 
