@@ -155,6 +155,21 @@ the same independent validation. Ambiguous/unsupported model decisions retain
 Invalid semantic plans remain inspectable drafts and cannot be approved or run.
 Drafts cannot be edited in place: submit a new draft and approve it again.
 
+A plan made by the model may leave some of the chosen columns unfilled: when the
+capabilities can produce some of the requested columns and not others, the planner
+answers `ready` with a plan for the first and names the others. The draft then carries
+`unfilled_targets` (a list of column names; `[]` for a plan that writes every chosen
+column, for a supplied plan and for a fallback draft). `output_columns` stays as it was
+chosen. The field is inside what the fingerprint covers, so it cannot be changed after
+approval; the plan request has no such field, and a plan brought in `plan` must still
+write every chosen column (`OUTPUT_TARGET_MISMATCH`). Validation, approval and run use
+the chosen columns minus the unfilled ones; a name that is not a chosen column or that the
+plan also writes is a validation error (`UNKNOWN_UNFILLED_TARGET`,
+`UNFILLED_TARGET_ALSO_WRITTEN`). A draft stored without the field is read as having none.
+The run writes only what the plan writes: an unfilled new column is not created in the
+result workbook (no header), an unfilled existing column is left exactly as it is, and it
+takes no part in deciding whether a row is already filled.
+
 Approval body: `{"approved":true,"fingerprint":"<displayed-sha256>"}`.
 Run body: `{"allow_network":true,"timeout_seconds":180}`.
 Both server configuration and each live planning/run request must opt in.
@@ -171,6 +186,7 @@ because the worker or workbook workflow failed. Partial DAG successes remain
 visible in the report, and unresolved outputs stay empty.
 
 The report includes the exact approved plan, selection, output mapping,
+`unfilled_targets` (the chosen columns the plan does not write; `[]` if none),
 fingerprint, approval timestamp, source/result SHA-256, limits, execution mode,
 ordered per-record outcomes, per-step values/errors/Evidence, aggregate metrics,
 actual provider request counts and the existing source-linked resolution audit.

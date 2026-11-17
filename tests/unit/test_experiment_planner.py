@@ -61,10 +61,14 @@ def test_a_failed_request_is_timed_too() -> None:
 
 
 def test_every_measured_case_is_an_example_with_its_own_instruction_and_table() -> None:
-    # These two are measurement cases on the Capitals table, not demo examples.
-    assert set(INSTRUCTIONS) - {"capitals_coordinates", "capitals_population"} == {
-        sample.sample_id for sample in sample_catalog.SAMPLES
-    }
+    # These are measurement cases, not demo examples: two on the Capitals table, and the two
+    # with a column no capability can fill.
+    assert set(INSTRUCTIONS) - {
+        "capitals_coordinates",
+        "capitals_population",
+        "mountains_age",
+        "capitals_mayor",
+    } == {sample.sample_id for sample in sample_catalog.SAMPLES}
     for sample in sample_catalog.SAMPLES:
         # Measured with the words a visitor of the demo gets.
         assert INSTRUCTIONS[sample.sample_id] == sample.instruction
@@ -179,6 +183,7 @@ def test_the_summary_keeps_the_validity_count_and_adds_the_route_numbers() -> No
         "refused": 1,
         "invalid": 2,
         "plans_with_literal_inputs": 1,
+        "valid_handed_away_expected_filled": 0,
         "headline": "2 of 8: valid and on the expected route",
     }
 
@@ -195,6 +200,7 @@ def test_the_console_summary_shows_every_number_and_warns_about_literals(
         "(LITERAL_INPUT x1, WRONG_PARAMETER x1, WRONG_SOURCE_COLUMN x1, WRONG_UNIT x1)" in out
     )
     assert "Noted, not failed: UNUSED_STEP in 1 run(s)" in out
+    assert "Valid plans that handed away a target the case expects to be filled: 0/8" in out
     assert "Refused: 1 | invalid: 2" in out
     assert "Headline: 2 of 8: valid and on the expected route" in out
     assert "WARNING: 1 plan(s) contain a literal input" in out
@@ -281,6 +287,61 @@ def test_a_measurement_with_a_fake_model_reports_and_saves_the_route_numbers(
     assert routes["valid_deviating_route"] == 1
     assert [r["route"]["verdict"] for r in routes["runs"]] == [r["route"]["verdict"] for r in runs]
     assert json.loads((directory / "summary.json").read_text("utf-8")) == saved
+
+
+def test_a_measurement_of_a_partial_case_records_the_unfilled_targets_and_counts_handing_away(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mountains = json.loads(Path("demo/mountains_api_plan.json").read_text("utf-8"))
+    renamed = copy.deepcopy(mountains)
+    renamed["outputs"][0]["target_column"] = "age"
+    answers: list[str | dict[str, Any]] = [
+        # The expected answer: the height is written, the age is named as unfilled.
+        {"status": "ready", "plan": mountains, "reason": None, "unfilled_targets": ["age"]},
+        # The height is handed away although a capability can produce it.
+        {"status": "ready", "plan": renamed, "reason": None, "unfilled_targets": ["height"]},
+        # Both targets written: the age is not handed away.
+        {"status": "unsupported", "plan": None, "reason": "no", "unfilled_targets": []},
+    ]
+    both = copy.deepcopy(mountains)
+    both["steps"].append(copy.deepcopy(both["steps"][-1]))
+    both["steps"][-1]["id"] = "age_step"
+    both["outputs"].append({**both["outputs"][0], "step_id": "age_step", "target_column": "age"})
+    answers.insert(2, {"status": "ready", "plan": both, "reason": None})
+    scripted = ScriptedPlanClient(*answers)
+    monkeypatch.setattr(experiment_planner, "OpenAI", _NoApi)
+    monkeypatch.setattr(experiment_planner, "OpenAIPlanClient", lambda **_: scripted)
+    monkeypatch.setenv("OPENAI_API_KEY", "not-a-key")
+    out = tmp_path / "out"
+    experiment_planner.run(
+        [
+            "--case", "mountains_age", "--model", "fake", "--repeat", "4", "--repairs", "0",
+            "--output-targets", "height,age", "--out", str(out),
+        ]
+    )  # fmt: skip
+    (directory,) = out.iterdir()
+    saved = json.loads((directory / "summary.json").read_text("utf-8"))
+    runs = saved["runs"]
+    assert [r["unfilled_targets"] for r in runs[:2]] == [["age"], ["height"]]
+    assert [r["route"]["verdict"] for r in runs] == [
+        "expected",
+        "deviates",
+        "deviates",
+        "not_judged",
+    ]
+    codes = [{d["code"] for d in r["route"]["deviations"]} for r in runs[1:3]]
+    assert "TARGET_HANDED_AWAY" in codes[0] and "TARGET_NOT_HANDED_AWAY" in codes[0]
+    assert codes[1] == {"TARGET_NOT_HANDED_AWAY"}
+    assert saved["valid_handed_away_expected_filled"] == 1
+    assert saved["valid_on_expected_route"] == 1
+    printed = capsys.readouterr().out
+    assert "unfilled=['age']" in printed and "unfilled=['height']" in printed
+    assert "handed away a target the case expects to be filled: 1/4" in printed
+    # Judged again offline: the unfilled targets are read from the saved runs.
+    experiment_planner.run(["--routes-only", str(directory)])
+    again = json.loads((directory / "routes.json").read_text("utf-8"))
+    assert [r["unfilled_targets"] for r in again["runs"][:2]] == [["age"], ["height"]]
+    assert again["valid_handed_away_expected_filled"] == 1
 
 
 def test_routes_only_judges_a_run_saved_before_the_route_check_existed(

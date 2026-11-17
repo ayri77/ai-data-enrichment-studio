@@ -36,6 +36,24 @@ CAPITALS_POPULATION_INSTRUCTION = (
     "disambiguate. Write it into a new column named population. Leave unresolved or "
     "ambiguous results empty; do not invent values."
 )
+# A task where one of two columns has no source in the system: the height has one, the
+# geological age of a mountain has none. Not a sample of the demo.
+MOUNTAINS_AGE_INSTRUCTION = (
+    "Find the elevation in metres of each mountain in Mountain, using Country to "
+    "disambiguate. Write verified values into height. Also find the geological age of the "
+    "mountain in millions of years, into a new column named age. Leave unresolved or "
+    "ambiguous results empty; do not invent values."
+)
+# The same on the Capitals table: the distance has a source, the mayor of a city has none.
+# Not a sample of the demo.
+CAPITALS_MAYOR_INSTRUCTION = (
+    "Calculate the great-circle distance in kilometers between each pair of cities in "
+    "Capital_From and Capital_To. Use Country_From and Country_To to disambiguate locations. "
+    "Treat all locations as literal cities, including Istanbul. Write verified distances "
+    "into the distance output column. Also find the name of the current mayor of the city in "
+    "Capital_From, into a new column named mayor. Leave unresolved or ambiguous results "
+    "empty; do not invent values."
+)
 # The partly filled table is measured with the instruction a visitor gets, too.
 _GAPS = sample_catalog.find("mountains_gaps")
 assert _GAPS is not None
@@ -51,9 +69,16 @@ RANGES = {
     "capitals_roads": "A1:G11",
     "capitals_coordinates": "A1:E11",
     "capitals_population": "A1:E11",
+    "mountains_age": "A1:C11",
+    "capitals_mayor": "A1:E11",
 }
 # A case measured on the table of another one.
-WORKBOOKS = {"capitals_coordinates": "capitals", "capitals_population": "capitals"}
+WORKBOOKS = {
+    "capitals_coordinates": "capitals",
+    "capitals_population": "capitals",
+    "mountains_age": "mountains",
+    "capitals_mayor": "capitals",
+}
 
 
 def workbook_profile(name: str) -> DatasetProfile:

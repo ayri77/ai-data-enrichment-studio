@@ -20,6 +20,12 @@ The partly filled table (empty cells are filled, the others kept):
 
     ... --case mountains_gaps --output-targets height --repeat 10
 
+A task where one column has no source, so that the planner should name it as unfilled and
+fill the other (the route check then expects exactly that column to be handed away):
+
+    ... --case mountains_age --output-targets height,age
+    ... --case capitals_mayor --output-targets distance,mayor
+
 A reasoning model is measured with its effort stated, because the default effort is the
 model's own and its reasoning tokens count against the output budget:
 
@@ -58,8 +64,10 @@ from scripts.planner_routes import ROUTES, check_route
 from tests.support.planning import (
     CAPITALS_COORDINATES_INSTRUCTION,
     CAPITALS_INSTRUCTION,
+    CAPITALS_MAYOR_INSTRUCTION,
     CAPITALS_POPULATION_INSTRUCTION,
     CAPITALS_ROADS_INSTRUCTION,
+    MOUNTAINS_AGE_INSTRUCTION,
     MOUNTAINS_GAPS_INSTRUCTION,
     MOUNTAINS_INSTRUCTION,
     workbook_profile,
@@ -85,6 +93,10 @@ INSTRUCTIONS = {
     "capitals_coordinates": CAPITALS_COORDINATES_INSTRUCTION,
     # One geocode step, one new column: a fact of the found place, not its position.
     "capitals_population": CAPITALS_POPULATION_INSTRUCTION,
+    # Two columns asked for, one of them with no source in the system: the planner may
+    # answer "ready" for the column it can fill and name the other as unfilled.
+    "mountains_age": MOUNTAINS_AGE_INSTRUCTION,
+    "capitals_mayor": CAPITALS_MAYOR_INSTRUCTION,
 }
 # What each case must produce, and how, is in scripts/planner_routes.py: ROUTES has the same keys.
 
@@ -158,7 +170,8 @@ def judge_route(record: dict[str, object], case: str) -> None:
         route["unreadable_plan"] = True  # A plan of an older schema: neither on nor off route.
         return
     columns = [column.name for column in workbook_profile(case).columns]
-    verdict = check_route(parsed, ROUTES[case], columns)
+    unfilled = cast(list[str], record.get("unfilled_targets") or [])
+    verdict = check_route(parsed, ROUTES[case], columns, unfilled)
     route["verdict"] = "expected" if verdict.on_route else "deviates"
     route["deviations"] = [
         {"code": d.code.value, "message": d.message, "blocking": d.blocking}
@@ -188,9 +201,11 @@ def run_line(record: dict[str, object], index: int, total: int) -> str:
         (a["outcome"], a["diagnostic_codes"])
         for a in cast(list[dict[str, Any]], record.get("attempts", []))
     ]
+    unfilled = record.get("unfilled_targets") or []
     return (
         f"[{index}/{total}] {record['status']} | valid={record['valid']} | "
         f"attempts={outcomes} | seconds={record.get('request_seconds', [])}"
+        + (f" | unfilled={unfilled}" if unfilled else "")
     )
 
 
@@ -223,6 +238,14 @@ def route_summary(records: list[dict[str, object]], total: int) -> dict[str, obj
         counts.update({d["code"] for d in deviations if d["blocking"]})
         notes.update({d["code"] for d in deviations if not d["blocking"]})
     refused = sum(r.get("status") in ("unsupported", "ambiguous") for r in records)
+    # Valid plans that listed a target as having no source where the case expects a source.
+    handed_away = sum(
+        any(
+            d["code"] == "TARGET_HANDED_AWAY"
+            for d in cast(list[dict[str, Any]], cast(dict[str, Any], r["route"])["deviations"])
+        )
+        for r in valid
+    )
     return {
         "success_count": len(valid),
         "valid_on_expected_route": on_route,
@@ -233,6 +256,7 @@ def route_summary(records: list[dict[str, object]], total: int) -> dict[str, obj
         "refused": refused,
         "invalid": len(records) - len(valid) - refused,
         "plans_with_literal_inputs": sum(has_literal_input(r) for r in records),
+        "valid_handed_away_expected_filled": handed_away,
         "headline": f"{on_route} of {total}: valid and on the expected route",
     }
 
@@ -251,6 +275,10 @@ def print_route_summary(summary: dict[str, object], total: int) -> None:
         print(
             "Noted, not failed: " + ", ".join(f"{code} in {n} run(s)" for code, n in notes.items())
         )
+    print(
+        "Valid plans that handed away a target the case expects to be filled: "
+        f"{summary['valid_handed_away_expected_filled']}/{total}"
+    )
     print(f"Refused: {summary['refused']} | invalid: {summary['invalid']}")
     print(f"Headline: {summary['headline']}")
     if summary["plans_with_literal_inputs"]:
@@ -285,6 +313,7 @@ def rejudge(directory: Path, expected_case: str | None = None) -> dict[str, obje
                 "run": r.get("run"),
                 "status": r.get("status"),
                 "valid": r.get("valid"),
+                "unfilled_targets": r.get("unfilled_targets") or [],
                 "route": r["route"],
             }
             for r in records
@@ -398,6 +427,7 @@ def run(argv: list[str] | None = None) -> None:
                 record.update(
                     status=result.response.status,
                     reason=result.response.reason,
+                    unfilled_targets=list(result.unfilled_targets),
                     valid=result.validation.valid if result.validation else False,
                     attempts=[asdict(a) for a in result.attempts],
                     diagnostics=(

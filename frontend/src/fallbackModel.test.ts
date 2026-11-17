@@ -123,6 +123,16 @@ describe("where the search is offered", () => {
         expect(offersFallback(invalid, false)).toBe(false);
         expect(offersFallback(null, false)).toBe(false);
         expect(fallbackOffer(null, true)).toBeNull();
+        // A partial plan from the planner (columns named as having no source) is a
+        // runnable plan: it offers nothing, and the search is not started for them.
+        const partial: PlanDraft = {
+            ...valid,
+            unfilled_targets: ["age"],
+            output_columns: { distance: "E", age: "F" },
+        };
+        expect(fallbackOffer(partial, true)).toBeNull();
+        expect(offersFallback(partial, true)).toBe(false);
+        expect(couldOfferFallback(partial)).toBe(false);
         // The limits are read again for exactly the cases that may offer it.
         expect(couldOfferFallback(invalid)).toBe(true);
         expect(couldOfferFallback(refused)).toBe(true);

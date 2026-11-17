@@ -29,7 +29,12 @@ import { clock, useElapsed } from "./ActivityBar";
 import { Button } from "./ui/button";
 import { ProviderSettings } from "./ProviderSettings";
 import { PlanGraph } from "./PlanGraph";
-import { PlanDescription, PlanInvalid, PlanRefusal } from "./PlanDescription";
+import {
+    PlanDescription,
+    PlanInvalid,
+    PlanRefusal,
+    UnfilledNotice,
+} from "./PlanDescription";
 import {
     FallbackBanner,
     FallbackOffer,
@@ -917,6 +922,7 @@ export function PlanWorkspace({
                     </div>
                 ) : advanced ? (
                     <>
+                        <UnfilledNotice draft={draft} />
                         <PlanGraph key={draft.fingerprint} draft={draft} />
                         {search && (
                             <div className="plan-words">
@@ -949,6 +955,7 @@ export function PlanWorkspace({
                                 )}
                             </PlanInvalid>
                         )}
+                        <UnfilledNotice draft={draft} />
                         <PlanDescription draft={draft} />
                         {search && (
                             <>

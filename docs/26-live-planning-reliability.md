@@ -533,6 +533,117 @@ The fix for the refusal is a sentence in the planner's instruction, which change
 planner is shown. It goes in together with the next change to the planner (naming the columns
 it cannot fill), so that one new measurement covers both.
 
+### Naming the columns it cannot fill (not measured)
+
+**None of this has been measured.** The change is made and tested offline with scripted
+answers only; no model has seen the new texts. Every number in this document above this
+section describes the planner without them.
+
+**What changed.** Until now a plan had to write exactly the output columns the user chose
+(`OUTPUT_TARGET_MISMATCH`). With five chosen columns and a source for four, the planner had to
+refuse the task or return a plan for four, which failed validation, and nothing verified was
+filled. The planner may now answer `ready` with a plan for the columns it can fill and name the
+others in a new field of its answer, `unfilled_targets` (a list of column names, empty by
+default, only allowed with `ready`). The server then offers a runnable plan for the covered
+columns and says which columns have no source. The planner is told nothing about what happens to
+the listed columns, and nothing in what it is shown mentions a web search.
+
+**What the planner is now told**, verbatim. In the system text of `LLMPlanner.generate`, the
+sentence about `output_targets` changed from "write each one exactly once as an output
+target_column and use no other target name." to:
+
+> write each one exactly once as an output target_column, except the ones you list in
+> unfilled_targets, and use no other target name.
+
+and directly after it:
+
+> If the capabilities can produce what some of the output_targets ask for but not what others
+> ask for, answer status 'ready' with a plan that writes the targets it can, and list the names
+> of the others in unfilled_targets. A target belongs in unfilled_targets only when no
+> capability can produce what that column asks for: never to shorten a plan, never because a
+> value might be missing for some rows, and never when a capability can produce it. Each target
+> is either written by the plan or listed in unfilled_targets, not both. Do not write a
+> substitute value into a listed column and do not build steps for it. When no target can be
+> produced at all, answer 'unsupported'. Otherwise unfilled_targets is an empty list.
+
+In `PLAN_CONTRACT_GUIDANCE` (shared with the repair stage of the M4 agent, which is why this
+sentence says nothing about unfilled targets), after "... is never a reason to abstain.":
+
+> Cells of a target column that already hold a value are kept by the run unless the user chose
+> to replace them; the plan maps a step's result to the column and needs no step or capability
+> for that.
+
+In `_ABSTENTION_CHALLENGE_REQUEST`, one phrase: "can produce the requested output" became "can
+produce any of the requested output", so that the challenge does not push a model that can fill
+part of the task to refuse all of it. `_REPAIR_REQUEST` was read and is unchanged: it does not
+contradict the new rule. The response schema gains the property `unfilled_targets` (an array of
+strings, not required). The capability descriptions are unchanged.
+
+**Why.** Two pieces of evidence above. (1) The baseline refusal on `mountains_gaps`: the planner
+did not know that a run keeps cells that already hold a value, and refused on that ground; the
+second sentence states the fact, the same kind of fix as "leave unresolved results empty" on
+2026-11-14. (2) The six-capabilities measurement: the planner follows the letter of its
+instruction, and a rule that pushes it to produce "something" makes weaker models invent. So the
+new rule says when a column may be listed (only when no capability can produce it), forbids the
+three shortcuts, forbids a substitute value, and keeps `unsupported` for the case where nothing
+can be produced. How it follows the rule is exactly what is not measured. Known risk: the
+unchanged sentence "If no supported chain exists or intent is insufficiently specified, abstain"
+still reads as a reason to refuse a task that can be done in part; the new rule is more specific
+and comes first in the text, but whether the model weighs it that way is for the measurement.
+
+**Validation.** The columns a plan must write are the requested ones minus the unfilled ones,
+computed in one function, `apply_unfilled_targets` in `validation/plan_validator.py`, which the
+planner loop and the server's validation both call. `PlanValidator` itself keeps its one rule
+and does not know about unfilled targets. A name that is not a requested target
+(`UNKNOWN_UNFILLED_TARGET`), a name the plan also writes (`UNFILLED_TARGET_ALSO_WRITTEN`), and
+unfilled names in a request without output targets (`UNFILLED_TARGETS_WITHOUT_TARGETS`) are
+diagnostics that go back to the model through the repair loop; such a name reduces nothing, so
+a missing column is still reported. Every other check applies to the plan as before.
+
+**What the measurement must show before this is merged.** At `gpt-6-luna`, effort `low`, ten
+runs per case, with the output targets the interface sends:
+
+1. The six existing cases stay valid and on the expected route (compare with the baseline
+   above: 59 of 60), and **no target is handed away**: the count "Valid plans that handed away a
+   target the case expects to be filled" is 0 in every one of them (`TARGET_HANDED_AWAY` is a
+   blocking deviation).
+2. `mountains_gaps` loses its refusal, or at least does not get worse (baseline: 9 valid, 1
+   refused).
+3. The two new cases, `mountains_age` (targets `height,age`) and `capitals_mayor` (targets
+   `distance,mayor`), hand away exactly the expected column (`age`, `mayor`) and write the other
+   by its route; a plan that writes the column nothing can fill is `TARGET_NOT_HANDED_AWAY`, and
+   one that hands away the other column is `TARGET_HANDED_AWAY`.
+4. No plan that invents (a literal input, a made-up entity, a substitute value) and no new
+   refusal on the six existing cases.
+
+The eight commands (PowerShell, from the repository root; `capitals_roads` needs the routing key
+in the environment):
+
+```powershell
+uv run --env-file .env python -m scripts.experiment_planner --case capitals --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets distance
+uv run --env-file .env python -m scripts.experiment_planner --case mountains --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets height
+uv run --env-file .env python -m scripts.experiment_planner --case capitals_roads --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets distance,road,detour
+uv run --env-file .env python -m scripts.experiment_planner --case mountains_gaps --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets height
+uv run --env-file .env python -m scripts.experiment_planner --case capitals_coordinates --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets latitude,longitude
+uv run --env-file .env python -m scripts.experiment_planner --case capitals_population --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets population
+uv run --env-file .env python -m scripts.experiment_planner --case mountains_age --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets height,age
+uv run --env-file .env python -m scripts.experiment_planner --case capitals_mayor --model gpt-6-luna --reasoning-effort low --repeat 10 --output-targets distance,mayor
+```
+
+The baseline above was taken with the same `--output-targets` as these lines, for all six
+cases, so the two measurements differ only in what the planner is shown.
+
+**The new cases.** `mountains_age` asks for the height of each mountain and "the geological age
+of the mountain in millions of years, into a new column named age"; `capitals_mayor` asks for
+the great-circle distance and "the name of the current mayor of the city in Capital_From, into
+a new column named mayor". No capability knows either. The script records the unfilled targets
+of each run and counts the valid plans that handed away a target the case expects to be filled
+(`valid_handed_away_expected_filled` in `summary.json`).
+
+**Not connected to the search.** Nothing in this step offers or starts the universal search for
+the listed columns; the search is offered exactly as before (`fallbackOffer`, which gives
+nothing for a runnable plan).
+
 ### Where models are described
 
 `src/ai_data_enrichment/planning/model_catalog.py` is the one place. Each `ModelSpec` has

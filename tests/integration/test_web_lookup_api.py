@@ -580,6 +580,7 @@ def test_a_service_that_gets_a_lookup_plan_from_the_planner_refuses_it(
             status, reason = "ready", None
 
         attempts: list[Any] = []
+        unfilled_targets: tuple[str, ...] = ()
 
     Generated.response.plan = plan  # type: ignore[attr-defined]
 
