@@ -404,10 +404,11 @@ def test_a_second_run_from_kept_answers_writes_the_same_workbook(
         SQLiteOperationCache(caches / "values.sqlite") as values,
         SQLiteResolutionCache(caches / "entities.sqlite") as entities,
     ):
-        # Nowhere and Broken failed and were not kept; they are the only rows asked.
+        # Nowhere ("nothing found") is kept like a found answer; Broken failed to be read
+        # and was not kept: it is the only row asked.
         def only_failures(kwargs: dict[str, Any]) -> Any:
             text: str = kwargs["input"]
-            assert "- Mountain: Nowhere" in text or "- Mountain: Broken" in text, text
+            assert "- Mountain: Broken" in text, text
             return answer(kwargs)
 
         second = run_fallback(
@@ -416,7 +417,7 @@ def test_a_second_run_from_kept_answers_writes_the_same_workbook(
             api=RowApi(only_failures, api_key=KEY),
             reuse=(values, entities),
         )
-    assert len(second.api.calls) == second.usage.totals().requests == 2
+    assert len(second.api.calls) == second.usage.totals().requests == 1
 
     # The same cells, the same notes, the same Sources rows: nothing is lost on the way
     # through the file (links, basis, quote, unit, the kept cell).
@@ -432,7 +433,8 @@ def test_a_second_run_from_kept_answers_writes_the_same_workbook(
     after = {record.record_id: record.row_result for record in second.result.job_result.records}
     assert after == before  # values, evidence and error codes, row for row
     metrics = second.result.job_result.metrics
-    assert (metrics.persistent_cache_hits, metrics.executed_handler_calls) == (3, 2)
-    # Four rows are settled by kept answers: Everest twice (one is a repeat), Lhotse, K2.
-    assert second.result.job_result.kept_answers == {"web_lookup": 4}
-    assert second.result.job_result.provider_requests["openai_web_search"].operations_started == 2
+    assert (metrics.persistent_cache_hits, metrics.executed_handler_calls) == (4, 1)
+    # Five rows are settled by kept answers: Everest twice (one is a repeat), Lhotse, K2
+    # and Nowhere (nothing found).
+    assert second.result.job_result.kept_answers == {"web_lookup": 5}
+    assert second.result.job_result.provider_requests["openai_web_search"].operations_started == 1

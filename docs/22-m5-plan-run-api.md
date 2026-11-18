@@ -171,7 +171,9 @@ result workbook (no header), an unfilled existing column is left exactly as it i
 takes no part in deciding whether a row is already filled.
 
 Approval body: `{"approved":true,"fingerprint":"<displayed-sha256>"}`.
-Run body: `{"allow_network":true,"timeout_seconds":180}`.
+Run body: `{"allow_network":true,"timeout_seconds":180}`. A run of a plan that searches the web
+(kind `fallback` or `mixed`) gets `max_timeout_seconds` when the body has no `timeout_seconds`;
+the interface leaves the field out for such a plan unless the person edited the limit.
 Both server configuration and each live planning/run request must opt in.
 No missing configuration or provider failure falls back to fixtures.
 
@@ -402,15 +404,23 @@ served even after the deadline. What a key is made of: the capability, its sourc
 (`openai_web_search`), the configuration id (prompt version, model, reasoning effort), the whole
 task text (question, context columns, each target's column, kind and unit) and the row's context
 values; a change in any of them is another key and asks again. Two identical rows of one job
-still cost one request. **Known cost:** only successes are kept. A row that ended
-`NOTHING_FOUND`, `DEADLINE_REACHED`, `PROVIDER_ERROR`, `INVALID_RESPONSE` or any other failure is
-asked (and paid for) again by every later run, so a row for which nothing can be found costs a
-request on every run. The cache belongs to the plan (its own directory beside the dataset, in
+still cost one request. **What is kept:** a found answer, and the answer "nothing found" of a row
+(`NOTHING_FOUND`: the search ran and no value could be named for any column), for the same
+lifetime and under the same key. That answer is stored as a found record in which no slot has a
+value, which a found record never is, and is read back as the failure `NOTHING_FOUND`; the
+row ends as it did (the failure's message is stored in the quote of that one empty slot). Every
+other failure is a failure of delivery or of the input, not an answer, and is asked (and paid
+for) again by every later run: `DEADLINE_REACHED`, `PROVIDER_ERROR`, `SOURCE_ACCESS_DENIED`,
+`REQUEST_REFUSED`, `RESPONSE_INCOMPLETE`, `INVALID_RESPONSE`, `INVALID_INPUT`, `MISSING_VALUE`.
+So a row for which nothing can be found is asked once for the life of the plan, not on every
+run; to ask it again, build the plan again (a plan built again is a new plan and has no kept
+answers) or change the task. Only the search is kept this way: for every other capability a
+failure, including a name that was not found, is still asked again. The cache belongs to the plan (its own directory beside the dataset, in
 the application's temporary workspace directory, which is removed when the application ends):
 another plan, even with the same question and table, does not see these answers. Keys are digests; the file holds the found values, their
 links and quotes, never the API key, and nothing of it is logged. The report's `web_lookup` block
 counts only requests actually made and has `answers_kept`: the number of rows a kept answer
-settled in that job (the repeat of a kept row counts too); it is 0 where the worker did not
+(found, or "nothing found") settled in that job (the repeat of a kept row counts too); it is 0 where the worker did not
 finish and could not say (a stopped run). `execution.metrics.persistent_cache_hits`
 still counts the operations read from the file (a kept answer repeated in one job is one hit and
 one in-memory reuse), so the two differ by those repeats and, in a plan with other steps, by
@@ -446,7 +456,8 @@ for are not listed. `step_provenance` names `web_lookup`, source `openai_web_sea
 them yet. The job status rules are unchanged: a run in which every row had a value written
 is `completed`; a row with `NOTHING_FOUND` is a failed row, so the job is `needs_review`,
 although there is nothing to decide in Review (resume is refused for such a job; run the plan
-again, which asks only for the rows that were not answered, see "Kept answers").
+again, which asks only for the rows that were not answered, see "Kept answers": a row with
+`NOTHING_FOUND` is not asked again, so the job stays `needs_review` with the same rows).
 
 **The usage summary.** The spend is one `model` event with `purpose: "web_lookup"`, the
 model, `requests`, `input_tokens`, `output_tokens` and `web_searches`; `GET /api/usage`
@@ -536,8 +547,8 @@ its report have `"kind": "mixed"`.
   to decide for the lookup step.
 * **Resume** applies the choices and re-executes the whole plan as a new job of the same plan.
   The lookup step is answered from the plan's kept answers (see "Kept answers"): no request
-  for a row answered by an earlier job of the plan; only rows with no kept answer (a failure is
-  never kept) are asked again. The report's `web_lookup.answers_kept` says how many rows were
+  for a row answered by an earlier job of the plan, including a row answered "nothing found"; only
+  rows with no kept answer (a failure of delivery or of the input is never kept) are asked again. The report's `web_lookup.answers_kept` says how many rows were
   taken over. A pure fallback job is still not resumable.
 * **The report** has, besides the planner's fields, `kind: "mixed"`, `searched_targets`,
   `unfilled_targets: []`, the `web_lookup` block, `ai_found` per row for the searched columns
@@ -646,7 +657,8 @@ a directory beside its runs with two SQLite caches (`orchestration/live_executor
 `reuse`): verified entities with their resolution reports, and values read from
 a source record. A later run of that plan — a resume or **Retry same approved
 plan** — takes those over for `RESULT_REUSE_SECONDS` (one hour, `run_limits.py`).
-Only successes are kept: a name without a confirmed match is asked for again, a
+Only successes are kept (the one exception is the universal search's answer "nothing found"):
+a name without a confirmed match is asked for again, a
 user's own selection never comes from a cache and is verified against the source
 each time, and distances are computed, not kept. The universal search's answers are
 kept the same way (see "Kept answers"), also in the values cache. Plans do not share the caches,

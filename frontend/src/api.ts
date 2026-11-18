@@ -567,7 +567,7 @@ export const api = {
             approved: true,
             fingerprint,
         }),
-    startRun: (id: string, allow_network: boolean, timeout_seconds: number) =>
+    startRun: (id: string, allow_network: boolean, timeout_seconds?: number) =>
         post<Job>(`/api/plans/${id}/runs`, { allow_network, timeout_seconds }),
     getJob: (id: string, signal?: AbortSignal) =>
         response<Job>(call(`/api/jobs/${id}`, { signal })),
@@ -607,7 +607,7 @@ export const api = {
         id: string,
         decisions: ReviewDecision[],
         allow_network: boolean,
-        timeout_seconds: number,
+        timeout_seconds?: number,
     ) =>
         post<Job>(`/api/jobs/${id}/resume`, {
             decisions,

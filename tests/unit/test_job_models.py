@@ -280,6 +280,21 @@ def test_persistent_ttls_require_explicit_approved_binding_and_positive_value() 
             )
 
 
+def test_keeping_nothing_found_needs_a_persistent_ttl_for_the_binding() -> None:
+    binding = ("web_lookup", "openai_web_search")
+    kept = JobExecutionPolicy(
+        memoizable_providers=frozenset({binding}),
+        persistent_cache_ttls={binding: 30.0},
+        kept_nothing_found=frozenset({binding}),
+    )
+    assert kept.kept_nothing_found == {binding}
+    assert JobExecutionPolicy().kept_nothing_found == frozenset()
+    with pytest.raises(ValidationError, match="persistent cache TTL"):
+        JobExecutionPolicy(
+            memoizable_providers=frozenset({binding}), kept_nothing_found=frozenset({binding})
+        )
+
+
 def test_persistent_cache_accounting_and_memoization_from_sqlite_hits() -> None:
     metrics = JobExecutionMetrics(
         logical_operations=4,

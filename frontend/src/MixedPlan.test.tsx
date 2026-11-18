@@ -868,3 +868,104 @@ it("speaks the other languages too", async () => {
         );
     }
 });
+
+// --- The time limit of a run that searches --------------------------------------------
+
+// Advanced: the same task, built with the network box ticked, approved, not yet run.
+async function advancedMixedPlan() {
+    localStorage.setItem("enrichment.mode", "advanced");
+    switchOn();
+    render(<App opening="dataset" />);
+    await userEvent.upload(
+        screen.getByLabelText("Upload Excel workbook"),
+        new File(["x"], "mountains.xlsx"),
+    );
+    await userEvent.click(button("previewAction"));
+    fireEvent.change(await screen.findByLabelText("Enrichment instruction"), {
+        target: { value: partialDraft.instruction },
+    });
+    await userEvent.selectOptions(
+        screen.getByLabelText("Output column 1", { exact: true }),
+        "E",
+    );
+    await userEvent.click(button("workflow.addMapping"));
+    await userEvent.selectOptions(
+        screen.getByLabelText("Output column 2", { exact: true }),
+        "F",
+    );
+    await userEvent.click(screen.getByLabelText(t("workflow.network")));
+    await userEvent.click(button("ws.buildPlan"));
+    await screen.findByTestId("mixed-notice");
+    await userEvent.click(
+        await screen.findByRole("button", { name: t("ws.approveContinue") }),
+    );
+}
+const timeoutField = async () => {
+    await nav("dataset");
+    const field = screen.getByLabelText(t("workflow.timeout"));
+    if (!field.closest("details")!.open)
+        await userEvent.click(screen.getByText(t("ws.advancedControls")));
+    return field as HTMLInputElement;
+};
+const chooseK2 = async () => {
+    await nav("review");
+    await userEvent.click(
+        within(
+            await screen.findByTestId("candidate-wikidata:Q43512"),
+        ).getByRole("radio"),
+    );
+};
+
+it("starts a mixed plan without a time limit, so that the server's own applies", async () => {
+    await toMixedPlan();
+    await userEvent.click(button("ws.approveRun"));
+    await waitFor(() => expect(api.startRun).toHaveBeenCalled());
+    expect(api.startRun).toHaveBeenCalledWith("plan-mixed", true, undefined);
+});
+it("shows the longest limit in Advanced for a plan that searches, and sends nothing until it is edited", async () => {
+    await advancedMixedPlan();
+    expect((await timeoutField()).value).toBe("300");
+    await nav("execution");
+    await userEvent.click(button("workflow.run"));
+    await waitFor(() => expect(api.startRun).toHaveBeenCalled());
+    expect(api.startRun).toHaveBeenCalledWith("plan-mixed", true, undefined);
+});
+it("sends the limit the person typed for a plan that searches", async () => {
+    await advancedMixedPlan();
+    fireEvent.change(await timeoutField(), { target: { value: "200" } });
+    await nav("execution");
+    await userEvent.click(button("workflow.run"));
+    await waitFor(() => expect(api.startRun).toHaveBeenCalled());
+    expect(api.startRun).toHaveBeenCalledWith("plan-mixed", true, 200);
+});
+it("resumes a mixed job without a time limit unless it was edited", async () => {
+    vi.mocked(api.resumeJob).mockResolvedValue({
+        ...mixedJob,
+        job_id: "job-resumed",
+        previous_job_id: mixedJob.job_id,
+    });
+    await toMixedPlan();
+    await userEvent.click(button("ws.approveRun"));
+    await waitFor(() => expect(api.getReview).toHaveBeenCalled());
+    await chooseK2();
+    await userEvent.click(button("review.resume"));
+    await waitFor(() => expect(api.resumeJob).toHaveBeenCalled());
+    expect(vi.mocked(api.resumeJob).mock.calls[0][2]).toBe(true);
+    expect(vi.mocked(api.resumeJob).mock.calls[0][3]).toBeUndefined();
+});
+it("resumes a mixed job with the limit the person typed", async () => {
+    vi.mocked(api.resumeJob).mockResolvedValue({
+        ...mixedJob,
+        job_id: "job-resumed",
+        previous_job_id: mixedJob.job_id,
+    });
+    await advancedMixedPlan();
+    fireEvent.change(await timeoutField(), { target: { value: "240" } });
+    await nav("execution");
+    await userEvent.click(button("workflow.run"));
+    await waitFor(() => expect(api.getReview).toHaveBeenCalled());
+    await chooseK2();
+    await userEvent.click(button("review.resume"));
+    await waitFor(() => expect(api.resumeJob).toHaveBeenCalled());
+    expect(vi.mocked(api.resumeJob).mock.calls[0][3]).toBe(240);
+});

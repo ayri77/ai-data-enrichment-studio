@@ -254,10 +254,9 @@ def test_a_kept_answer_expires_with_the_lifetime(tmp_path: Path) -> None:
     assert again.metrics.persistent_cache_writes == 1
 
 
-@pytest.mark.parametrize("code", ["NOTHING_FOUND", "INVALID_RESPONSE", "PROVIDER_ERROR"])
+@pytest.mark.parametrize("code", ["INVALID_RESPONSE", "PROVIDER_ERROR"])
 def test_a_failed_row_is_not_kept_and_is_asked_again(tmp_path: Path, code: str) -> None:
     failing: dict[str, Any] = {
-        "NOTHING_FOUND": response(empty_reply()),
         "INVALID_RESPONSE": response("not json"),
         "PROVIDER_ERROR": StatusError(500),
     }
@@ -270,6 +269,67 @@ def test_a_failed_row_is_not_kept_and_is_asked_again(tmp_path: Path, code: str) 
     assert len(second_api.calls) == 2  # nothing was kept for either row
     assert second.metrics.persistent_cache_hits == 0 and second.kept_answers == {}
     assert second.metrics.successful_rows == 2
+
+
+def test_a_row_with_nothing_found_is_kept_like_a_found_answer(tmp_path: Path) -> None:
+    first_api = FakeApi(response(empty_reply()))
+    first = kept_run(tmp_path, first_api, WebLookupUsage(), "Everest", "Lhotse", "Everest")
+    assert [r.row_result.steps[0].result.error_code for r in first.records] == ["NOTHING_FOUND"] * 3
+    assert len(first_api.calls) == 2
+    # Written like a found answer; the repeat of Everest is a reuse in memory, not a kept one.
+    assert first.metrics.persistent_cache_writes == 2 and first.metrics.reused_operations == 1
+    assert first.kept_answers == {}
+
+    api, usage = good_api(), WebLookupUsage()
+    again = kept_run(tmp_path, api, usage, "Everest", "Lhotse", "Everest")
+    assert api.calls == [] and usage.totals().requests == 0
+    assert again.metrics.persistent_cache_hits == 2 and again.kept_answers == {"web_lookup": 3}
+    assert again.provider_requests[SOURCE].operations_started == 0
+    # The rows end as they did, message included.
+    assert [r.row_result for r in again.records] == [r.row_result for r in first.records]
+    assert again.metrics.failed_rows == 3
+
+
+def test_a_kept_nothing_found_is_asked_again_when_the_question_changes_or_the_time_is_up(
+    tmp_path: Path,
+) -> None:
+    now = [1_000.0]
+    kept_run(
+        tmp_path,
+        FakeApi(response(empty_reply())),
+        WebLookupUsage(),
+        "Everest",
+        clock=lambda: now[0],
+    )
+    other = FakeApi(response(empty_reply()))
+    kept_run(
+        tmp_path, other, WebLookupUsage(), "Everest", plan=QUESTION_CHANGED, clock=lambda: now[0]
+    )
+    assert len(other.calls) == 1
+    now[0] += RESULT_REUSE_SECONDS
+    late = FakeApi(response(empty_reply()))
+    kept_run(tmp_path, late, WebLookupUsage(), "Everest", clock=lambda: now[0])
+    assert len(late.calls) == 1
+
+
+def test_only_the_answer_nothing_found_is_kept_of_the_failures_in_one_job(tmp_path: Path) -> None:
+    api = RowApi(
+        lambda kwargs: response(empty_reply()) if "Everest" in kwargs["input"] else StatusError(500)
+    )
+    first = kept_run(tmp_path, api, WebLookupUsage(), "Everest", "Lhotse")
+    assert [r.row_result.steps[0].result.error_code for r in first.records] == [
+        "NOTHING_FOUND",
+        "PROVIDER_ERROR",
+    ]
+    assert first.metrics.persistent_cache_writes == 1
+    second_api = good_api()
+    second = kept_run(tmp_path, second_api, WebLookupUsage(), "Everest", "Lhotse")
+    assert len(second_api.calls) == 1 and "Lhotse" in second_api.calls[0]["input"]
+    assert second.kept_answers == {"web_lookup": 1}
+    assert [r.row_result.steps[0].result.error_code for r in second.records] == [
+        "NOTHING_FOUND",
+        None,
+    ]
 
 
 def test_rows_after_the_deadline_are_asked_by_the_next_job_and_answered_rows_are_not(

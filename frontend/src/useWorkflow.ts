@@ -161,7 +161,14 @@ export function useWorkflow(
     const taken = /^\d+$/.test(runCount)
         ? runRows(preview, Number(runCount), maxRows)
         : null;
-    const [timeout, setTimeout] = useState("180");
+    const [typedTimeout, setTypedTimeout] = useState("180");
+    // Whether the person has changed the time limit. A plan that searches the web is
+    // left to the server's own limit (the longest a run may have) until they do.
+    const [timeoutEdited, setTimeoutEdited] = useState(false);
+    function setTimeout(value: string) {
+        setTypedTimeout(value);
+        setTimeoutEdited(true);
+    }
     const [plan, setPlan] = useState<PlanDraft | null>(null);
     // The person's choice to search the web with AI where the system has no
     // source for the task; remembered in this browser. The server's own switch
@@ -336,6 +343,12 @@ export function useWorkflow(
     const withinBounds = !!bounds && bounds.lastColumn <= 100 && !!taken;
     const mappingValid =
         !!preview && validMappings(mapping, preview, sheetColumns);
+    const searchesWeb = plan?.kind === "fallback" || plan?.kind === "mixed";
+    const leaveTimeout = searchesWeb && !timeoutEdited;
+    // What the field shows is the limit that will apply.
+    const timeout = leaveTimeout ? String(maxTimeout) : typedTimeout;
+    // Sent with a run; undefined leaves the limit to the server.
+    const requestTimeout = leaveTimeout ? undefined : Number(typedTimeout);
     const timeoutValid =
         /^\d+$/.test(timeout) &&
         Number(timeout) >= 1 &&
@@ -649,7 +662,7 @@ export function useWorkflow(
         const started = await api.startRun(
             plan.plan_id,
             consent,
-            Number(timeout),
+            requestTimeout,
         );
         if (mounted.current) begin(started);
     }
@@ -671,7 +684,7 @@ export function useWorkflow(
         const started = await api.startRun(
             current.plan_id,
             consent,
-            Number(timeout),
+            requestTimeout,
         );
         if (mounted.current) begin(started);
     }
@@ -802,7 +815,7 @@ export function useWorkflow(
             job.job_id,
             decisions(review, choices),
             consent,
-            Number(timeout),
+            requestTimeout,
         );
         if (mounted.current) {
             archive();

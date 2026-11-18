@@ -390,3 +390,58 @@ What the application step has to settle: bounded parallel requests or a separate
 limit for a fallback run. The rule "no reported link, no value" stays as it is: the
 only dropped link seen so far was one the search had not returned.
 
+
+## First mixed run through the application (2026-11-17)
+
+The first live run of a mixed plan, started from the interface and not from the probe.
+The table has ten mountains. The task, in Ukrainian, asks for the height in metres and
+the "known geological age in millions of years". Planner model `gpt-6-luna`; lookup
+configuration `openai-web-lookup-p1-gpt-6-luna-low`.
+
+| What | Result |
+| --- | --- |
+| Plan kind | `mixed` |
+| Planner steps | the height; the age column was named as having no source |
+| Lookup step | one, added by the server for the age column (the switch was on) |
+| Height | 10 of 10 rows from Wikidata records, one of them after a name choice in Review ("Annapurna" → "Annapurna I") |
+| Age | 5 of 10 rows with a value, 5 with `NOTHING_FOUND` |
+| Kind of the age column | `text` (the default for an empty column), so the five cells hold sentences, not numbers |
+
+What the five age values answer:
+
+| Mountain | Value | What it is the age of |
+| --- | --- | --- |
+| Everest | about 450 | the limestone of the summit |
+| K2 | 115–120 | a zircon age of a gneiss from the south face |
+| Dhaulagiri | about 50 | the start of the Himalayan collision |
+| Annapurna | about 22 | the start of the Himalayan collision, from another page |
+| Nanga Parbat | 10–13 | the start of the formation of the dome |
+
+- Four of the five cells say themselves that this is not the age of the mountain.
+- Four are marked `concluded`. The K2 cell is marked `stated`, although its own text says
+  that the age of the mountain is not known as one number; the quote is about a rock
+  sample. The basis mark is the model's own, and it was wrong here.
+- The question has no single defined answer. The run shows what the search does with such
+  a question, not how correct it is. No value was checked against a reference.
+
+The resume after the name choice:
+
+| What | Value |
+| --- | --- |
+| Lookup requests | 6 |
+| Answers taken from the kept ones (`answers_kept`) | 4 |
+| Input tokens | 62,237 |
+| Output tokens | 886 |
+| Web searches | 6 |
+| Time limit of the job | 180 s |
+
+What followed from it, as the two changes of the pull request that records this run:
+
+- The interface sent `timeout_seconds` (180) with every run, so a run that searches never
+  had the longest limit the server gives it; it now leaves the field out for such a plan
+  unless the person edited it.
+- Five of the six requests of the resume ended in `NOTHING_FOUND`. That answer was not
+  kept, so every rerun and resume of the plan asked such rows again. (The audit of the
+  first job was not looked at; that the same five rows had no answer there is likely, not
+  shown.) The answer is now kept for the plan's lifetime like a found one; a failure of
+  delivery or of the input still is not.

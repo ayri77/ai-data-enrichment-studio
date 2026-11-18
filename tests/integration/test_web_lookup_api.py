@@ -895,7 +895,7 @@ def test_running_the_plan_again_asks_only_the_rows_a_deadline_left_open(
         assert len(events) == 2
 
 
-def test_a_row_with_nothing_found_is_asked_again_on_every_run(
+def test_a_row_with_nothing_found_is_kept_and_a_failed_row_is_asked_again(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with world(tmp_path, monkeypatch) as w:
@@ -904,16 +904,32 @@ def test_a_row_with_nothing_found_is_asked_again_on_every_run(
         assert len(calls(w.log)) == 5
         second = w.wait(w.start(draft).json())
         asked = calls(w.log)[5:]
-        # Everest (twice), Lhotse and K2 were kept; Nowhere and Broken were not.
-        assert sorted("Nowhere" in c["input"] or "Broken" in c["input"] for c in asked) == [
-            True,
-            True,
-        ]
-        assert len(asked) == 2
+        # Everest (twice), Lhotse, K2 and Nowhere (nothing found) were kept; Broken (an
+        # invalid reply, a failure of delivery and not an answer) is asked again.
+        assert len(asked) == 1 and "Broken" in asked[0]["input"]
+        # The row of Nowhere still ends as it did, and the cells are the same.
         assert codes_of(w, second) == codes_of(w, first)
+        assert codes_of(w, second)[f"{SHEET}!5"] == "NOTHING_FOUND"
         spent = w.report(second)["web_lookup"]
-        assert (spent["requests"], spent["answers_kept"]) == (2, 4)
+        assert (spent["requests"], spent["answers_kept"]) == (1, 5)
         assert w.result_cells(second) == w.result_cells(first)
+        # A third run asks for Broken again and for nothing else.
+        third = w.wait(w.start(draft).json())
+        assert len(calls(w.log)) == 7
+        assert w.report(third)["web_lookup"]["answers_kept"] == 5
+
+
+def test_a_plan_built_again_asks_again_for_the_rows_with_nothing_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with world(tmp_path, monkeypatch) as w:
+        dataset_id = w.upload(ROWS)
+        drafts = [w.create(dataset_id).json() for _ in range(2)]
+        w.run(drafts[0])
+        assert len(calls(w.log)) == 5
+        other = w.run(drafts[1])
+        assert len(calls(w.log)) == 10
+        assert w.report(other)["web_lookup"]["answers_kept"] == 0
 
 
 def test_another_plan_does_not_see_the_answers_of_this_one(

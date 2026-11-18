@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- A run of a plan that searches the web started from the interface no longer gets a shorter
+  limit than the server gives it. The interface sent `timeout_seconds: 180` with every run and
+  resume, so the longest limit (`max_timeout_seconds`) never applied to a `fallback` or `mixed`
+  plan; for such a plan it now leaves the field out until the person edits the time limit, and
+  the Advanced field shows the limit that will apply. Planner plans send 180 as before. The
+  resume route already applied the same default as the start route; a test now says so.
+- The answer "nothing found" of the web search is kept like a found answer. A row that ended
+  `NOTHING_FOUND` is stored in the plan's value cache for `RESULT_REUSE_SECONDS` (as a found
+  record without a value, read back as the same failure) and is not asked again by a rerun or a
+  resume of the same plan; `answers_kept` counts it. Failures of delivery or of the input
+  (`PROVIDER_ERROR`, `DEADLINE_REACHED`, `INVALID_RESPONSE` and the others) are still asked
+  again, and so is every other capability. A plan built again is a new plan and asks again. The
+  record of the first mixed run through the application is in
+  `docs/31-universal-lookup-probe.md`.
 - Mixed plans, on the server and in the interface (nothing was run live: every test, in the
   browser too, uses fake clients and the offline stand-in for the model). The switch under the
   task now reads "If the system has no source for the task or for some of its columns, search
@@ -32,12 +46,11 @@
   codec now stores a found record with its evidence; the format string is unchanged because only
   a new value type was added) is written to the plan's value cache and taken over by the next job
   of the same plan for `RESULT_REUSE_SECONDS`, so running the plan again after `DEADLINE_REACHED`
-  asks and pays only for the rows not answered; failures are not kept (a row with nothing found
-  is asked again on every run), and another plan sees nothing. The fallback worker now opens the
-  plan's caches like every other run. The report's `web_lookup` gains `answers_kept`; the text of
-  `results.cause.deadline` says that running again continues. A resume of a lookup job stays
-  refused (there is nothing to decide). The key checks are unchanged: setting and key apply to
-  every job. Not verified by a live run.
+  asks and pays only for the rows not answered; failures are not kept, and another plan sees
+  nothing. The fallback worker now opens the plan's caches like every other run. The report's
+  `web_lookup` gains `answers_kept`; the text of `results.cause.deadline` says that running
+  again continues. A resume of a lookup job stays refused (there is nothing to decide). The key
+  checks are unchanged: setting and key apply to every job. Not verified by a live run.
 - The planner may name the columns it has no source for. Its answer gains `unfilled_targets`
   (empty by default; only with `ready`; no blank or repeated names; a ready answer that lists
   any must still have a step and an output), and when the context lists output targets it is

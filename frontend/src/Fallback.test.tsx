@@ -1018,6 +1018,12 @@ it("keeps the plan of the search in the graph, with its stored form, in Advanced
     expect(screen.getByTestId("fallback-form")).toBeVisible();
     expect(screen.getByTestId("fallback-planner")).toBeInTheDocument();
 });
+it("starts the search without a time limit, so that the server's own applies", async () => {
+    await toPlan();
+    await userEvent.click(button("ws.approveRun"));
+    await waitFor(() => expect(api.startRun).toHaveBeenCalled());
+    expect(api.startRun).toHaveBeenCalledWith("plan-fallback", true, undefined);
+});
 it("approves and runs the search with the banner and the reason for the notes", async () => {
     await toPlan();
     await userEvent.click(button("ws.approveRun"));
