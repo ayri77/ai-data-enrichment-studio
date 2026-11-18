@@ -131,6 +131,8 @@ _MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}")
 FALLBACK_KIND = "fallback"
 MIXED_KIND = "mixed"
 PLAN_KINDS = ("planner", FALLBACK_KIND, MIXED_KIND)
+# No route builds a plan that reads texts yet: wherever a plan comes in, one is refused.
+EXTRACTION_PLAN_REFUSED = "A plan that reads texts cannot be made, validated or run yet."
 # What a draft gains after its fingerprint was made; everything else is covered by it.
 _AFTER_FINGERPRINT = frozenset(
     {"plan_id", "fingerprint", "status", "created_at", "approved_at", "validation"}
@@ -643,6 +645,8 @@ class PlanRunService:
         web lookup step; ``fallback``: the lookup step alone; ``mixed``: the lookup step
         with other steps.
         """
+        if plan_shape(plan) == "extraction":
+            raise WorkspaceError("extraction_plan_refused", EXTRACTION_PLAN_REFUSED)
         kind = draft.get("kind", "planner")
         if kind not in PLAN_KINDS or plan_shape(plan) != kind:
             raise WorkspaceError(
@@ -793,6 +797,8 @@ class PlanRunService:
         return draft
 
     def create_plan(self, body: PlanRequest) -> dict:
+        if body.plan is not None and plan_shape(body.plan) == "extraction":
+            raise WorkspaceError("extraction_plan_refused", EXTRACTION_PLAN_REFUSED)
         if body.plan is not None and is_fallback_plan(body.plan):
             # Wherever a plan comes from, the web lookup only comes from its own route.
             raise WorkspaceError(
@@ -837,6 +843,10 @@ class PlanRunService:
                 raise WorkspaceError(
                     "planning_failed", "The model could not return a usable planning response.", 502
                 ) from exc
+            if plan is not None and plan_shape(plan) == "extraction":
+                # Not reachable either: the planner is not offered this capability.
+                self.usage.record("plan_failed", attempts=len(planning_attempts))
+                raise WorkspaceError("extraction_plan_refused", EXTRACTION_PLAN_REFUSED)
             if plan is not None and is_fallback_plan(plan):
                 # Not reachable while the planner is not offered the capability; kept so
                 # that what the model returns can never become a lookup plan.

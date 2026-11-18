@@ -42,6 +42,7 @@ from ai_data_enrichment.domain.enrichment_plan import (
     PlanStep,
     StepOutputReference,
 )
+from ai_data_enrichment.providers.text_extraction import EXTRACTION_CAPABILITY
 from ai_data_enrichment.providers.web_lookup import (
     LOOKUP_CAPABILITY,
     MAX_COLUMNS,
@@ -267,16 +268,20 @@ def is_fallback_plan(plan: EnrichmentPlan) -> bool:
     return any(step.capability == LOOKUP_CAPABILITY for step in plan.steps)
 
 
-PlanShape = Literal["planner", "fallback", "mixed"]
+PlanShape = Literal["planner", "fallback", "mixed", "extraction"]
 
 
 def plan_shape(plan: EnrichmentPlan) -> PlanShape:
     """Which kind of draft a plan can belong to, from its steps alone.
 
+    ``extraction``: any step reads a text (``text_extraction``); it wins over the others, so
+    that a plan with a web lookup step next to it is never taken for a fallback plan.
     ``planner``: no web lookup step. ``fallback``: the web lookup step and nothing else.
-    ``mixed``: the web lookup step with other steps. Whether a plan of the last two shapes
-    is well formed is for ``fallback_registry`` to say.
+    ``mixed``: the web lookup step with other steps. Whether a plan of the other shapes
+    is well formed is for ``fallback_registry`` and ``extraction_registry`` to say.
     """
+    if any(step.capability == EXTRACTION_CAPABILITY for step in plan.steps):
+        return "extraction"
     if not is_fallback_plan(plan):
         return "planner"
     return "fallback" if len(plan.steps) == 1 else "mixed"
@@ -432,6 +437,42 @@ def _near(name: str, names: Sequence[str]) -> str:
     return f" Did you mean '{same[0]}'?" if same else ""
 
 
+def _check_target(
+    column: str,
+    expected: DataType,
+    words: str,
+    by_name: Mapping[str, ColumnProfile],
+    names: Sequence[str],
+) -> None:
+    """Refuse a target the table cannot take: ``expected`` is the type of what is written,
+    ``words`` how a message calls it. Shared with the extraction plan, which fills columns
+    under the same rules."""
+    existing = by_name.get(column)
+    if existing is None:
+        if column != column.strip():
+            raise FallbackPlanError(
+                f"The name of the new column '{column}' must not start or end with a space."
+            )
+        clash = _near(column, names)
+        if clash:
+            raise FallbackPlanError(
+                f"The new column '{column}' differs from an existing column only in "
+                f"letter case.{clash} Use that name to fill it, or choose another name."
+            )
+        return
+    actual = _PRIMITIVE_TYPE_MAP.get(existing.inferred_type)
+    if actual is None:
+        if existing.inferred_type not in (PrimitiveType.UNKNOWN, PrimitiveType.MIXED):
+            raise FallbackPlanError(
+                f"The column '{column}' has {_describe(existing)} and cannot be filled."
+            )
+    elif actual != expected:
+        raise FallbackPlanError(
+            f"The column '{column}' holds {_describe(existing)}, but it is to be filled "
+            f"with {words} values."
+        )
+
+
 def _check_request(request: FallbackRequest, columns: Sequence[ColumnProfile]) -> None:
     """Refuse a request the table cannot serve, with a message a user can act on."""
     by_name = {column.name: column for column in columns}
@@ -450,32 +491,9 @@ def _check_request(request: FallbackRequest, columns: Sequence[ColumnProfile]) -
             )
 
     for target in request.targets:
-        existing = by_name.get(target.column)
-        if existing is None:
-            if target.column != target.column.strip():
-                raise FallbackPlanError(
-                    f"The name of the new column '{target.column}' must not start or end "
-                    "with a space."
-                )
-            clash = _near(target.column, names)
-            if clash:
-                raise FallbackPlanError(
-                    f"The new column '{target.column}' differs from an existing column only in "
-                    f"letter case.{clash} Use that name to fill it, or choose another name."
-                )
-            continue
-        expected = _FIELD_TYPES[target.kind]
-        actual = _PRIMITIVE_TYPE_MAP.get(existing.inferred_type)
-        if actual is None:
-            if existing.inferred_type not in (PrimitiveType.UNKNOWN, PrimitiveType.MIXED):
-                raise FallbackPlanError(
-                    f"The column '{target.column}' has {_describe(existing)} and cannot be filled."
-                )
-        elif actual != expected:
-            raise FallbackPlanError(
-                f"The column '{target.column}' holds {_describe(existing)}, but it is to be filled "
-                f"with {_KIND_WORDS[target.kind]} values."
-            )
+        _check_target(
+            target.column, _FIELD_TYPES[target.kind], _KIND_WORDS[target.kind], by_name, names
+        )
 
 
 def _lookup_parts(request: FallbackRequest, step_id: str) -> tuple[PlanStep, list[OutputMapping]]:
@@ -578,6 +596,8 @@ def build_mixed_plan(
     """
     if is_fallback_plan(planner_plan):
         raise FallbackPlanError("The plan to add the web lookup to must not search the web.")
+    if plan_shape(planner_plan) == "extraction":
+        raise FallbackPlanError("The plan to add the web lookup to must not read texts.")
     _check_request(request, columns)
     written = [output.target_column for output in planner_plan.outputs]
     for target in request.targets:

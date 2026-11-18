@@ -90,8 +90,8 @@ def _decode_found_value(raw: object) -> FoundValue:
         else:
             raise ValueError("A cached found value must be text or a number.")
     basis = obj["basis"]
-    if basis not in ("stated", "concluded", None):
-        raise ValueError("Cached basis must be stated, concluded or null.")
+    if basis not in ("stated", "concluded", "literal", "derived", None):
+        raise ValueError("Cached basis must be stated, concluded, literal, derived or null.")
     links = obj["sources"]
     if not isinstance(links, list):
         raise ValueError("Cached source links must be a list.")

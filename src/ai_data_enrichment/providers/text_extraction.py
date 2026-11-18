@@ -11,6 +11,7 @@ by code, never reported by the model. Nothing here sends anything; a client is p
 by the caller.
 """
 
+import json
 import threading
 import unicodedata
 from dataclasses import dataclass
@@ -21,8 +22,11 @@ from ai_data_enrichment.providers.web_lookup import ResponsesApi, tokens
 __all__ = [
     "DEFAULT_EFFORT",
     "DEFAULT_MODEL",
+    "EXTRACTION_CAPABILITY",
+    "EXTRACTION_SOURCE",
     "INSTRUCTION",
     "KINDS",
+    "MAX_TASK_JSON",
     "PROMPT_VERSION",
     "ExtractionClient",
     "ExtractionColumn",
@@ -32,9 +36,14 @@ __all__ = [
     "answer_schema",
     "build_request",
     "configuration_id",
+    "parse_task",
     "tokens",
     "user_message",
 ]
+
+# The capability a plan carries for it and the source its values come from in the application.
+EXTRACTION_CAPABILITY = "text_extraction"
+EXTRACTION_SOURCE = "openai_text_extraction"
 
 # The same model and effort the web lookup uses by default.
 DEFAULT_MODEL = "gpt-6-luna"
@@ -66,6 +75,7 @@ MAX_QUESTION = 1000
 MAX_HEADER = 100
 MAX_OPTIONS = 20
 MAX_OPTION = 60
+MAX_TASK_JSON = 30_000
 
 SLOT_PREFIX = "value_"
 
@@ -137,6 +147,56 @@ class ExtractionTask:
     @property
     def slots(self) -> tuple[tuple[str, ExtractionColumn], ...]:
         return tuple((f"{SLOT_PREFIX}{i}", c) for i, c in enumerate(self.columns, start=1))
+
+    def to_json(self) -> str:
+        """A compact, deterministic text: the same task is always the same text."""
+        columns: list[dict[str, Any]] = []
+        for column in self.columns:
+            item: dict[str, Any] = {"header": column.header, "kind": column.kind}
+            if column.options:
+                item["options"] = list(column.options)
+            columns.append(item)
+        payload = {"question": self.question, "columns": columns}
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _is_texts(value: object) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def parse_task(text: object) -> ExtractionTask | None:
+    """The task a ``to_json`` text holds; None for any other text, never an exception.
+
+    Only the canonical form is read: a text that is not exactly what ``to_json`` gives for
+    the task it describes (other keys, other spacing, untrimmed names) is not a task.
+    """
+    if not isinstance(text, str) or len(text) > MAX_TASK_JSON:
+        return None
+    try:
+        data = json.loads(text)
+        if not isinstance(data, dict) or set(data) != {"question", "columns"}:
+            return None
+        question, raw_columns = data["question"], data["columns"]
+        if not isinstance(question, str) or not isinstance(raw_columns, list):
+            return None
+        columns: list[ExtractionColumn] = []
+        for raw in raw_columns:
+            if not isinstance(raw, dict) or not {"header", "kind"} <= set(raw) <= {
+                "header",
+                "kind",
+                "options",
+            }:
+                return None
+            options = raw.get("options", [])
+            if not isinstance(raw["header"], str) or not isinstance(raw["kind"], str):
+                return None
+            if not _is_texts(options):
+                return None
+            columns.append(ExtractionColumn(raw["header"], raw["kind"], tuple(options)))
+        task = ExtractionTask(question, tuple(columns))
+    except (ValueError, TypeError, RecursionError):
+        return None
+    return task if task.to_json() == text else None
 
 
 # --- The request ---------------------------------------------------------------------

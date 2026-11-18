@@ -5,6 +5,7 @@ import pytest
 from ai_data_enrichment.capabilities.bindings import (
     BINDINGS,
     CATEGORIES,
+    EXTRACTION_BINDINGS,
     FALLBACK_BINDINGS,
     Trust,
     binding_for,
@@ -173,4 +174,6 @@ def test_every_binding_has_a_declared_category_and_the_order_is_declared_once() 
         "web_lookup": "web_search",
     }
     # Every declared category is used, so the order has no dead entry.
-    assert {item.category for item in (*BINDINGS, *FALLBACK_BINDINGS)} == set(CATEGORIES)
+    assert {item.category for item in (*BINDINGS, *FALLBACK_BINDINGS, *EXTRACTION_BINDINGS)} == set(
+        CATEGORIES
+    )

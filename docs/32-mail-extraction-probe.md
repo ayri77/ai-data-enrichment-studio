@@ -456,3 +456,53 @@ invented mails of `samples/probe/mail/`. The upload bounds were tested with smal
 that declare large sizes, not with an upload of 32 MiB of real mail. The server's own
 access log, which a person starting the local launcher sees, shows the request line with
 `filename=`, as it does for a workbook upload.
+
+## In the application: the extraction capability (step 2)
+
+**What exists.** The capability layer of the probe's extraction, built by the pattern of the AI
+web search and tested offline with a fake model client. Nothing here can be reached from the
+application yet.
+
+- `capabilities/extraction.py`: `ExtractionRequest` (the task sentence, the name of the text
+  column, up to 20 targets of the kinds `text`, `number`, `date`, `yes_no`, `one_of`, a choice
+  with 2 to 20 distinct options) and `build_extraction_plan`: a plan of one step, the
+  capability `text_extraction`, with the task as a literal text and the text column as the input
+  `text`. The table must hold the text column as a text column; targets follow the rules the web
+  search's targets follow (an existing column must fit the kind, a new name must not differ from
+  an existing one only in letter case). The plan is checked with the application's own
+  validator. A number is written as a number, a date as `YYYY-MM-DD` text.
+- `extraction_registry(plan, columns)`: the registry for that plan, holding only the
+  `text_extraction` contract derived from the plan's own task. A second step, a web lookup step
+  or a planner capability next to it is refused (`ExtractionPlanError`); there is no mixed plan
+  with extraction. The planner is never told about the capability: it is not offered, not in
+  `BINDINGS`, not in `GET /api/capabilities` (neither as an entry nor as the category
+  `from_text`).
+- `TextExtractionHandler.execute`: the probe's call as a step of a plan. A found text gives a
+  record with a value, a quote and a mark (`literal` or `derived`, computed by code) per slot.
+  "The text is about the task but no value could be traced" is the answer `NOTHING_FOUND`,
+  reported and kept like the web search's. "The text is not about the task" is a failed step
+  with the code `NOT_APPLICABLE`: never a record and never kept, so such a text is asked again by
+  a later run. A row without text fails with `MISSING_VALUE`. The probe is unchanged.
+- `build_live_executor(..., text_extraction=ExtractionOptions(...))` binds the handler under the
+  source `openai_text_extraction`, with the same budget of one request per row and the same
+  keeping of answers; a registry that holds the capability is refused at assembly without the
+  options. The assembly binds nothing else for such a registry.
+- `registry_for_plan(plan, columns, offered)` picks the registry from the shape of a plan
+  (`plan_shape` now also says `extraction`).
+
+**What is kept on disk when a run reuses answers.** The plan's value cache (`values.sqlite`)
+holds, per text, a SHA-256 digest of the operation (task and text together, so the text itself
+is not stored), the extracted values and their quotes in clear (a quote is a passage of up to
+300 characters of the mail), and the capability and source ids. A text that is not about the
+task is not stored. The result workbook, when sources are asked for, repeats the quote in the
+note or on the `Sources` sheet of each written cell.
+
+**What does not exist.** No HTTP route builds an extraction plan, the run worker does not run
+one (it refuses it), and there is no interface. A plan of this shape is refused by the normal
+plan route, by the gate of validate, approve and run, and by the worker, each with a fixed
+sentence. Nothing has been run against a real model through the application; the end-to-end
+test runs the ten invented fixture mails through the real handler, reply reader, executor and
+workbook writer with a fake client.
+
+**Not decided here.** The text of a cell is sent as it is (a cell holds at most 32,767
+characters; the body of a mail made by the application at most 6,000).

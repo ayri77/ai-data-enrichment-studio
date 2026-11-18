@@ -107,10 +107,13 @@ class Evidence(BaseModel):
 
 
 class FoundValue(BaseModel):
-    """One value a model found on the web for one target column, or "not found".
+    """One value a model found for one target column, or "not found".
 
-    The value is never checked against a record: ``basis`` says whether a page
-    stated it or the model concluded it. ``value`` is None when nothing was found.
+    The value is never checked against a record. For a web search ``basis`` says whether
+    a page stated it (``stated``) or the model concluded it (``concluded``); for a value
+    read from a text it says how the value stands to its quote, as code worked it out:
+    ``literal`` (the quote says it as it is) or ``derived`` (it follows from the quote).
+    ``value`` is None when nothing was found.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -118,10 +121,11 @@ class FoundValue(BaseModel):
     # Text or a number (yes/no is written as text); None means "not found".
     value: StrictStr | StrictFloat | None
     # Required with a value, absent without one.
-    basis: Literal["stated", "concluded"] | None
-    # Links of the pages this value rests on, as the model reported them.
+    basis: Literal["stated", "concluded", "literal", "derived"] | None
+    # Links of the pages this value rests on, as the model reported them; none for a value
+    # read from a text.
     sources: tuple[StrictStr, ...] = ()
-    # A short passage of a page that carries the value, when there is one.
+    # A short passage of the page or the text that carries the value, when there is one.
     quote: StrictStr | None = None
     unit: StrictStr | None = None
 
@@ -133,7 +137,7 @@ class FoundValue(BaseModel):
                 raise ValueError("A value that was not found cannot have a basis")
         else:
             if self.basis is None:
-                raise ValueError("A found value must say whether it was stated or concluded")
+                raise ValueError("A found value must say what it rests on")
             if isinstance(self.value, str) and not self.value.strip():
                 raise ValueError("A text value must not be blank")
             if isinstance(self.value, float) and not isfinite(self.value):
