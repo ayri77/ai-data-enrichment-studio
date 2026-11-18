@@ -1,8 +1,10 @@
 # Mail extraction probe
 
 `scripts/experiment_mail_extraction.py` is a measurement script. It is **not part of the
-application**: nothing in `src/` outside its own modules calls it, it has no mailbox
-connection, no interface and no server route, and it adds no capability to the planner.
+application**: nothing in `src/` outside its own modules calls it, it has no interface and
+no server route, and it adds no capability to the planner. Its messages come from `.eml`
+files or, as an option, from the person's own Gmail mailbox, read-only (see "Reading from
+Gmail").
 It exists to answer one question before any application code is written around it.
 
 ## Why it exists
@@ -22,7 +24,9 @@ search: the model may use only the text it is given.
 
 ## What the probe does, step by step
 
-1. **Read.** Every `*.eml` file in a folder is read with the standard library (`email`).
+1. **Read.** Every `*.eml` file in a folder (or every message that Gmail returns, see
+   "Reading from Gmail"; both go through the same parser) is read with the standard library
+   (`email`).
    Multipart mails, HTML-only mails, quoted-printable and base64, the declared charset
    (with UTF-8 and Windows-1252 as fallbacks) and encoded headers are handled. Attachments
    are ignored. A file that cannot be read is skipped and counted. Messages are ordered
@@ -49,6 +53,8 @@ search: the model may use only the text it is given.
 6. **Write.** `rows.json`, `summary.json` and `register.xlsx` in
    `artifacts/mail-extraction/<timestamp>/` (or `--out-dir`). `artifacts/` is ignored by
    git.
+
+Exactly one of `--eml-dir PATH` or `--gmail-query QUERY` names the source.
 
 The columns are given with `--target`, repeated: `"Header:kind"` with kind `text`,
 `number`, `date` or `yes_no`, or `"Header:one_of:a|b|c"` for a choice. A `one_of` answer
@@ -160,6 +166,117 @@ failed payment, an ended subscription, a price change, two advertisements, a rec
 card tails, a phone number and the recipient's address, and a mail with invisible padding.
 Its `README.md` lists them. Nothing in it is real.
 
+## Reading from Gmail
+
+**What it is.** A second source of messages for the same probe: your own Gmail mailbox,
+**read-only**, on your own machine. Nothing is hosted and no server of this project is
+involved: you create your own project in Google Cloud, the script signs in to it in your
+browser and reads the messages that a Gmail search returns. The only permission it asks for
+is `https://www.googleapis.com/auth/gmail.readonly`; the code cannot ask for another one and
+makes no request that changes anything (two read calls to the Gmail API, plus one that
+reads the address of the mailbox, which is used for masking). An app in the "Testing"
+status needs no verification by Google for up to 100 listed test users. The price is that
+the consent, and with it the stored sign-in, expires after 7 days; then the script notices,
+deletes the old token and asks you to sign in again.
+
+The sign-in uses Google's own libraries, which are an optional extra and not part of the
+base install: `uv sync --extra mail`, or `--extra mail` on `uv run`. Without it the script
+stops with one sentence saying so.
+
+**Setup, once**, in the [Google Cloud console](https://console.cloud.google.com/). The area
+is called "Google Auth Platform" with the pages Branding, Audience, Data Access and
+Clients; the labels in the console change from time to time, so look for the page by its
+meaning if a name differs.
+
+1. Create a project, or choose one of your own.
+2. APIs & Services, Library: find "Gmail API" and enable it.
+3. Google Auth Platform, Branding: give the app a name and a support e-mail address.
+4. Audience: user type "External", publishing status "Testing". Add every person who will
+   use it under "Test users". Only listed people can sign in.
+5. Data Access: add the scope `https://www.googleapis.com/auth/gmail.readonly`. The console
+   lists it as a restricted scope; that is expected.
+6. Clients: create an OAuth client of type "Desktop app" and download its JSON file.
+7. Keep that file **outside the repository** and point `--gmail-client PATH` or the
+   environment variable `ENRICHMENT_GMAIL_CLIENT_FILE` at it. The script never copies it. If
+   it finds the file inside the repository it prints a warning (`client_secret*.json` is in
+   `.gitignore`, but do not rely on that). The file is needed only when a sign-in is needed.
+
+**First run.** The browser opens (the address is printed too, in case it does not). Google
+warns that the app is not verified. That is expected for an app in testing; continue only
+because the project is your own. The consent screen shows read-only access to your mail.
+After you agree, the script keeps the token in a file in your state folder, the same
+folder as the usage file: `$XDG_STATE_HOME`, else `%LOCALAPPDATA%` on Windows, else
+`~/.local/state`, then `ai-data-enrichment-studio/mail/gmail-token-<label>.json`. The file
+is written for the owner only (mode 0600 where the system has it) and never inside the
+working directory. `<label>` is `--gmail-account LABEL`, default `default`. The token file
+also holds the client id and secret of your project, as Google's library writes it: treat it
+as a secret.
+
+If Gmail answers 401, or the stored sign-in cannot be renewed, the script says that the
+sign-in is no longer accepted, deletes the token and exits; run it again to sign in. If
+Gmail answers 403 for another reason than the rate, a new sign-in would not help: the
+script keeps the token and says to check that the Gmail API is enabled in the project and
+that the account is listed as a test user. A rate limit (429 or a 403 that says so) and
+server errors are retried three times with growing pauses; then the script stops with a
+short message that holds no message text. A message that is gone between listing and
+reading (404) is skipped and counted.
+
+**A second person**, for instance on the same machine: add them as a test user (step 4) and
+let them run with another label, `--gmail-account second`, so that each keeps their own
+token.
+
+**What leaves the machine.** Towards OpenAI nothing changes: the cleaned and masked text
+described under "What leaves the machine" above. Google gets only the search query and the
+read requests, from your own machine. The address that Gmail reports for the mailbox is
+added to the addresses that masking replaces by `[me]`; it is not written to any output.
+`rows.json` and `summary.json` hold no message text; the summary records the source kind,
+the query and how many messages were listed, read and skipped, and not the account.
+
+`--save-eml DIR` also writes every message that was read as `<n>_<id>.eml` into `DIR`
+(default: nothing is saved). **That stores real mail, unmasked, on your disk.** `DIR` is
+refused inside the repository unless it is under `artifacts/` (ignored by git), and the
+files are written for the owner only. Deleting them is your responsibility. Its purpose: a
+later run with `--eml-dir DIR` repeats the measurement on exactly the same mails, without
+Gmail and without a sign-in.
+
+`--dry-run` with `--gmail-query` **does read from Gmail** (it has to, to show a message)
+and sends nothing to OpenAI; the script says so.
+
+**Taking access back.** `--gmail-sign-out` (with `--gmail-account` if you used a label)
+deletes the local token and exits. It does not revoke anything at Google. To revoke, open
+your Google Account, Security, the connections to third-party apps (the name of the page
+changes from time to time), choose the app and remove its access. Deleting the Google Cloud
+project ends it for good.
+
+**Commands.**
+
+```
+# look first: reads 40 messages from Gmail, sends nothing to OpenAI
+uv run --extra mail python -m scripts.experiment_mail_extraction \
+  --gmail-query "category:purchases newer_than:180d" --limit 40 --dry-run \
+  --gmail-client ~/secrets/client_secret.json \
+  --task "Payments and subscriptions: what was paid, or what changes for a subscription" \
+  --target "Service:text" --target "Amount:number" --target "Paid on:date"
+
+# the subscriptions task, and keep the mails for a repeat
+uv run --extra mail --env-file .env python -m scripts.experiment_mail_extraction \
+  --gmail-query "category:purchases newer_than:180d" --limit 40 \
+  --save-eml artifacts/mail-extraction/mails \
+  --task "Payments and subscriptions: what was paid, or what changes for a subscription" \
+  --target "Service:text" --target "Item:text" --target "Amount:number" \
+  --target "Currency:text" --target "Paid on:date" --target "Period:text" \
+  --target "Next renewal:date" \
+  --target "Event:one_of:payment|renewal notice|trial ending|price change|payment failed|ended"
+
+# the same mails again, without Gmail
+uv run --env-file .env python -m scripts.experiment_mail_extraction \
+  --eml-dir artifacts/mail-extraction/mails --task ... --target ...
+```
+
+With Gmail, `--limit` defaults to 40 and cannot be above 200. Gmail returns the newest
+messages first, so the limit keeps the newest N that match; the messages are then ordered
+by their `Date` header as with files.
+
 ## What the output holds
 
 - `rows.json`: one entry per asked message: the file name, header facts (message id, date,
@@ -207,5 +324,9 @@ not compared with a bill.
   the time and the cost per message are not measured; the prices are the web lookup's.
 - **The masking was tried only on invented text.** Its patterns come from the forms named
   above, not from a survey of real receipts.
-- **No mailbox connection exists yet.** The probe reads `.eml` files from a folder. A
-  reader for a mailbox is a separate, later step.
+- **The Gmail flow was not run at all.** It cannot be run in tests: they use a fake
+  session, a fake sign-in and stand-in modules for the Google libraries. What is not
+  confirmed: that `InstalledAppFlow.run_local_server`, the token file and its refresh behave
+  as read from the library's source, that the consent screen and the "not verified" warning
+  look as described, that the 7-day expiry shows up as a refresh failure, and that the
+  Gmail API answers as the tests assume. The first run on a real mailbox is the test.

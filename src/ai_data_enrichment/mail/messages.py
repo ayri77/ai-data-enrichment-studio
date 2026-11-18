@@ -81,11 +81,15 @@ def _received(message: Message) -> datetime | None:
     return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
 
 
-def read_eml_file(path: Path, *, max_chars: int = DEFAULT_MAX_CHARS) -> MailMessage:
-    """Read one file; raises ``ValueError`` when it is not a readable mail."""
+def parse_message(raw: bytes, *, source: str, max_chars: int = DEFAULT_MAX_CHARS) -> MailMessage:
+    """Read one RFC 822 message from bytes; raises ``ValueError`` when it is not a mail.
+
+    The one parser behind every source of messages: ``.eml`` files and Gmail. ``source`` is
+    the name the message goes by in the output (a file name, for instance).
+    """
     try:
-        message = email.message_from_bytes(path.read_bytes(), policy=email.policy.default)
-    except (OSError, ValueError, TypeError) as exc:
+        message = email.message_from_bytes(raw, policy=email.policy.default)
+    except (ValueError, TypeError) as exc:
         raise ValueError(f"{type(exc).__name__}") from exc
     if not message.keys():
         raise ValueError("no headers")
@@ -104,7 +108,28 @@ def read_eml_file(path: Path, *, max_chars: int = DEFAULT_MAX_CHARS) -> MailMess
         subject=_header(message, "Subject"),
         text=text,
         truncated=truncated,
-        source=path.name,
+        source=source,
+    )
+
+
+def read_eml_file(path: Path, *, max_chars: int = DEFAULT_MAX_CHARS) -> MailMessage:
+    """Read one file; raises ``ValueError`` when it is not a readable mail."""
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise ValueError(f"{type(exc).__name__}") from exc
+    return parse_message(raw, source=path.name, max_chars=max_chars)
+
+
+def sort_messages(messages: list[MailMessage]) -> list[MailMessage]:
+    """By the ``Date`` header, then by source name; a mail without a date comes last."""
+    return sorted(
+        messages,
+        key=lambda m: (
+            m.received is None,
+            m.received or datetime.min.replace(tzinfo=UTC),
+            m.source,
+        ),
     )
 
 
@@ -125,10 +150,7 @@ def read_eml_folder_report(
             messages.append(read_eml_file(file, max_chars=max_chars))
         except ValueError:
             skipped.append(file.name)
-    messages.sort(
-        key=lambda m: (m.received is None, m.received or datetime.min.replace(tzinfo=UTC), m.source)
-    )
-    return messages, skipped
+    return sort_messages(messages), skipped
 
 
 def read_eml_folder(path: Path, *, max_chars: int = DEFAULT_MAX_CHARS) -> list[MailMessage]:
