@@ -2,7 +2,9 @@
 
 `scripts/experiment_mail_extraction.py` is a measurement script. It is **not part of the
 application**: nothing in `src/` outside its own modules calls it, it has no interface and
-no server route, and it adds no capability to the planner. Its messages come from `.eml`
+no server route of its own, and it adds no capability to the planner. (The first step of
+bringing mail into the application, a table with one row per e-mail, is described in "In
+the application: a table from e-mails (step 1)" at the end of this note.) Its messages come from `.eml`
 files or, as an option, from the person's own Gmail mailbox, read-only (see "Reading from
 Gmail").
 It exists to answer one question before any application code is written around it.
@@ -380,3 +382,77 @@ What happened (evidence):
 - **The Gmail flow beyond the first sign-in**: the refresh of the token, the 7-day expiry
   showing up as a refresh failure, a second account with another label, and the rate limit
   have not been seen. Tests use a fake session, a fake sign-in and stand-in modules.
+
+## In the application: a table from e-mails (step 1)
+
+What exists after this step: e-mails can become an **ordinary dataset**, one row per mail,
+through the API. Nothing is extracted from them yet and there is no interface for it.
+
+**The route.** `POST /api/mail-datasets?filename=<name>`, the raw bytes of the upload as
+the body (no multipart), as for `POST /api/datasets`. It accepts one `.zip` of `.eml`
+files or one `.eml` file, and answers 201 with what the workbook upload answers for a
+dataset (`dataset_id`, `worksheets`) plus `"mail": {"read", "skipped", "truncated",
+"masked": {"card", "phone", "me"}}`. `filename` in the answer is always `mail.xlsx`; the
+name of the upload is only used to tell a `.zip` from an `.eml` and is not kept. The
+dataset is registered exactly like an uploaded workbook (same lock, same limit of eight
+datasets with the oldest dropped, same `preview` and `DELETE` routes). The preview answer
+of such a dataset also has `"mail": true`.
+
+**Switched on, and local only.** Off unless `ENRICHMENT_ALLOW_MAIL=1`
+(`PlanRunSettings.allow_mail`), and then only on a local installation: the application must
+have been made as the local launcher makes it (`local_browser_configuration`). The hosted
+entry point never offers it, whatever the variable says. Otherwise the route answers 403
+`mail_not_allowed` before it reads the body. `GET /api/limits` has `"mail": true|false`.
+
+**The table.** One sheet, `Mail`, with the columns `Received`, `From`, `Subject`, `Text`
+(`Text` last, so that a later step can clear that column in an exported result), one row
+per mail in the order of the probe (date, then entry name; undated mails last).
+
+- `Received` is a real date-time cell (UTC, no time zone, `yyyy-mm-dd hh:mm`); empty when the
+  mail has no usable date.
+- `From` is the sender's name, or the domain of the address when there is none; `Subject`
+  is the subject.
+- `Text` is exactly the masked document of the probe: `Subject:`, `From:` and `Date:` lines,
+  then the cleaned body (at most 6,000 characters; `truncated` counts the mails cut).
+  A later check of a quote runs against this cell and nothing else.
+- Every text cell is a string cell, also when it starts with `=`, `+`, `-` or `@`;
+  characters Excel cannot hold are removed and a cell is cut at Excel's limit.
+- Masking is the probe's (`mail/masking.py`): card tails, phone numbers and the owner's own
+  address (each mail's recipient and the most common recipient of the upload) are replaced
+  in all three text columns. It finds nothing else: names, postal addresses and account
+  numbers stay in the text.
+
+**Bounds**, each with its own fixed error message (no name, address or text of a mail is
+ever in one): an upload up to 32 MiB (`mail_upload_too_large`, 413); at most 500 `.eml`
+entries in a zip (`mail_too_many`, 422; other entries are counted as skipped); at most 10 MiB
+per mail (`mail_entry_too_large`, 413) and 64 MiB of mail in all (`mail_total_too_large`,
+413), both checked from the sizes the archive declares before anything is read and again
+while reading; a broken zip `invalid_mail_archive`; nothing readable `no_mail_found`;
+another file type `invalid_mail_file_type`. An unreadable mail, or an entry that cannot be
+opened, is only counted in `skipped`.
+
+**The mail files are not written to disk; the table made of them is.** The upload is read
+into memory, parsed there and dropped; nothing is extracted from the archive, so no entry
+name can become a path. The generated workbook, which holds the cleaned and masked text of
+every mail, is stored in the workspace's temporary folder like an uploaded one, and is
+removed with the workspace. The
+usage event `mail_import` holds numbers only (`read`, `skipped`, `truncated`, `masked`).
+
+**Why the planner refuses such a table.** `POST /api/plans`, `POST /api/task-ideas` and
+`POST /api/fallback-plans` answer 409 `mail_dataset_no_planner` ("A table built from
+e-mails is not planned by the AI.") for it, before any other check and before any model is
+asked. The first two send sample rows of the table to the planning model and the third the
+values of its context columns; for this table those are pieces of mail text. The server
+remembers which datasets are mail tables until they are dropped or deleted. Preview cells
+are cut to 200 characters by the profiling limits (`ProfilingLimits`), so the preview shows
+the start of a `Text` cell only; the whole cell is in the stored workbook.
+
+**What does not exist yet:** extracting values from the mails, an interface for any of
+this, Gmail in the application (the probe's Gmail source is still the probe's), and
+attachments.
+
+**Not verified:** nothing was run on real mail in the application; the fixtures are the
+invented mails of `samples/probe/mail/`. The upload bounds were tested with small archives
+that declare large sizes, not with an upload of 32 MiB of real mail. The server's own
+access log, which a person starting the local launcher sees, shows the request line with
+`filename=`, as it does for a workbook upload.

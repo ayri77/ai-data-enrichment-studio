@@ -3,9 +3,9 @@
 import asyncio
 import logging
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager, suppress
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from hmac import compare_digest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -29,6 +29,8 @@ from ai_data_enrichment.ingestion.excel_profiler import profile_worksheet
 from ai_data_enrichment.ingestion.profiling_limits import ProfilingLimits
 from ai_data_enrichment.ingestion.table_rows import read_table_rows
 from ai_data_enrichment.ingestion.table_selection import TableSelection
+from ai_data_enrichment.mail import upload as mail_upload
+from ai_data_enrichment.mail.workbook import write_mail_workbook
 from ai_data_enrichment.plan_run import PlanBodyLimit, PlanRunService, PlanRunSettings
 from ai_data_enrichment.plan_run_worker import ApiFactory, ExecutorFactory, builtin_registry
 from ai_data_enrichment.planning.llm_planner import PlanCompletionClient
@@ -55,6 +57,8 @@ SHARED_VISITOR = "shared"
 ACCESS_MAX_FAILURES = 20
 ACCESS_WINDOW_SECONDS = 60.0
 ACCESS_FAILURE_DELAY_SECONDS = 0.4
+# The name a table made from e-mails goes by; the name of the upload is never kept.
+MAIL_FILENAME = "mail.xlsx"
 PREVIEW_LIMITS = ProfilingLimits()  # Shared defaults: 5 rows, 200 chars, 12 KB.
 logger = logging.getLogger(__name__)
 
@@ -211,6 +215,8 @@ def create_app(
         provider,
         usage,
         offline_lookup_api,
+        # Never on a hosted app, whatever the environment says.
+        mail_available=settings.allow_mail and local_browser_configuration,
     )
 
     @asynccontextmanager
@@ -223,6 +229,7 @@ def create_app(
                 await plan_run.close()
                 usage.close()
                 datasets.clear()
+                plan_run.mail_datasets.clear()
                 provider.remove_key()
 
     app = FastAPI(title="Data Enrichment Workspace", lifespan=lifespan)
@@ -380,12 +387,14 @@ def create_app(
     async def health():
         return {"status": "ok"}
 
-    @app.post("/api/datasets", status_code=201)
-    async def upload(request: Request, filename: str = Query(min_length=1, max_length=255)):
-        # Raw streaming avoids an unbounded multipart parser before our size check.
-        safe_name = filename.replace("\\", "/").rsplit("/", 1)[-1]
-        if Path(safe_name).suffix.lower() != ".xlsx":
-            raise WorkspaceError("invalid_file_type", "Only .xlsx workbooks are supported.")
+    async def _register(
+        directory: Path, write: Callable[[Path], Awaitable[None]], *, mail: bool = False
+    ) -> tuple[str, dict]:
+        """Make room, let ``write`` create the workbook under a new id, read it, register it.
+
+        The one place where a workbook becomes a dataset, for an upload and for a table
+        built from e-mails alike. A file that was not registered is removed again.
+        """
         async with lock:
             if len(datasets) >= MAX_DATASETS:
                 # Drop the oldest workbook together with its plans and finished jobs.
@@ -395,31 +404,95 @@ def create_app(
                         "workspace_full", "Wait for the current run to finish.", 409
                     )
                 datasets.pop(oldest).unlink(missing_ok=True)
+                plan_run.mail_datasets.discard(oldest)
             dataset_id = uuid4().hex
-            path = request.app.state.directory / f"{dataset_id}.xlsx"
+            path = directory / f"{dataset_id}.xlsx"
             try:
-                size = 0
-                with path.open("xb") as target:
-                    async for chunk in request.stream():
-                        size += len(chunk)
-                        if size > MAX_UPLOAD_BYTES:
-                            raise WorkspaceError(
-                                "upload_too_large", "Upload a file up to 10 MiB.", 413
-                            )
-                        target.write(chunk)
+                await write(path)
                 metadata = await run_in_threadpool(_inspect, path)
                 datasets[dataset_id] = path
-                sheets = metadata.get("worksheets") or []
-                usage.record(
-                    "upload",
-                    kilobytes=round(size / 1024),
-                    sheets=len(sheets),
-                    rows=max((sheet.get("row_count") or 0 for sheet in sheets), default=0),
-                )
-                return {"dataset_id": dataset_id, "filename": safe_name, **metadata}
+                if mail:
+                    plan_run.mail_datasets.add(dataset_id)
+                return dataset_id, metadata
             finally:
                 if dataset_id not in datasets:
                     path.unlink(missing_ok=True)
+
+    @app.post("/api/datasets", status_code=201)
+    async def upload(request: Request, filename: str = Query(min_length=1, max_length=255)):
+        # Raw streaming avoids an unbounded multipart parser before our size check.
+        safe_name = filename.replace("\\", "/").rsplit("/", 1)[-1]
+        if Path(safe_name).suffix.lower() != ".xlsx":
+            raise WorkspaceError("invalid_file_type", "Only .xlsx workbooks are supported.")
+        size = 0
+
+        async def write(path: Path) -> None:
+            nonlocal size
+            with path.open("xb") as target:
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > MAX_UPLOAD_BYTES:
+                        raise WorkspaceError("upload_too_large", "Upload a file up to 10 MiB.", 413)
+                    target.write(chunk)
+
+        dataset_id, metadata = await _register(request.app.state.directory, write)
+        sheets = metadata.get("worksheets") or []
+        usage.record(
+            "upload",
+            kilobytes=round(size / 1024),
+            sheets=len(sheets),
+            rows=max((sheet.get("row_count") or 0 for sheet in sheets), default=0),
+        )
+        return {"dataset_id": dataset_id, "filename": safe_name, **metadata}
+
+    @app.post("/api/mail-datasets", status_code=201)
+    async def mail_dataset(request: Request, filename: str = Query(min_length=1, max_length=255)):
+        """A table with one row per e-mail, from a .zip of .eml files or one .eml file.
+
+        Local installations only, and only with ENRICHMENT_ALLOW_MAIL=1. The upload is read
+        into memory and parsed there; only the generated workbook is stored.
+        """
+        if not plan_run.mail_available:
+            raise WorkspaceError(
+                "mail_not_allowed", "Tables from e-mails are not available here.", 403
+            )
+        suffix = Path(filename.replace("\\", "/").rsplit("/", 1)[-1]).suffix.lower()
+        if suffix not in (".zip", ".eml"):
+            raise WorkspaceError(
+                "invalid_mail_file_type", "Upload one .zip of .eml files, or one .eml file."
+            )
+        chunks: list[bytes] = []
+        size = 0
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > mail_upload.MAX_UPLOAD_BYTES:
+                raise WorkspaceError("mail_upload_too_large", "Upload up to 32 MiB.", 413)
+            chunks.append(chunk)
+        data = b"".join(chunks)
+        chunks.clear()
+        messages, skipped = await run_in_threadpool(
+            mail_upload.read_mail_upload, data, archive=suffix == ".zip"
+        )
+        del data
+        summaries = []
+
+        async def write(path: Path) -> None:
+            summaries.append(
+                replace(
+                    await run_in_threadpool(write_mail_workbook, messages, path), skipped=skipped
+                )
+            )
+
+        dataset_id, metadata = await _register(request.app.state.directory, write, mail=True)
+        summary = summaries[0]
+        counts = {
+            "read": summary.read,
+            "skipped": summary.skipped,
+            "truncated": summary.truncated,
+            "masked": dict(summary.masked),
+        }
+        usage.record("mail_import", **counts)
+        return {"dataset_id": dataset_id, "filename": MAIL_FILENAME, **metadata, "mail": counts}
 
     @app.post("/api/datasets/{dataset_id}/preview")
     async def preview(dataset_id: str, body: PreviewRequest):
@@ -427,7 +500,9 @@ def create_app(
             path = datasets.get(dataset_id)
             if path is None:
                 raise WorkspaceError("dataset_not_found", "Upload the workbook again.", 404)
-            return await run_in_threadpool(_preview, path, dataset_id, body)
+            result = await run_in_threadpool(_preview, path, dataset_id, body)
+            # Only a table built from e-mails says so; the answer for any other is as it was.
+            return {**result, "mail": True} if dataset_id in plan_run.mail_datasets else result
 
     @app.delete("/api/datasets/{dataset_id}", status_code=204)
     async def remove(dataset_id: str):
@@ -439,6 +514,7 @@ def create_app(
                     409,
                 )
             path = datasets.pop(dataset_id, None)
+            plan_run.mail_datasets.discard(dataset_id)
             if path is not None:
                 path.unlink(missing_ok=True)
         return Response(status_code=204)

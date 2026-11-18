@@ -2,6 +2,9 @@
 
 import io
 import json
+import logging
+import zipfile
+from email.message import EmailMessage
 from pathlib import Path
 
 import openpyxl
@@ -113,3 +116,115 @@ def test_the_usage_file_holds_nothing_but_what_the_events_hold(tmp_path: Path) -
     assert (
         replayed["since"] == body["since"] and replayed["since"] <= replayed["process_started_at"]
     )
+
+
+MAIL_MARKERS = (
+    "MARKER-MAIL-SUBJECT",
+    "MARKER-MAIL-SENDER",
+    "MARKER-MAIL-BODY",
+    "MARKER-MAIL-FILE",
+    "MARKER-MAIL-ID",
+    "MARKER-MAIL-ATTACHMENT",
+    "MARKER-MAIL-HEADER",
+    "marker-mail-address",
+)
+
+
+def marked_mail(number: int) -> bytes:
+    message = EmailMessage()
+    message["From"] = f"MARKER-MAIL-SENDER <marker-mail-address-{number}@example.com>"
+    message["To"] = "owner@example.org"
+    message["Subject"] = f"MARKER-MAIL-SUBJECT {number}"
+    message["Date"] = f"Mon, 0{number} Nov 2026 10:00:00 +0000"
+    message["Message-ID"] = f"<MARKER-MAIL-ID-{number}@example.com>"
+    message["X-Marker"] = "MARKER-MAIL-HEADER"
+    message.set_content(f"MARKER-MAIL-BODY {number}")
+    message.add_attachment(
+        b"MARKER-MAIL-ATTACHMENT", maintype="application", subtype="pdf", filename="a.pdf"
+    )
+    return message.as_bytes()
+
+
+def marked_zip(count: int = 2) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for number in range(1, count + 1):
+            archive.writestr(f"MARKER-MAIL-FILE-{number}.eml", marked_mail(number))
+        archive.writestr("MARKER-MAIL-FILE-broken.eml", b"\x00\x01")
+        archive.writestr("MARKER-MAIL-FILE-other.txt", b"x")
+    return buffer.getvalue()
+
+
+def test_a_mail_import_leaves_no_trace_of_the_mails_in_usage_logs_errors_or_files(
+    tmp_path: Path, caplog
+) -> None:
+    kept = tmp_path / "usage" / "events.jsonl"
+    app = create_app(
+        settings=PlanRunSettings(allow_mail=True, usage_file=str(kept)),
+        local_browser_configuration=True,
+    )
+    caplog.set_level(logging.DEBUG)
+    answers = []
+    with TestClient(app) as client:
+        imported = client.post(
+            "/api/mail-datasets", params={"filename": "MARKER-MAIL-FILE.zip"}, content=marked_zip()
+        )
+        assert imported.status_code == 201, imported.text
+        assert imported.json()["mail"]["read"] == 2 and imported.json()["mail"]["skipped"] == 2
+        answers.append(imported.text)
+        # Every refusal of the route, each with marked names inside the upload.
+        refusals = [
+            ("MARKER-MAIL-FILE.zip", b"MARKER-MAIL-BODY not a zip"),
+            ("MARKER-MAIL-FILE.eml", b"MARKER-MAIL-BODY"),
+            ("MARKER-MAIL-FILE.txt", marked_mail(1)),
+            ("MARKER-MAIL-FILE.zip", zip_bytes({"MARKER-MAIL-FILE.eml": b"\0" * 11_000_000})),
+            ("MARKER-MAIL-FILE.zip", zip_bytes({"MARKER-MAIL-FILE.txt": b"MARKER-MAIL-BODY"})),
+            (
+                "MARKER-MAIL-FILE.zip",
+                zip_bytes({f"MARKER-MAIL-FILE-{i}.eml": b"\0" * 9_000_000 for i in range(8)}),
+            ),
+            (
+                "MARKER-MAIL-FILE.zip",
+                zip_bytes({f"MARKER-MAIL-FILE-{i}.eml": marked_mail(1) for i in range(501)}),
+            ),
+        ]
+        for name, content in refusals:
+            answer = client.post("/api/mail-datasets", params={"filename": name}, content=content)
+            assert answer.status_code >= 400
+            answers.append(answer.text)
+        summary = client.get("/api/usage").text
+        directory = app.state.directory
+        files = [p for p in directory.rglob("*") if p.is_file()]
+        assert len(files) == 1 and files[0].suffix == ".xlsx"
+        with zipfile.ZipFile(files[0]) as workbook:
+            stored = b"".join(workbook.read(name) for name in workbook.namelist())
+
+    # In the workbook: the four columns only. Nothing of the headers, id or attachment.
+    for absent in (
+        "MARKER-MAIL-ID",
+        "MARKER-MAIL-HEADER",
+        "MARKER-MAIL-ATTACHMENT",
+        "MARKER-MAIL-FILE",
+    ):
+        assert absent.encode() not in stored, absent
+    assert b"MARKER-MAIL-SUBJECT" in stored and b"MARKER-MAIL-BODY" in stored
+
+    usage = kept.read_text("utf-8")
+    events = [json.loads(line) for line in usage.splitlines()]
+    assert [event["kind"] for event in events] == ["mail_import"]
+    # The test client logs the URL it was given itself; the application's own lines are meant.
+    logged = "\n".join(
+        record.getMessage() for record in caplog.records if not record.name.startswith("httpx")
+    )
+    for text in (usage, summary, logged, *answers):
+        for marker in MAIL_MARKERS:
+            assert marker not in text, marker
+        assert "owner@example.org" not in text
+
+
+def zip_bytes(entries: dict[str, bytes]) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, data in entries.items():
+            archive.writestr(name, data)
+    return buffer.getvalue()

@@ -212,6 +212,8 @@ class PlanRunSettings:
     # The universal-search fallback: every row costs a model request and a search fee.
     allow_web_lookup: bool = False
     web_lookup_model: str = WEB_LOOKUP_DEFAULT_MODEL
+    # `ENRICHMENT_ALLOW_MAIL`: tables built from e-mails; offered on a local installation only.
+    allow_mail: bool = False
     # `ENRICHMENT_USAGE_FILE`: None when unset (the entry point decides), "off", or the
     # path of the file that keeps the usage events across restarts.
     usage_file: str | None = None
@@ -230,6 +232,7 @@ class PlanRunSettings:
             llm_model=os.getenv("OPENAI_MODEL") or None,
             allow_web_lookup=os.getenv("ENRICHMENT_ALLOW_WEB_LOOKUP") == "1",
             web_lookup_model=model or WEB_LOOKUP_DEFAULT_MODEL,
+            allow_mail=os.getenv("ENRICHMENT_ALLOW_MAIL") == "1",
             usage_file=parse_usage_file(os.getenv("ENRICHMENT_USAGE_FILE")),
         )
 
@@ -401,8 +404,13 @@ class PlanRunService:
         provider: ProviderConfiguration,
         usage: UsageLog | None = None,
         offline_lookup_api: ApiFactory | None = None,
+        mail_available: bool = False,
     ) -> None:
         self.datasets, self.lock, self.settings = datasets, lock, settings
+        # Whether tables of e-mails can be made here (the setting, on a local installation),
+        # and which datasets are such tables: none of them is shown to a model.
+        self.mail_available = mail_available
+        self.mail_datasets: set[str] = set()
         # Trusted injection for tests: made inside the worker in place of the real client.
         self.offline_lookup_api = offline_lookup_api
         self.provider = provider
@@ -500,6 +508,19 @@ class PlanRunService:
         for plan_id in [i for i, p in self.plans.items() if p["dataset_id"] == dataset_id]:
             del self.plans[plan_id]
         return True
+
+    def refuse_mail_dataset(self, dataset_id: str | None) -> None:
+        """A table built from e-mails is never planned by the AI.
+
+        Planning and task ideas send sample rows of the table to the model, and for such a
+        table those rows are pieces of mail text. Checked before any other gate.
+        """
+        if dataset_id is not None and dataset_id in self.mail_datasets:
+            raise WorkspaceError(
+                "mail_dataset_no_planner",
+                "A table built from e-mails is not planned by the AI.",
+                409,
+            )
 
     def network_gate(self, requested: bool) -> None:
         if not requested or not self.settings.allow_network:
@@ -998,6 +1019,8 @@ class PlanRunService:
                 # Whether the universal search can be asked for here: switched on, with a
                 # key and, for a live run, the network gate open.
                 "web_lookup": self.lookup_available(),
+                # Whether a table can be made from e-mails here.
+                "mail": self.mail_available,
             }
 
         @router.get("/capabilities")
@@ -1009,6 +1032,7 @@ class PlanRunService:
 
         @router.post("/task-ideas")
         async def task_ideas(body: TaskIdeasRequest):
+            self.refuse_mail_dataset(body.dataset_id)
             async with self.lock:
                 path = self.datasets.get(body.dataset_id)
                 if path is None:
@@ -1049,12 +1073,16 @@ class PlanRunService:
 
         @router.post("/plans", status_code=201)
         async def create(body: PlanRequest):
+            self.refuse_mail_dataset(body.dataset_id)
             async with self.lock:
                 self.make_room_for_plan()
                 return await run_in_threadpool(self.create_plan, body)
 
         @router.post("/fallback-plans", status_code=201)
         async def create_fallback(body: FallbackPlanRequest):
+            self.refuse_mail_dataset(body.dataset_id)
+            if body.plan_id is not None and body.plan_id in self.plans:
+                self.refuse_mail_dataset(self.plans[body.plan_id]["dataset_id"])
             async with self.lock:
                 # Before anything is dropped or read.
                 self.lookup_gate()

@@ -139,6 +139,9 @@ Open <http://127.0.0.1:5173>.
 - **With `ENRICHMENT_ALLOW_WEB_LOOKUP=1`** (in `.env`, see `.env.example`; needs the key
   and `--allow-network`) the AI web search described above is offered. Each row costs a
   model request and a search fee. `ENRICHMENT_WEB_LOOKUP_MODEL` changes its model.
+- **With `ENRICHMENT_ALLOW_MAIL=1`** (local launcher only) the API can build a table from
+  `.eml` files, one row per mail; no mail is sent to a model and there is no interface for it
+  yet ([note](docs/32-mail-extraction-probe.md)).
 
 Details: [provider settings](docs/25-provider-settings.md).
 
