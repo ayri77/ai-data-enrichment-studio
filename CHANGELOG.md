@@ -55,6 +55,12 @@
   emptied (quotes in the report and the workbook notes are by design). Tested offline with fakes
   only; nothing has been run on real mail or a real model through the application. See
   [the plan/run API](docs/22-m5-plan-run-api.md) and [the note](docs/32-mail-extraction-probe.md).
+- `scripts/mail_register_via_app.py` drives a running local application through its public API
+  (upload a folder of `.eml` files, plan, approve, run, poll, download) to accept the extraction
+  on real mail before there is an interface. It prints numbers and codes only and writes
+  `register.xlsx`, `report.json` and `summary.json` under the ignored `artifacts/`. Tested
+  against the real application with a fake model, in process and once as a real server process;
+  not run on real mail. See [the note](docs/32-mail-extraction-probe.md).
 
 ## 0.4.0 — beta (2026-11-18)
 

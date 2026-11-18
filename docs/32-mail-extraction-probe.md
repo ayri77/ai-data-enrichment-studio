@@ -520,3 +520,139 @@ planner, or mixed with other steps, is refused.
 **Not verified.** Everything above is tested offline with fake clients and invented mails. Nothing
 has been run on real mail or a real model through the application, so the real reply quality, cost
 and the time of a 40 to 100 row run are unmeasured.
+
+## Acceptance run through the application
+
+`scripts/mail_register_via_app.py` drives an **already running** local application through its
+public API, so that the extraction can be accepted on real mail before there is an interface. It
+is the first time real mail goes through the application: the probe above talks to OpenAI itself,
+this script has the application do it (upload, plan, approve, run, poll, download). It is a
+script, not part of the application, and uses the standard library for HTTP.
+
+**Cost.** One request to OpenAI per mail, as in the probe (about 3 s per mail; the probe's first
+run on 40 mails cost under a cent; nothing was measured through the application). Every run of the
+script is a new upload and a new plan, so a second run asks every mail again, the "not about the
+task" mails included (those are never kept, not even by a later run of the same plan).
+
+**What it sends.** To the application, on the loopback address only (the script refuses another
+`--url`): the mails as one zip with neutral entry names (`0001.eml`, ...); no file name, no path.
+The application then sends the cleaned and masked text of each mail to OpenAI, as the probe does
+(see "What leaves the machine"; the masking is the same and just as limited). `--allow-network` is
+the run's consent and is required; without it nothing is sent anywhere.
+
+**What it prints.** Counts, codes, statuses, the folder it wrote and fixed sentences; never a
+subject, sender, file name, text, quote or value. A refusal of the application is printed as its
+code and fixed message, only the code where the message may name the columns you typed
+(`extraction_plan_invalid`). It writes into `--out` (default
+`artifacts/mail-extraction-app/<UTC timestamp>/`, ignored by git; a folder inside the repository
+that git does not ignore is refused):
+
+- `register.xlsx`: the result workbook of the application (the table, with the text column
+  emptied and the target columns filled, notes with the quotes);
+- `report.json`: the application's audit report (rows, values with quote and mark, counts);
+- `summary.json`: numbers only (mails read, skipped and cut, masked counts, rows by outcome,
+  values by mark, values dropped by reason, requests, tokens, job status, seconds).
+
+`register.xlsx` and `report.json` hold quotes from your mails: do not commit or share them.
+
+**Steps**, from the repository root, in two terminals.
+
+1. **`.env`** (ignored by git; names only, put your own values):
+
+   ```
+   OPENAI_API_KEY=<your-key>
+   ENRICHMENT_ALLOW_MAIL=1
+   ENRICHMENT_MAX_RUN_ROWS=<at least the number of mails; the default is 20>
+   ENRICHMENT_MAX_TIMEOUT_SECONDS=<seconds; the default 300 is about 100 mails at 3 s>
+   ```
+
+   The network gate is the launcher's `--allow-network` below (or `ENRICHMENT_ALLOW_NETWORK=1`).
+   The two limits are read when the application starts. If you add a path to `.env`, write it
+   with forward slashes: `uv` stops reading the file at a value with single backslashes (see
+   "Reading from Gmail"). No path is needed for this run.
+
+2. **Mails as files**, if you have none yet. The probe saves them; `--dry-run` reads from Gmail
+   and saves, and sends nothing to OpenAI (it prints the request for the first mail on your
+   terminal, text included; the probe's own options are described above):
+
+   POSIX shell:
+
+   ```
+   uv run --locked --extra mail python -m scripts.experiment_mail_extraction \
+     --gmail-query "category:purchases newer_than:180d" --limit 40 --dry-run \
+     --save-eml artifacts/mail-extraction/mails \
+     --task "x" --target "Amount:number"
+   ```
+
+   PowerShell (the same with a backtick at the end of a line):
+
+   ```
+   uv run --locked --extra mail python -m scripts.experiment_mail_extraction `
+     --gmail-query "category:purchases newer_than:180d" --limit 40 --dry-run `
+     --save-eml artifacts/mail-extraction/mails `
+     --task "x" --target "Amount:number"
+   ```
+
+   Or point `--eml-dir` at a folder of `.eml` files you already have.
+
+3. **Terminal 1: the application** (the repository's documented command, on 127.0.0.1:8010):
+
+   ```
+   uv run --locked --env-file .env python -m ai_data_enrichment.local_server --allow-network
+   ```
+
+   It is the same on Windows and POSIX. The application keeps the table made of your mails, with
+   their cleaned and masked text, in its temporary workspace until you stop it; stop it (Ctrl+C)
+   when you are done.
+
+4. **Terminal 2: the script**, with an invented task and columns (replace them with your own):
+
+   POSIX shell:
+
+   ```
+   uv run --locked python -m scripts.mail_register_via_app \
+     --eml-dir artifacts/mail-extraction/mails --allow-network \
+     --task "Receipts: what was paid, to whom and when" \
+     --target "Service:text" --target "Amount:number" --target "Currency:text" \
+     --target "Paid on:date" \
+     --target "Kind:one_of:payment|renewal notice|trial ending|price change|payment failed"
+   ```
+
+   PowerShell:
+
+   ```
+   uv run --locked python -m scripts.mail_register_via_app `
+     --eml-dir artifacts/mail-extraction/mails --allow-network `
+     --task "Receipts: what was paid, to whom and when" `
+     --target "Service:text" --target "Amount:number" --target "Currency:text" `
+     --target "Paid on:date" `
+     --target "Kind:one_of:payment|renewal notice|trial ending|price change|payment failed"
+   ```
+
+   The script does not read `.env` and holds no key: the key belongs to the application.
+
+**Options.** `--url` (default `http://127.0.0.1:8010`, loopback only), `--out`, `--limit N`
+(the first N files **in file name order**, which for files saved by the probe from Gmail are the N
+newest; the probe orders by the `Date` header before it applies its `--limit`, the script does not
+parse the mails), `--timeout SECONDS` for the whole wait
+(default: the server's longest run, from `GET /api/limits`, plus 30 s; when it passes, the script
+asks the run to cancel). `--target` has the probe's syntax.
+
+**Before anything is uploaded** the script reads `GET /api/limits` and stops, with exit code 2 and
+one sentence naming the setting, when mail tables are not offered (`ENRICHMENT_ALLOW_MAIL=1`),
+when extraction is not offered (an OpenAI key, or the network gate: it reads the open
+`GET /api/provider-settings` to say which), or when the server's row limit is below the number of
+mails (`ENRICHMENT_MAX_RUN_ROWS`; or use `--limit`). Exit code 0 is a run that ended `completed`
+or `needs_review`; 1 is a failed job or a refusal of the application; a server that is not this
+application, a refused connection and an unexpected status each give one fixed sentence.
+
+**Reading the result.** `needs_review` is the normal end of a run where some mail is about the
+task but gave no traceable value (counted as a failed row in the progress line and as
+`nothing_found` in the summary); mails that are not about the task are `not_applicable` and do
+not stop a run from being `completed`.
+
+**Verified and not.** The script is tested against the real application in the same process,
+with a fake model client and the invented fixtures. It was also run once (2026-11-18) against the
+application as a real server process on the loopback address, through its real HTTP transport,
+with the same fake model client: ten fixture mails, three files written, the text column empty
+in the workbook. Real mail and a real model have not been run through the application.
