@@ -31,8 +31,9 @@ search: the model may use only the text it is given.
    (with UTF-8 and Windows-1252 as fallbacks) and encoded headers are handled. Attachments
    are ignored. A file that cannot be read is skipped and counted. Messages are ordered
    by their `Date` header, then by file name. `--limit N` keeps the first N.
-2. **Clean.** The plain-text part is used when it has real content, otherwise the HTML part
-   is converted to text (`html.parser`). `script`, `style` and `head` are dropped, block
+2. **Clean.** Of the plain-text part and the HTML part converted to text (`html.parser`),
+   the one that says more after cleaning is used, the HTML part on a tie (the plain part of
+   a receipt is often only a stub; see "First run on real mail"). `script`, `style` and `head` are dropped, block
    elements and table cells become line breaks, and the visible text of a link is kept
    while its target is dropped. Bare `http(s)://` addresses and markdown links are removed
    in plain text too. Invisible padding characters that marketing mails use (zero-width
@@ -106,7 +107,8 @@ computed by code from the value, the quote and the text that was sent.
 A value is **dropped**, with a reason, when:
 
 - it has no quote, or the quote is not found in the text that was sent after collapsing
-  whitespace (`quote_not_in_text`; the comparison is case-sensitive);
+  whitespace (`quote_not_in_text`; letter case is not compared, another form of a word is
+  not the passage);
 - a number cannot be read from its quote (`number_not_in_quote`);
 - a date has neither its day nor its year in its quote (`date_not_in_quote`);
 - a date is not a real `YYYY-MM-DD` date, or a choice is not one of the options
@@ -322,19 +324,59 @@ not compared with a bill.
   only listed on `Other`.
 - Anything about mail that is not in the languages and layouts of the fixtures.
 
+## First run on real mail (2026-11-18)
+
+One run by the owner on his own mailbox: `--gmail-query "category:purchases newer_than:180d"`,
+40 messages, the eight columns of the example command, `gpt-6-luna`, effort `low`, masking
+on. A single run of one mailbox, not a measurement; no value was compared with a bank
+statement.
+
+What happened (evidence):
+
+- **The Gmail flow worked at the first try**: consent in the browser, the token, the list,
+  40 of 40 messages read and parsed.
+- **The API accepted the request shape** in 40 of 40 requests. About 3 s per message,
+  35,556 input and 9,188 output tokens in all, about 900 input tokens per message; the
+  estimated cost of the whole run is under one cent at the web lookup's prices (not
+  compared with the bill).
+- **Outcomes**: 29 `FOUND`, 11 `NOT_APPLICABLE`. Ten of the eleven are advertisements,
+  delivery notices and a request for a review. The eleventh is an order confirmation of a
+  marketplace, which says itself that it is an acknowledgement and not yet a purchase;
+  another shop's order confirmation was read as a payment. The task text does not say
+  whether an order counts.
+- **Values**: 146 kept (112 `literal`, 34 `derived`), 2 dropped. All 18 amounts are
+  `literal`. Masking replaced 7 card tails, 8 own addresses and 1 phone number.
+- **Five receipts of one sender had no amount and no item**, although the mail shows them.
+  Its plain-text part only says to visit an address for the details; the receipt is in the
+  HTML part, and the plain part was preferred because it "had real content". Changed after
+  this run: the part that says more is used.
+- **One purchase confirmation has no amount in its text**: it is in an attached PDF.
+  Attachments are not read.
+- **Both dropped values were right**: the model's quote differed from the text in the case
+  of one letter in one, in the ending of a word in the other. Changed after this run:
+  letter case is no longer compared; the other form is still dropped.
+- **Text columns are not uniform**: the currency came as `€`, `EUR`, `Euro`, `$`, `USD`,
+  `грн`, `грн.` and `UAH`; the period as "Monatlich", "в месяц", "3 Monate", a date range,
+  and once as hours of use. A header can ask for a form ("Currency (ISO code)"), and a
+  `one_of` column fixes the choices; neither was tried in this run.
+- **"Amount" is the amount the mail names**, not always an amount paid: the price of an
+  ended plan, the price after a trial and a charge that failed are in the same column. The
+  `Event` column tells them apart.
+- **The same notice arrived twice** (a trial ending, five days apart) and gave two equal
+  rows. Nothing removes duplicates.
+- **The cleaned text of real mails holds what masking does not cover**: the owner's name,
+  a job title in a footer, a billing address.
+
 ## Not verified
 
-- **No live request has been sent.** The request shape (a strict JSON schema with
-  `string | null`, `number | null` and enum types, no tools, `store: false`) has been
-  checked only against the code that builds it and against fake clients. Whether the API
-  accepts it with `gpt-6-luna`, and how the model answers, is not known.
-- **Nothing was measured on real mail.** The ten fixtures are invented. The token counts,
-  the time and the cost per message are not measured; the prices are the web lookup's.
-- **The masking was tried only on invented text.** Its patterns come from the forms named
-  above, not from a survey of real receipts.
-- **The Gmail flow was not run at all.** It cannot be run in tests: they use a fake
-  session, a fake sign-in and stand-in modules for the Google libraries. What is not
-  confirmed: that `InstalledAppFlow.run_local_server`, the token file and its refresh behave
-  as read from the library's source, that the consent screen and the "not verified" warning
-  look as described, that the 7-day expiry shows up as a refresh failure, and that the
-  Gmail API answers as the tests assume. The first run on a real mailbox is the test.
+- **Whether the values are right.** The run above was read row by row for consistency, not
+  compared with a reference. A `literal` amount is in the mail; whether it was charged is
+  another question.
+- **The two changes made after the first run** (which part of a mail is used; letter case
+  of a quote) were tested on invented text only; the 40 mails have not been run again.
+- **Nothing was measured**: one mailbox, one run, 40 messages. The prices are the web
+  lookup's and were not compared with the bill.
+- **The masking** was not surveyed on real receipts beyond the counts above.
+- **The Gmail flow beyond the first sign-in**: the refresh of the token, the 7-day expiry
+  showing up as a refresh failure, a second account with another label, and the rate limit
+  have not been seen. Tests use a fake session, a fake sign-in and stand-in modules.

@@ -12,7 +12,6 @@ from html.parser import HTMLParser
 DEFAULT_MAX_CHARS = 6000
 # A plain-text part with fewer letters and digits than this is not taken as the body when
 # the mail has an HTML part ("Your mail client cannot show HTML ..." and the like).
-MIN_PLAIN_CHARS = 40
 
 # Characters that print nothing: zero-width characters, direction marks, the word joiner
 # and invisible operators, the byte order mark, the combining grapheme joiner (U+034F),
@@ -127,11 +126,12 @@ def clean_text(
 ) -> tuple[str, bool]:
     """The cleaned body and whether it was cut at ``max_chars``.
 
-    The plain-text part is used when it has real content; otherwise the HTML part is
-    converted. When neither has, the one with more letters and digits is used.
+    When a message has both parts, the one with more letters and digits after cleaning is
+    used, the HTML part on a tie. The HTML part is what the reader of a mail sees; the plain
+    part of a receipt is often only a stub ("visit this address for the details").
     """
     plain = _tidy(raw_plain) if raw_plain else ""
-    if _substance(plain) >= MIN_PLAIN_CHARS or not raw_html:
+    if not raw_html:
         return _cut(plain, max_chars)
     html = _tidy(html_to_text(raw_html))
-    return _cut(html if _substance(html) > _substance(plain) else plain, max_chars)
+    return _cut(html if _substance(html) >= _substance(plain) else plain, max_chars)
