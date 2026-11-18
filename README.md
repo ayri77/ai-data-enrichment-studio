@@ -12,10 +12,12 @@ table; after you approve it, ordinary Python code looks the values up in open
 sources and writes them into a copy of your file. A value the sources cannot
 confirm is left empty and explained, not invented.
 
-> **Status: beta (0.3.0).** The sample tasks run end to end in the browser. The
+> **Status: beta (0.4.0).** The sample tasks run end to end in the browser. The
 > scope is deliberately small — see [What it can do](#what-it-can-do) and
-> [Limits](#limits). What changed since the first release:
-> [changelog](CHANGELOG.md).
+> [Limits](#limits). 0.4.0 adds an opt-in AI web search for tasks and columns the
+> system has no source for, and mixed plans that fill some columns from the sources
+> and the rest from that search; its values are not verified. What changed since the
+> first release: [changelog](CHANGELOG.md).
 
 Для менторів курсу: [коротка сторінка українською](docs/for-mentors.uk.md) — що вимагалося, що зроблено і як перевірити.
 
@@ -53,11 +55,16 @@ are kept and not looked up again.
 The application itself lists what a plan may be built from: the overview page
 reads the list from the server, so it is always the list of this installation.
 
-When the server sets `ENRICHMENT_ALLOW_WEB_LOOKUP=1`, the task step has one switch: if the
-system has no source for the task or for some of its columns, search the web with an AI model
-instead (for those columns only, next to the columns the system fills from its sources). Its
-values are not verified, and the plan shows what will be sent before anything runs; see
+When the server sets `ENRICHMENT_ALLOW_WEB_LOOKUP=1` (off by default), the task step has
+one switch: if the system has no source for the task or for some of its columns, search the
+web with an AI model instead. When only some columns have no source, the plan is a mixed
+one: the sources fill what they can and the search fills those columns only. The values the
+search finds are not verified. The values of the columns that identify a row go to OpenAI,
+and the plan shows which before anything runs; the links a value rests on are kept in cell
+notes or on a `Sources` sheet; the results mark them as found by AI. See
 [the interface](docs/24-five-workspace-ui.md#the-universal-search).
+
+![Plan: a mixed plan, the height from Wikidata and the age searched on the web](docs/screenshots/release/mixed-plan.png)
 
 The table needs the names and their countries. A country may be written in any
 language or as a two-letter code.
@@ -129,6 +136,9 @@ Open <http://127.0.0.1:5173>.
 - **With a routing key** (`OPENROUTESERVICE_API_KEY` in `.env`, free at
   [account.heigit.org](https://account.heigit.org)) the driving distance by road
   is offered as well. Without it nothing changes.
+- **With `ENRICHMENT_ALLOW_WEB_LOOKUP=1`** (in `.env`, see `.env.example`; needs the key
+  and `--allow-network`) the AI web search described above is offered. Each row costs a
+  model request and a search fee. `ENRICHMENT_WEB_LOOKUP_MODEL` changes its model.
 
 Details: [provider settings](docs/25-provider-settings.md).
 
@@ -178,9 +188,10 @@ Vite. Start reading the code with the
 ## Limits
 
 - **Few tasks.** Cities and mountains only; adding a source or an operation
-  means writing code. The driving distance is computed by a routing service and
-  has no source record to check it against; it was run live once, on ten pairs
-  of capitals.
+  means writing code. The optional AI web search covers other tasks, but its
+  values are not verified (see below). The driving distance is computed by a
+  routing service and has no source record to check it against; it was run live
+  once, on ten pairs of capitals.
 - **One run fills up to 20 rows by default.** `ENRICHMENT_MAX_RUN_ROWS` raises
   this locally, up to 5,000. A run is stopped after 300 seconds. Runs are not
   parallel: 50 mountains took about two minutes in a live measurement.
@@ -188,13 +199,23 @@ Vite. Start reading the code with the
   rows, 100 columns and 100,000 cells. A run takes rows from the top of the
   table.
 - **Nothing is stored.** Workbooks, plans, runs and keys live in the memory of
-  one process and are gone after a restart. One run at a time.
+  one process and are gone after a restart. The one exception is the usage
+  counts of a locally started server, which are kept in a file (numbers and
+  fixed words only). One run at a time.
 - **One model provider** (OpenAI). Planning was measured on two models,
   `gpt-6-luna` (the default) and `gpt-4.1-mini`: 10 of 10 valid plans on each
   sample task with the four operations of the first release. With the six of
   0.2.0 (a routing key set) only `gpt-6-luna` was measured: 30 of 30 on three
-  tasks ([live planning reliability](docs/26-live-planning-reliability.md)).
+  tasks. With the planner able to name columns it cannot fill (0.4.0), 80 of 80
+  plans on eight tasks were valid and on the expected route
+  ([live planning reliability](docs/26-live-planning-reliability.md)).
   Instructions were measured in English only.
+- **The AI web search is not verified.** It is off by default. Its values are what a
+  model found on pages, not records; no value was checked against a reference. The
+  mark "stated" or "concluded" is the model's own and was wrong once. Rows are asked
+  one after another, about 9 s each in the probe runs, so the limit of 20 rows and
+  300 seconds leaves little room; the cost is an estimate that was not compared with
+  the provider's bill. Measurements: [universal lookup probe](docs/31-universal-lookup-probe.md).
 - **Accuracy is not measured at scale.** The two 10-row samples were run against
   live sources ([record of 2026-11-09](docs/18-academic-live-acceptance.md)).
   That is evidence for those rows, not an estimate of entity-resolution accuracy
@@ -234,6 +255,7 @@ branch, a pull request and CI.
 | [Changelog](CHANGELOG.md) | What each release added, what was measured and what was not verified |
 | [Adding a capability](docs/29-capability-extension-design.md) | Design note: where a capability is declared today and a proposed contract for adding one |
 | [Road distance and ratio](docs/30-road-distance-and-ratio.md) | Two capabilities added after 0.1.0: the routing source, its key and limits, what is not yet verified |
+| [Universal lookup probe](docs/31-universal-lookup-probe.md) | The measurement script for the AI web search, its runs and the first mixed run through the application |
 
 Documentation and code are in English.
 

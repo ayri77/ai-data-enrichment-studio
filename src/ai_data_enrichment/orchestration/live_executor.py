@@ -175,7 +175,7 @@ def build_live_executor(
 
     agent = {
         "User-Agent": (
-            "AIDataEnrichmentStudio/0.3 (https://github.com/ayri77/ai-data-enrichment-studio)"
+            "AIDataEnrichmentStudio/0.4 (https://github.com/ayri77/ai-data-enrichment-studio)"
         )
     }
     # One session for the job. The lookup's budget is added to the caller's policies; the
