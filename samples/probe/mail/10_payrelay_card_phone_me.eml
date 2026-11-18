@@ -1,0 +1,27 @@
+From: PayRelay <receipts@payrelay.example.com>
+To: Sam Example <sam.example@example.org>
+Subject: Receipt for your payment to HostHill
+Date: Wed, 04 Nov 2026 11:05:12 +0100
+Message-ID: <20261104-0010@payrelay.example.com>
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+MIME-Version: 1.0
+
+Receipt from PayRelay
+
+Paid to: HostHill
+Item: HostHill Starter, monthly
+Amount: 4.50 EUR
+Date: 2026-11-04
+Order number: PR-5521907
+
+Charged to Mastercard •••• 0504.
+Other cards on file: Visa-6464 and a card ending in 1234.
+
+Billing address:
+Sam Example
+12 Sample Street
+20095 Exampletown
+
+This receipt was sent to sam.example@example.org.
+Questions? Call us on +1 555 010 0199.

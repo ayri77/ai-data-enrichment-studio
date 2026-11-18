@@ -1,0 +1,54 @@
+From: PayRelay <receipts@payrelay.example.com>
+To: Sam Example <sam.example@example.org>
+Subject: Your receipt from PayRelay
+Date: Tue, 03 Nov 2026 14:21:05 +0000
+Message-ID: <20261103-0003@payrelay.example.com>
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+
+<!DOCTYPE html>
+<html><head><meta charset=3D"utf-8"><title>Receipt</title>
+<style>td { padding: 4px; } .x { color: #333; }</style>
+<script>var t =3D "Amount paid $0.00";</script></head>
+<body>
+<table width=3D"100%"><tr><td>
+<a href=3D"https://track.payrelay.example.com/c/PtYgjmUhBel31iEl2hpChYgCfrL1s=
+pNxnyVmihA_2O76UMFxFkM_R5Kjp1vRt-1fjORS_6ilI8ihN5KXSc7Tvo_hBKqFYY_kv5ZJr3J1TW=
+DtkwtDDb-xHKas1VOqg6YYZYn9ZhyiA4uoRgnatmUdjAWtGSU8po-799NksnRH9ucAUsdMlHUvTCQ=
+CyEZDz_TddJ8HyS5SUkCnD8zRA9a9SkpXz9w3QlY7Zkuvqdt7s8Stqcbnr3yBdGBLEPH1qhT61qtc=
+"><img src=3D"https://track.payrelay.example.com/c/4xatws8phP9nhFyJfm5di4PzJ5=
+9FHz5r1pY4OjE2jBMptUsGr7CmY-uCu3ZR1zTOlUcR64cXQLioDnkH" alt=3D"PayRelay"></a>
+</td></tr>
+<tr><td><h1>Receipt from PayRelay</h1></td></tr>
+<tr><td>Payment to AppMarket</td></tr>
+<tr><td>Notes App Pro (annual plan)</td><td>$29.99</td></tr>
+<tr><td>Amount paid</td><td>$29.99</td></tr>
+<tr><td>Paid on</td><td>3 Nov 2026</td></tr>
+<tr><td colspan=3D"2">Your plan renews on November 3, 2027.</td></tr>
+<tr><td><a href=3D"https://track.payrelay.example.com/c/IfxIq2HZt_PlJhx2jIclH=
+kCiHp6bR1IqfEouHgxzNNAL5wIScGebcy8F5n3_YNBDRzrZSgqbjG3uhkWKFLf6xuI5aHUQPFeNBT=
+xaQWk8JzFalHlsZfYcMMDktXP_tKsf2rcDkdfrUnW5gcF-Ha6ili8GjHEAD6_Wj9KfzjsQGMrb9h-=
+ImB-LK777pzNk8cL6j5IXAAjlsHUqJoUD_-Ydua-5ZMs1SWOpQaPRYpzbLGViYXjU2JgJngKtFI3O=
+yV2dZAkg">View receipt</a></td></tr>
+<tr><td><a href=3D"https://track.payrelay.example.com/c/05rK-gqv81RKMGHZEM9Yp=
+vujA_C5Q52ryFlwRlOEVHzc0X0AWIRh_JUqBlIFXZ53Ncqe28-ajY75FnCttn6kfaqDeMqG3omjMy=
+XHCabM6JOF8EFd0Nhcy_1kGD2VD_eR1UYzaLiA_zNyD7CHLn_xC-1hsYgBds1ghxY5OokvQyx7eNW=
+VQ4vnakJkS1pAWTN3lg8zV5yPU8d0FZfWe7ihGyiRUIQfHOJMaidDn87XG3_q_xbMtEPO6UkzYuF0=
+ie9Pu2nj">https://track.payrelay.example.com/c/HkAm1_5wDr16EpLLJIVGHz4FxFEtKy=
+PiYGFDm7ena8D5VfLDpgyyjVw5HanSBeVRsfAGeAbP0VxNjAe_9i0mYtluYI0KN1gNT11cUzYZAa3=
+u2olZU6uqbgsY</a></td></tr>
+<tr><td>Copy this link if the button does not work: https://track.payrelay.ex=
+ample.com/c/lVvsSKuvinX-zMqf9OgXluCZz8xBfZuXTptFyfePpX6N1NF2XV54wca-7E56w8Zni=
+qT3Ul4ffqkOkgWrdioyq-KvCiSGuPJ6sG9AHEOVezxZuJPWvHogU5nGYVHWVsUQk4DwgLGNOaeCtL=
+31Ugq-Df</td></tr>
+<tr><td><a href=3D"https://track.payrelay.example.com/c/cgaTMnTC0MrAU8urbFt5m=
+isIZHbhS4_FvafhdZxEuhnbzs0z1wNiMg9aW37k5wCnHDepQHgI3HLBkbvHEzuPyXQEW88ad3DNBY=
+jvsedonuSsddfrfifiUziXnFAAoeelK9mqmALOR2HcSGKgVP8Kd0d3mS8gBlKv3azKgaS-m-x_SHu=
+KBD_vok-nPTmZYl2dVAMH2vWD6qeSPt5Pv74GDqQ7EyIMttFPSuEPyHnvnzXtsMM3JznnJAX7ebZ3=
+CL7csGZa">Unsubscribe</a> &middot; <a href=3D"https://track.payrelay.example.=
+com/c/F31DDxp63OHm1FZuG296c0xPbX-neGBuzSm6A8cVR06AxYpThGJWZhbj11THnCMZCY7Bvqi=
+y8CsT07Lq8TDIWG2x9aJTFMP9-2kUtMXhkPrSbbAjLGmsDx5StAZvlMz_Bk4opH1Dr8_h97s-F_va=
+uP7_L7V21jxUdcfQm9-seB1qRmUR8AK3R2GgLLT_ZQISA_pQyOMqlfZZgZMnafy8hWskBf6wmxe1m=
+bVrNHMx1eOc3g_fp1Z5ibXt80nk8Btb2abp">Privacy</a></td></tr>
+</table></body></html>

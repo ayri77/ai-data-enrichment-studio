@@ -1,0 +1,24 @@
+From: Cloudbox Billing <billing@cloudbox.example.com>
+To: Sam Example <sam.example@example.org>
+Subject: Ihre Rechnung von Cloudbox =?utf-8?b?4oCT?= November 2026
+Date: Sun, 01 Nov 2026 06:12:44 +0100
+Message-ID: <20261101-0001@cloudbox.example.com>
+Content-Type: text/plain; charset="iso-8859-1"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+
+Hallo Sam,
+
+vielen Dank f=FCr Ihre Zahlung. Hier ist Ihre monatliche Rechnung.
+
+Rechnung Nr. CB-2026-110417
+Tarif: Cloudbox Plus (2 TB Speicher)
+Zeitraum: 01.11.2026 bis 30.11.2026
+Netto: 8,40 EUR
+MwSt. 19 %: 1,60 EUR
+Gesamt: 10,00 EUR
+Bezahlt am 01.11.2026
+
+Ihr Tarif verl=E4ngert sich automatisch am 01.12.2026.
+
+Ihr Cloudbox-Team
