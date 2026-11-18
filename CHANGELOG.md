@@ -25,10 +25,10 @@
 - E-mails can become an ordinary dataset on a local installation: `POST /api/mail-datasets` takes
   a `.zip` of `.eml` files or one `.eml` and builds a table with one row per mail (`Received`,
   `From`, `Subject`, `Text`), masked, off unless `ENRICHMENT_ALLOW_MAIL=1` and never offered by the
-  hosted app. The mail files are read in memory; only the table made of them is kept, in the temporary
-  workspace. The planner, the task ideas and
-  the AI web search refuse such a table (`mail_dataset_no_planner`). No extraction and no interface
-  yet. See [the note](docs/32-mail-extraction-probe.md).
+  hosted app. The mail files are read in memory; only the table made of them is kept, in the
+  temporary workspace. The planner, the task ideas and the AI web search refuse such a table
+  (`mail_dataset_no_planner`). No extraction and no interface yet. See
+  [the note](docs/32-mail-extraction-probe.md).
 
 ## 0.4.0 — beta (2026-11-18)
 
