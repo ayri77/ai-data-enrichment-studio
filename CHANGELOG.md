@@ -15,6 +15,11 @@
 - The folder `credentials/` at the top of the repository is ignored by git, and the mail probe
   no longer warns about an OAuth client file that git ignores. The probe's note says how to write
   the path in `.env`: `uv` stops reading the file at a value with single backslashes.
+- After the first run of the mail probe on real mail: of the plain-text and the HTML part of a
+  message the one that says more is used (receipts of one sender had their amounts only in the
+  HTML part), and the letter case of a quote is no longer compared with the text (another form of
+  a word is still dropped). The run is recorded in
+  [the probe's note](docs/32-mail-extraction-probe.md).
 
 ## 0.4.0 — beta (2026-11-18)
 

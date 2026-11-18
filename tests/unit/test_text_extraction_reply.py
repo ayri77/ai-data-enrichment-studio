@@ -73,6 +73,17 @@ def test_a_null_value_is_neither_kept_nor_dropped() -> None:
 # --- the quote -------------------------------------------------------------------------
 
 
+def test_letter_case_of_the_quote_is_not_compared_but_another_word_form_is_dropped() -> None:
+    column = ExtractionColumn("S", "text")
+    # the text says "Cloudbox Plus"; a capital or a lower-case letter is the same passage
+    for quote in ("cloudbox plus", "CLOUDBOX PLUS"):
+        assert one(column, "Cloudbox Plus", quote).dropped == (), quote
+    # another form of a word is not what the text says
+    assert [d.reason for d in one(column, "Cloudbox Plus", "Cloudboxes Plus").dropped] == [
+        "quote_not_in_text"
+    ]
+
+
 def test_no_quote_is_dropped() -> None:
     for quote in (None, "", "   "):
         result = one(ExtractionColumn("S", "text"), "Cloudbox Plus", quote)
@@ -93,13 +104,15 @@ def test_a_quote_not_in_the_text_is_dropped_whatever_the_kind() -> None:
         assert result.dropped[0].value == value and result.dropped[0].quote == "Total: 19,99 EUR"
 
 
-def test_the_quote_is_compared_after_collapsing_whitespace_and_is_case_sensitive() -> None:
+def test_the_quote_is_compared_after_collapsing_whitespace_and_without_letter_case() -> None:
     text = "Total:\n   9,99    EUR\n\nPaid on 3 Nov 2026"
     ok = one(ExtractionColumn("A", "number"), 9.99, "Total: 9,99 EUR", text)
     assert ok.outcome == "FOUND" and ok.kept[0].quote == "Total: 9,99 EUR"
     ok = one(ExtractionColumn("A", "number"), 9.99, "Total:\n9,99\tEUR", text)
     assert ok.outcome == "FOUND"
-    bad = one(ExtractionColumn("A", "number"), 9.99, "total: 9,99 EUR", text)
+    ok = one(ExtractionColumn("A", "number"), 9.99, "total: 9,99 EUR", text)
+    assert ok.outcome == "FOUND" and ok.kept[0].quote == "total: 9,99 EUR"
+    bad = one(ExtractionColumn("A", "number"), 9.99, "Totals: 9,99 EUR", text)
     assert bad.dropped[0].reason == "quote_not_in_text"
 
 

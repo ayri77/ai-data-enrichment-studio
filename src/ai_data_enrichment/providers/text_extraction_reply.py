@@ -266,7 +266,9 @@ def _judge(
             text = text[: MAX_QUOTE - 1].rstrip() + "…"
         return KeptValue(column.header, slot, column.kind, value, mark, text)
 
-    wanted = _collapse(quote) if quote is not None else ""
+    # Letter case is not compared: a model often starts its copy of a passage with a capital.
+    # Another word form or another word is not the passage and is dropped.
+    wanted = _collapse(quote).casefold() if quote is not None else ""
     if not wanted or wanted not in text_collapsed:
         return drop("quote_not_in_text")
 
@@ -334,7 +336,7 @@ def parse_reply(response: Any, task: ExtractionTask, text: str) -> ExtractionRes
             OUTCOME_NOT_APPLICABLE, input_tokens=input_tokens, output_tokens=output_tokens
         )
 
-    text_collapsed = _collapse(text)
+    text_collapsed = _collapse(text).casefold()
     kept: list[KeptValue] = []
     dropped: list[DroppedValue] = []
     for slot, column in slots:

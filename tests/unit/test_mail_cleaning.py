@@ -53,10 +53,35 @@ def test_control_characters_are_dropped_but_not_line_breaks() -> None:
     assert clean_text("a\x00b\x0cc\nd\x7f", None)[0] == "abc\nd"
 
 
-def test_plain_is_preferred_when_it_has_real_content() -> None:
-    plain = "This is the plain version of the receipt for your monthly plan."
-    html = "<p>This is the HTML version of the receipt for your monthly plan, longer.</p>"
+def test_the_part_that_says_more_is_used() -> None:
+    plain = "This is the plain version of the receipt for your monthly plan, with every line."
+    html = "<p>HTML version, shorter.</p>"
     assert clean_text(plain, html)[0] == plain
+    longer = (
+        "<p>This is the HTML version of the receipt for your monthly plan, "
+        "with every line and the total.</p>"
+    )
+    assert clean_text(plain, longer)[0].startswith("This is the HTML version")
+
+
+def test_a_plain_part_that_only_points_to_the_details_loses_to_the_html_receipt() -> None:
+    # Seen on real mail: the plain part reads well but holds no line of the receipt.
+    plain = (
+        "Hello sam_invented\n\nThank you for your purchase at GameHub. Please visit\n"
+        "https://store.example.com/receipt?p=abcdef for the details.\n\nThe GameHub team\n"
+    )
+    html = (
+        "<p>Hello sam_invented</p><p>Thank you for your purchase at GameHub.</p>"
+        "<table><tr><td>Star Harbor</td><td>125 UAH</td></tr>"
+        "<tr><td>VAT (20%)</td><td>25 UAH</td></tr><tr><td>Total</td><td>150 UAH</td></tr>"
+        "</table><p>This e-mail is your receipt.</p>"
+    )
+    text = clean_text(plain, html)[0]
+    assert "Total" in text and "150 UAH" in text
+
+
+def test_the_html_part_wins_a_tie() -> None:
+    assert clean_text("Same words here.", "<p>Same words here.</p>")[0] == "Same words here."
 
 
 def test_html_is_used_when_the_plain_part_is_only_a_stub() -> None:

@@ -56,7 +56,7 @@ def test_plain_mail_and_header_facts(tmp_path: Path) -> None:
     )
 
 
-def test_multipart_alternative_prefers_a_plain_part_with_content(tmp_path: Path) -> None:
+def test_multipart_alternative_uses_the_part_that_says_more(tmp_path: Path) -> None:
     body = (
         "MIME-Version: 1.0\nContent-Type: multipart/alternative; boundary=XX\n\n"
         "--XX\nContent-Type: text/plain; charset=utf-8\n\n"
