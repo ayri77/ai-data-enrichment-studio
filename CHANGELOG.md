@@ -2,7 +2,12 @@
 
 ## Unreleased
 
-Nothing yet.
+- A probe outside the application for building a table from e-mails (first task: subscriptions
+  and recurring payments): `scripts/experiment_mail_extraction.py` reads `.eml` files, cleans and
+  masks their text, asks a model once per message for several columns with a quote for each value,
+  and writes a workbook and a rows file. Every mark is computed by code. No live request has been
+  sent and nothing was measured on real mail; there is no mailbox connection. See
+  [the probe](docs/32-mail-extraction-probe.md).
 
 ## 0.4.0 — beta (2026-11-18)
 

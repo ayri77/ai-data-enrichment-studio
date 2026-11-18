@@ -1,0 +1,32 @@
+From: Streamly <promo@streamly.example.com>
+To: Sam Example <sam.example@example.org>
+Subject: New this week on Streamly
+Date: Sat, 14 Nov 2026 12:00:00 +0000
+Message-ID: <20261114-0008@streamly.example.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="===============7442721258775894211=="
+
+--===============7442721258775894211==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+New this week on Streamly
+
+Three new series, a documentary about bridges and a quiz show for the whole f=
+amily.
+Open the app and start watching.
+
+You receive this mail because you subscribed to our newsletter.
+
+--===============7442721258775894211==
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+
+<html><body><h2>New this week on Streamly</h2><p>Three new series, a document=
+ary about bridges and a quiz show for the whole family.</p><p><a href=3D"http=
+s://streamly.example.com/new">Open the app and start watching.</a></p><p>You =
+receive this mail because you subscribed to our newsletter.</p></body></html>
+
+--===============7442721258775894211==--

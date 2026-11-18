@@ -256,6 +256,7 @@ branch, a pull request and CI.
 | [Adding a capability](docs/29-capability-extension-design.md) | Design note: where a capability is declared today and a proposed contract for adding one |
 | [Road distance and ratio](docs/30-road-distance-and-ratio.md) | Two capabilities added after 0.1.0: the routing source, its key and limits, what is not yet verified |
 | [Universal lookup probe](docs/31-universal-lookup-probe.md) | The measurement script for the AI web search, its runs and the first mixed run through the application |
+| [Mail extraction probe](docs/32-mail-extraction-probe.md) | The measurement script that fills a table from e-mail files: what is sent, how values are masked and checked, what is not verified |
 
 Documentation and code are in English.
 

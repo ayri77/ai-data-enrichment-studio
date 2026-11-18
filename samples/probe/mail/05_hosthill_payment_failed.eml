@@ -1,0 +1,48 @@
+From: HostHill <billing@hosthill.example.org>
+To: Sam Example <sam.example@example.org>
+Subject: Payment failed for HostHill Starter
+Date: Wed, 18 Nov 2026 03:45:00 +0100
+Message-ID: <20261118-0005@hosthill.example.org>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="===============3183210285187461747=="
+
+--===============3183210285187461747==
+Content-Type: multipart/alternative;
+ boundary="===============2519261928811434289=="
+
+--===============2519261928811434289==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Hello Sam,
+
+We could not charge your payment method for HostHill Starter (4.50 EUR).
+We will try again on 2026-11-22. If it fails again your site will be paused.
+
+Update your payment method in your HostHill account.
+
+HostHill Support
+
+--===============2519261928811434289==
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+
+<html><body><p>Hello Sam,</p><p>We could not charge your payment method for H=
+ostHill Starter (4.50 EUR).<br>We will try again on 2026-11-22. If it fails a=
+gain your site will be paused.</p><p>Update your payment method in your HostH=
+ill account.</p><p>HostHill Support</p></body></html>
+
+--===============2519261928811434289==--
+
+--===============3183210285187461747==
+Content-Type: application/pdf
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="invoice-draft.pdf"
+MIME-Version: 1.0
+
+JVBERi0xLjQgaW52ZW50ZWQgYXR0YWNobWVudCwgbm90IGEgcmVhbCBkb2N1bWVudAolUERGLTEu
+NCBpbnZlbnRlZCBhdHRhY2htZW50LCBub3QgYSByZWFsIGRvY3VtZW50CiVQREYtMS40IGludmVu
+dGVkIGF0dGFjaG1lbnQsIG5vdCBhIHJlYWwgZG9jdW1lbnQK
+
+--===============3183210285187461747==--

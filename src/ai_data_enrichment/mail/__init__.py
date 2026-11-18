@@ -1,0 +1,21 @@
+"""Reading e-mails from files, cleaning their text and masking it before it is sent anywhere.
+
+This package belongs to the mail extraction probe (docs/32-mail-extraction-probe.md). It
+reads ``.eml`` files only; there is no mailbox connection.
+"""
+
+from ai_data_enrichment.mail.cleaning import clean_text
+from ai_data_enrichment.mail.masking import mask_text
+from ai_data_enrichment.mail.messages import (
+    MailMessage,
+    read_eml_folder,
+    read_eml_folder_report,
+)
+
+__all__ = [
+    "MailMessage",
+    "clean_text",
+    "mask_text",
+    "read_eml_folder",
+    "read_eml_folder_report",
+]
