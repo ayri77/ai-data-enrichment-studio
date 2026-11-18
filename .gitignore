@@ -28,6 +28,13 @@ outputs/
 *.sqlite
 *.sqlite3
 
+# Gmail sign-in for the mail probe: the OAuth client file and tokens must never be committed
+client_secret*.json
+client_secrets*.json
+gmail-token*.json
+token.json
+credentials.json
+
 # Note: uv.lock MUST be committed.
 
 # Local experiments and temporary artifacts

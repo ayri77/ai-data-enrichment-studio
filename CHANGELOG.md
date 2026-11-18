@@ -6,8 +6,12 @@
   and recurring payments): `scripts/experiment_mail_extraction.py` reads `.eml` files, cleans and
   masks their text, asks a model once per message for several columns with a quote for each value,
   and writes a workbook and a rows file. Every mark is computed by code. No live request has been
-  sent and nothing was measured on real mail; there is no mailbox connection. See
-  [the probe](docs/32-mail-extraction-probe.md).
+  sent and nothing was measured on real mail. See [the probe](docs/32-mail-extraction-probe.md).
+- The probe can read the person's own Gmail mailbox, read-only (`--gmail-query`, scope
+  `gmail.readonly` only), as a second source next to `.eml` files; the sign-in uses Google's
+  libraries from the optional `mail` extra (`uv sync --extra mail`), `--save-eml` keeps the
+  messages for a repeat run, `--gmail-sign-out` removes the local token. Not run against a
+  real mailbox yet.
 
 ## 0.4.0 — beta (2026-11-18)
 
