@@ -1014,6 +1014,29 @@ def test_capabilities_are_listed_with_their_contract_and_source(client, monkeypa
     assert "key-for-the-offline-fixture" not in client.get("/api/capabilities").text
 
 
+def test_capabilities_state_a_category_and_the_categories_in_use(client, monkeypatch):
+    monkeypatch.delenv("OPENROUTESERVICE_API_KEY", raising=False)
+    body = client.get("/api/capabilities").json()
+    assert {item["id"]: item["category"] for item in body["capabilities"]} == {
+        "geocode": "lookup",
+        "resolve_entity": "lookup",
+        "lookup_property": "lookup",
+        "geodesic_distance": "distance",
+        "ratio": "calculate",
+    }
+    # Declared order; distance stays because of the geodesic distance. The web
+    # search is not something a plan may use, so it is not listed.
+    assert body["categories"] == ["lookup", "distance", "calculate"]
+    monkeypatch.setenv("OPENROUTESERVICE_API_KEY", "key-for-the-offline-fixture")
+    body = client.get("/api/capabilities").json()
+    roads = body["capabilities"][-1]
+    assert (roads["id"], roads["category"]) == ("road_distance", "distance")
+    assert body["categories"] == ["lookup", "distance", "calculate"]
+    assert all(item["category"] != "web_search" for item in body["capabilities"])
+    # The planner is not told: the category is not in what it is shown.
+    assert all("category" not in item for item in builtin_registry().describe_all())
+
+
 def table(header, *rows):
     workbook = Workbook()
     sheet = workbook.active

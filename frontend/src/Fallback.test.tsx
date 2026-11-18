@@ -1252,15 +1252,15 @@ it("tells a run that needs review that there is nothing to choose, and leads on 
     expect(await screen.findByTestId("fallback-summary")).toBeVisible();
 });
 
-it("mentions the search on the overview only when the server has it", async () => {
+it("shows the search on the overview, as a card, only when the server has it", async () => {
     const { unmount } = render(<App />);
-    expect(await screen.findByText(t("overview.know.lookup"))).toBeVisible();
+    expect(await screen.findByText(t("cap.web_lookup.title"))).toBeVisible();
     unmount();
     vi.mocked(api.limits).mockResolvedValue(limits(false));
     render(<App />);
     await screen.findByText(t("overview.know.limit", { max: 20 }));
     expect(
-        screen.queryByText(t("overview.know.lookup")),
+        screen.queryByText(t("cap.web_lookup.title")),
     ).not.toBeInTheDocument();
 });
 

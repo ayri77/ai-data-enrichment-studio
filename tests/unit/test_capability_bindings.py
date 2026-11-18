@@ -4,6 +4,7 @@ import pytest
 
 from ai_data_enrichment.capabilities.bindings import (
     BINDINGS,
+    CATEGORIES,
     FALLBACK_BINDINGS,
     Trust,
     binding_for,
@@ -156,3 +157,20 @@ def test_the_fallback_binding_is_not_part_of_what_is_offered_or_executed() -> No
     assert "web_lookup" not in {spec.id for spec in offered_capabilities(road_distance=True)}
     assert "web_lookup" not in {spec.id for spec in get_builtin_capabilities()}
     assert "openai_web_search" not in remote_sources(registry())
+
+
+def test_every_binding_has_a_declared_category_and_the_order_is_declared_once() -> None:
+    assert len(set(CATEGORIES)) == len(CATEGORIES)
+    for binding in (*BINDINGS, *FALLBACK_BINDINGS):
+        assert binding.category in CATEGORIES, binding.capability_id
+    assert {item.capability_id: item.category for item in (*BINDINGS, *FALLBACK_BINDINGS)} == {
+        "geocode": "lookup",
+        "resolve_entity": "lookup",
+        "lookup_property": "lookup",
+        "geodesic_distance": "distance",
+        "road_distance": "distance",
+        "ratio": "calculate",
+        "web_lookup": "web_search",
+    }
+    # Every declared category is used, so the order has no dead entry.
+    assert {item.category for item in (*BINDINGS, *FALLBACK_BINDINGS)} == set(CATEGORIES)

@@ -85,6 +85,11 @@ export interface Capability {
      * "service" or "ai_found". A later server may say more; absent from an older one.
      */
     trust?: string;
+    /**
+     * What a person wants to do with it ("lookup", "distance", "calculate", ...),
+     * declared by the server; a later server may send more. Absent from an older one.
+     */
+    category?: string;
     inputs: Record<string, CapabilityField>;
     parameters: Record<string, CapabilityField>;
     output: {
@@ -534,7 +539,9 @@ export interface RunLimits {
 export const api = {
     limits: () => response<RunLimits>(call("/api/limits")),
     capabilities: () =>
-        response<{ capabilities: Capability[] }>(call("/api/capabilities")),
+        response<{ capabilities: Capability[]; categories?: string[] }>(
+            call("/api/capabilities"),
+        ),
     access: () =>
         response<AccessState>(call("/api/access", { cache: "no-store" })),
     /** The usage summary; opened by the admin code, not by a visitor's. */

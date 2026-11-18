@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The Overview lists what the system can do as a catalog: category tiles that filter, capability cards grouped by category, each card opening in place (what it needs, what it gives, an example; the contract in Advanced), and the AI web search as a category of its own. The category is declared with the binding on the server (`GET /api/capabilities` gains `category` per entry and `categories`), so a new capability appears in the right group without a change to the interface; the planner is not told.
 - A probe outside the application for building a table from e-mails (first task: subscriptions
   and recurring payments): `scripts/experiment_mail_extraction.py` reads `.eml` files, cleans and
   masks their text, asks a model once per message for several columns with a quote for each value,

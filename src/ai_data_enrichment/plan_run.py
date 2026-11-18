@@ -55,6 +55,7 @@ from ai_data_enrichment.plan_run_worker import (
     execute_workbook,
     live_executor,
     lookup_deadline_seconds,
+    offered_categories,
     offered_descriptions,
     openai_api,
     progress_slots,
@@ -1003,7 +1004,8 @@ class PlanRunService:
         async def capabilities():
             # What a plan may be built from here, with each contract and source:
             # the list a client shows instead of keeping one of its own.
-            return {"capabilities": offered_descriptions()}
+            offered = offered_descriptions()
+            return {"capabilities": offered, "categories": offered_categories(offered)}
 
         @router.post("/task-ideas")
         async def task_ideas(body: TaskIdeasRequest):

@@ -15,7 +15,11 @@ import { ExportWorkspace } from "./components/ExportWorkspace";
 import { OverviewWorkspace } from "./components/OverviewWorkspace";
 import { ReviewWorkspace } from "./components/ReviewWorkspace";
 import { Button } from "./components/ui/button";
-import { CapabilitiesContext, useCapabilities } from "./capabilities";
+import {
+    CapabilitiesContext,
+    CategoriesContext,
+    useCatalog,
+} from "./capabilities";
 import { Advanced, ModeContext } from "./mode";
 import { initialMode, initialTheme, savePreference } from "./preferences";
 import { isFallbackRun } from "./fallbackModel";
@@ -43,7 +47,7 @@ function Studio({ opening }: { opening: Opening }) {
     >(null);
     const heading = useRef<HTMLHeadingElement>(null);
     const { limits, refresh: refreshLimits } = useLimits();
-    const capabilities = useCapabilities();
+    const catalog = useCatalog();
     // The overview stands beside the steps: opening it leaves the work as it is.
     const [overview, setOverview] = useState(opening === "overview");
     const d = useDataset({
@@ -120,115 +124,130 @@ function Studio({ opening }: { opening: Opening }) {
     }, [stranded]);
     return (
         <ModeContext.Provider value={mode}>
-            <CapabilitiesContext.Provider value={capabilities}>
-                <StudioShell
-                    theme={theme}
-                    onThemeChange={setTheme}
-                    mode={mode}
-                    onModeChange={setMode}
-                    unavailable={unavailable}
-                    workspace={page}
-                    onNavigate={open}
-                    completed={completed}
-                >
-                    <div className="workspace-heading">
-                        <div>
-                            <h1 ref={heading} tabIndex={-1}>
-                                {t(page)}
-                            </h1>
-                            <p>
-                                {t(
-                                    mode === "basic" && page === "plan"
-                                        ? "ws.planHintBasic"
-                                        : page === "review" &&
-                                            isFallbackRun(w.job, w.plan)
-                                          ? "fallback.reviewHint"
-                                          : `ws.${page}Hint`,
+            <CapabilitiesContext.Provider value={catalog?.capabilities ?? null}>
+                <CategoriesContext.Provider value={catalog?.categories ?? null}>
+                    <StudioShell
+                        theme={theme}
+                        onThemeChange={setTheme}
+                        mode={mode}
+                        onModeChange={setMode}
+                        unavailable={unavailable}
+                        workspace={page}
+                        onNavigate={open}
+                        completed={completed}
+                    >
+                        <div className="workspace-heading">
+                            <div>
+                                <h1 ref={heading} tabIndex={-1}>
+                                    {t(page)}
+                                </h1>
+                                <p>
+                                    {t(
+                                        mode === "basic" && page === "plan"
+                                            ? "ws.planHintBasic"
+                                            : page === "review" &&
+                                                isFallbackRun(w.job, w.plan)
+                                              ? "fallback.reviewHint"
+                                              : `ws.${page}Hint`,
+                                    )}
+                                </p>
+                            </div>
+                            <div className="workspace-tools">
+                                <Advanced>
+                                    <Button
+                                        variant="outline"
+                                        onClick={() =>
+                                            setDiagnostics("settings")
+                                        }
+                                    >
+                                        <SlidersHorizontal aria-hidden="true" />
+                                        {t("ws.providerSettings")}
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        onClick={() =>
+                                            setDiagnostics("details")
+                                        }
+                                    >
+                                        {t("ws.diagnostics")}
+                                    </Button>
+                                </Advanced>
+                            </div>
+                        </div>
+                        {(w.error || w.pollError) && (
+                            <div
+                                role="alert"
+                                className="error-banner"
+                                data-error-code={w.error || w.pollError}
+                            >
+                                {t(`error.${w.error || w.pollError}`, {
+                                    defaultValue: t("error.request_failed"),
+                                })}
+                                {w.pollError && (
+                                    <Button
+                                        variant="outline"
+                                        onClick={w.retryPoll}
+                                    >
+                                        {t("workflow.retry")}
+                                    </Button>
                                 )}
-                            </p>
-                        </div>
-                        <div className="workspace-tools">
-                            <Advanced>
-                                <Button
-                                    variant="outline"
-                                    onClick={() => setDiagnostics("settings")}
-                                >
-                                    <SlidersHorizontal aria-hidden="true" />
-                                    {t("ws.providerSettings")}
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    onClick={() => setDiagnostics("details")}
-                                >
-                                    {t("ws.diagnostics")}
-                                </Button>
-                            </Advanced>
-                        </div>
-                    </div>
-                    {(w.error || w.pollError) && (
+                            </div>
+                        )}
+                        <ActivityBar w={w} d={d} />
                         <div
-                            role="alert"
-                            className="error-banner"
-                            data-error-code={w.error || w.pollError}
+                            className="workspace-body"
+                            aria-busy={w.busy || !!d.busy}
                         >
-                            {t(`error.${w.error || w.pollError}`, {
-                                defaultValue: t("error.request_failed"),
-                            })}
-                            {w.pollError && (
-                                <Button variant="outline" onClick={w.retryPoll}>
-                                    {t("workflow.retry")}
-                                </Button>
+                            {page === "overview" && (
+                                <OverviewWorkspace
+                                    maxRows={limits.maxRows}
+                                    capabilities={limits.capabilities}
+                                    webLookup={limits.webLookup}
+                                    samples={d.dataset ? [] : d.samples}
+                                    busy={w.busy || !!d.busy}
+                                    onStart={() => open("dataset")}
+                                    onSample={(sample) => {
+                                        open("dataset");
+                                        void d.loadSample(sample);
+                                    }}
+                                />
+                            )}
+                            {page === "dataset" && (
+                                <DatasetWorkspace
+                                    d={d}
+                                    workflow={w}
+                                    onOpenSettings={() =>
+                                        setDiagnostics("settings")
+                                    }
+                                />
+                            )}
+                            {page === "plan" && (
+                                <PlanWorkspace w={w} preview={d.preview} />
+                            )}
+                            {page === "execution" && (
+                                <ExecutionWorkspace
+                                    w={w}
+                                    onStartOver={startOver}
+                                />
+                            )}
+                            {page === "review" && <ReviewWorkspace w={w} />}
+                            {page === "export" && (
+                                <ExportWorkspace
+                                    w={w}
+                                    onStartOver={startOver}
+                                />
                             )}
                         </div>
-                    )}
-                    <ActivityBar w={w} d={d} />
-                    <div
-                        className="workspace-body"
-                        aria-busy={w.busy || !!d.busy}
-                    >
-                        {page === "overview" && (
-                            <OverviewWorkspace
-                                maxRows={limits.maxRows}
-                                capabilities={limits.capabilities}
-                                webLookup={limits.webLookup}
-                                samples={d.dataset ? [] : d.samples}
-                                busy={w.busy || !!d.busy}
-                                onStart={() => open("dataset")}
-                                onSample={(sample) => {
-                                    open("dataset");
-                                    void d.loadSample(sample);
-                                }}
+                        {diagnostics && (
+                            <Diagnostics
+                                w={w}
+                                preview={d.preview}
+                                section={diagnostics}
+                                onClose={() => setDiagnostics(null)}
                             />
                         )}
-                        {page === "dataset" && (
-                            <DatasetWorkspace
-                                d={d}
-                                workflow={w}
-                                onOpenSettings={() =>
-                                    setDiagnostics("settings")
-                                }
-                            />
-                        )}
-                        {page === "plan" && (
-                            <PlanWorkspace w={w} preview={d.preview} />
-                        )}
-                        {page === "execution" && (
-                            <ExecutionWorkspace w={w} onStartOver={startOver} />
-                        )}
-                        {page === "review" && <ReviewWorkspace w={w} />}
-                        {page === "export" && (
-                            <ExportWorkspace w={w} onStartOver={startOver} />
-                        )}
-                    </div>
-                    {diagnostics && (
-                        <Diagnostics
-                            w={w}
-                            preview={d.preview}
-                            section={diagnostics}
-                            onClose={() => setDiagnostics(null)}
-                        />
-                    )}
-                </StudioShell>
+                    </StudioShell>
+                </CategoriesContext.Provider>
             </CapabilitiesContext.Provider>
         </ModeContext.Provider>
     );

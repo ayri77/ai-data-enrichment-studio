@@ -1894,6 +1894,8 @@ button.candidate-link {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 10px;
+    /* An opened card grows alone; its neighbours keep their height. */
+    align-items: start;
 }
 .capability-list > li {
     display: flex;
@@ -1918,17 +1920,153 @@ button.candidate-link {
     font-size: 12px;
     color: var(--studio-source);
 }
-/* With contracts shown a card needs the width of the page. */
-[data-mode="advanced"] .capability-list {
+/* The catalog: tiles that filter, then the groups of cards. */
+.category-tiles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 12px 0 18px;
+}
+.studio .category-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1 1 170px;
+    max-width: 260px;
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--studio-control-border);
+    border-radius: 7px;
+    background: var(--studio-surface0);
+    color: inherit;
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+.studio .category-tile:hover,
+.studio .category-tile[aria-pressed="true"] {
+    border-color: var(--studio-accent);
+}
+.studio .category-tile[aria-pressed="true"] {
+    background: var(--studio-selection);
+    box-shadow: 0 0 0 1px var(--studio-accent);
+}
+.category-tile-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+}
+.category-tile-head svg {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    color: var(--studio-muted);
+}
+.category-tile-head strong {
+    flex: 1;
+    min-width: 0;
+}
+.category-tile-count {
+    flex: none;
+    min-width: 22px;
+    padding: 0 6px;
+    border: 1px solid var(--studio-border);
+    border-radius: 11px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--studio-muted);
+}
+.category-tile-text {
+    color: var(--studio-muted);
+}
+.capability-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+}
+.capability-group > h3 {
+    font-size: 14px;
+    font-weight: 500;
+}
+.capability-list > li[data-open="true"] {
+    border-color: var(--studio-accent);
+}
+/* With a contract shown, a card needs the width of the page. */
+[data-mode="advanced"] .capability-list > li[data-open="true"] {
+    grid-column: 1 / -1;
+}
+.capability-list .capability-source {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+}
+.capability-list .capability-source svg {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    margin-top: 1px;
+}
+.capability-list .capability-source[data-trust="service"],
+.capability-list .capability-source[data-trust="ai_found"] {
+    color: var(--studio-warning);
+}
+.capability-list > li.capability-off {
+    border-style: dashed;
+    background: transparent;
+}
+.studio .capability-toggle {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    gap: 4px;
+    padding: 2px 4px;
+    margin: 4px 0 0 -4px;
+    border: 0;
+    background: transparent;
+    color: var(--studio-accent);
+    font: inherit;
+    font-size: 12px;
+}
+.capability-toggle svg {
+    width: 14px;
+    height: 14px;
+    transition: transform 0.15s;
+}
+.capability-toggle[aria-expanded="true"] svg {
+    transform: rotate(180deg);
+}
+.capability-details {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 4px;
+    padding-top: 8px;
+    border-top: 1px solid var(--studio-border);
+    min-width: 0;
+}
+.capability-explained {
+    display: grid;
     grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+    margin: 0;
+    font-size: 12px;
+}
+.capability-explained dt {
+    margin-top: 6px;
+    color: var(--studio-muted);
+}
+.capability-explained dd {
+    margin: 0;
+    color: var(--studio-text);
+    overflow-wrap: anywhere;
 }
 .capability-contract {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    margin-top: 8px;
-    padding-top: 10px;
-    border-top: 1px solid var(--studio-border);
     font-size: 12px;
     overflow-x: auto;
 }

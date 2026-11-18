@@ -1,7 +1,35 @@
-import { ArrowRight, Info } from "lucide-react";
+import {
+    ArrowRight,
+    Calculator,
+    ChevronDown,
+    Database,
+    FileSearch,
+    FileText,
+    Globe,
+    Info,
+    LayoutGrid,
+    Route,
+    Server,
+    Shapes,
+    Sigma,
+    TriangleAlert,
+    type LucideIcon,
+} from "lucide-react";
+import { useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type { Capability, CapabilityField, Sample } from "../api";
-import { capabilityTitle, provenanceLabel, useOffered } from "../capabilities";
+import {
+    WEB_SEARCH_CATEGORY,
+    capabilityProvenance,
+    capabilityTitle,
+    groupCapabilities,
+    provenanceLabel,
+    readable,
+    useCategories,
+    useOffered,
+} from "../capabilities";
+import { LOOKUP_CAPABILITY } from "../fallbackModel";
 import { useAdvanced, useHosted } from "../mode";
 import { Button } from "./ui/button";
 
@@ -38,7 +66,6 @@ export function OverviewWorkspace({
         "empty",
         "copy",
         "only",
-        ...(webLookup ? ["lookup"] : []),
         "sends",
         ...(hosted ? ["shared", "counted"] : []),
     ];
@@ -73,31 +100,29 @@ export function OverviewWorkspace({
                                     ? "overview.canHintAdvanced"
                                     : "overview.canHint",
                             )}
+                            {webLookup && ` ${t("overview.canHintWeb")}`}
                         </p>
-                        <ul
-                            className="capability-list"
-                            data-testid="capability-list"
-                        >
-                            {offered
-                                ? offered.map((item) => (
-                                      <CapabilityCard
-                                          key={item.id}
-                                          item={item}
-                                      />
-                                  ))
-                                : capabilities.map((id) => (
-                                      <li key={id} data-capability={id}>
-                                          <strong>
-                                              {capabilityTitle(t, id)}
-                                          </strong>
-                                          <span>
-                                              {t(`cap.${id}.text`, {
-                                                  defaultValue: "",
-                                              })}
-                                          </span>
-                                      </li>
-                                  ))}
-                        </ul>
+                        {offered ? (
+                            <Catalog items={offered} webLookup={webLookup} />
+                        ) : (
+                            <div data-testid="capability-list">
+                                <ul className="capability-list">
+                                    {capabilities.map((id) => (
+                                        <li key={id} data-capability={id}>
+                                            <strong>
+                                                {capabilityTitle(t, id)}
+                                            </strong>
+                                            <span>
+                                                {t(`cap.${id}.text`, {
+                                                    defaultValue: "",
+                                                })}
+                                            </span>
+                                        </li>
+                                    ))}
+                                    {webLookup && <WebSearchCard />}
+                                </ul>
+                            </div>
+                        )}
                     </section>
                 </div>
             </section>
@@ -150,23 +175,311 @@ export function OverviewWorkspace({
     );
 }
 
-function CapabilityCard({ item }: { item: Capability }) {
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+    lookup: Database,
+    distance: Route,
+    calculate: Calculator,
+    [WEB_SEARCH_CATEGORY]: Globe,
+};
+// A small mark of what stands behind the values; the sentence beside it says it.
+const TRUST_ICONS: Record<string, LucideIcon> = {
+    computed: Sigma,
+    record: FileText,
+    resolved_name: FileSearch,
+    service: Server,
+    ai_found: TriangleAlert,
+};
+
+interface Group {
+    id: string;
+    cards: { key: string; item?: Capability }[];
+    /** The AI web search: built here, not listed by the server. */
+    web: boolean;
+}
+
+// The catalog: tiles that filter, then the capabilities grouped by category.
+// The filter lives in this component only: it is not stored and not in the URL.
+function Catalog({
+    items,
+    webLookup,
+}: {
+    items: Capability[];
+    webLookup: boolean;
+}) {
     const { t } = useTranslation();
+    const advanced = useAdvanced();
+    const categories = useCategories();
+    const [filter, setFilter] = useState<string | null>(null);
+    const groups: Group[] = groupCapabilities(items, categories).map(
+        (group) => ({
+            id: group.id,
+            web: false,
+            cards: group.items.map((item) => ({ key: item.id, item })),
+        }),
+    );
+    // The web search is a category of its own, with the interface's wording. Off
+    // on this server it is shown to Advanced only, as a muted note.
+    if (webLookup || advanced)
+        groups.push({
+            id: WEB_SEARCH_CATEGORY,
+            web: true,
+            cards: [{ key: LOOKUP_CAPABILITY }],
+        });
+    const tileGroups = groups.filter((group) => !group.web || webLookup);
+    const tiles = tileGroups.length > 1;
+    const active =
+        tiles && tileGroups.some((g) => g.id === filter) ? filter : null;
+    const shown = active
+        ? groups.filter((group) => group.id === active)
+        : groups;
+    const total = tileGroups.reduce(
+        (sum, group) => sum + group.cards.length,
+        0,
+    );
+    return (
+        <div data-testid="capability-catalog">
+            {tiles && (
+                <div className="category-tiles" data-testid="category-tiles">
+                    <CategoryTile
+                        icon={LayoutGrid}
+                        title={t("cat.all.title")}
+                        text={t("cat.all.text")}
+                        count={total}
+                        pressed={active === null}
+                        onClick={() => setFilter(null)}
+                        id="all"
+                    />
+                    {tileGroups.map((group) => (
+                        <CategoryTile
+                            key={group.id}
+                            icon={CATEGORY_ICONS[group.id] ?? Shapes}
+                            title={categoryTitle(t, group.id)}
+                            text={t(`cat.${group.id}.text`, {
+                                defaultValue: "",
+                            })}
+                            count={group.cards.length}
+                            pressed={active === group.id}
+                            onClick={() =>
+                                setFilter(active === group.id ? null : group.id)
+                            }
+                            id={group.id}
+                        />
+                    ))}
+                </div>
+            )}
+            <div data-testid="capability-list" className="capability-groups">
+                {shown.map((group) => (
+                    <section
+                        key={group.id || "all"}
+                        className="capability-group"
+                        data-category={group.id}
+                        aria-labelledby={
+                            group.id ? `group-${group.id}` : undefined
+                        }
+                    >
+                        {group.id && (
+                            <h3 id={`group-${group.id}`}>
+                                {categoryTitle(t, group.id)}
+                            </h3>
+                        )}
+                        <ul className="capability-list">
+                            {group.cards.map((card) =>
+                                card.item ? (
+                                    <CapabilityCard
+                                        key={card.key}
+                                        item={card.item}
+                                    />
+                                ) : webLookup ? (
+                                    <WebSearchCard key={card.key} />
+                                ) : (
+                                    <li
+                                        key={card.key}
+                                        data-capability={LOOKUP_CAPABILITY}
+                                        className="capability-off"
+                                    >
+                                        <strong>
+                                            {capabilityTitle(
+                                                t,
+                                                LOOKUP_CAPABILITY,
+                                            )}
+                                        </strong>
+                                        <span>{t("overview.web.off")}</span>
+                                    </li>
+                                ),
+                            )}
+                        </ul>
+                    </section>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function categoryTitle(t: TFunction, id: string) {
+    return t(`cat.${id}.title`, { defaultValue: readable(id) });
+}
+
+function CategoryTile({
+    icon: Icon,
+    title,
+    text,
+    count,
+    pressed,
+    onClick,
+    id,
+}: {
+    icon: LucideIcon;
+    title: string;
+    text: string;
+    count: number;
+    pressed: boolean;
+    onClick: () => void;
+    id: string;
+}) {
+    return (
+        <button
+            type="button"
+            className="category-tile"
+            aria-pressed={pressed}
+            data-category={id}
+            onClick={onClick}
+        >
+            <span className="category-tile-head">
+                <Icon aria-hidden="true" />
+                <strong>{title}</strong>
+                <span className="category-tile-count">{count}</span>
+            </span>
+            {text && <span className="category-tile-text">{text}</span>}
+        </button>
+    );
+}
+
+function TrustMark({
+    trust,
+    label,
+}: {
+    trust?: string;
+    label: string | null | undefined;
+}) {
+    if (!label) return null;
+    const Icon = (trust && TRUST_ICONS[trust]) || Info;
+    return (
+        <span className="capability-source" data-trust={trust ?? "unknown"}>
+            <Icon aria-hidden="true" />
+            <span>{label}</span>
+        </span>
+    );
+}
+
+// The one shape of a card: what it is, how its values are obtained, and a
+// control that opens the rest in place. Several cards can be open at once.
+function CardShell({
+    id,
+    title,
+    text,
+    trust,
+    provenance,
+    expandable,
+    children,
+}: {
+    id: string;
+    title: string;
+    text: string;
+    trust?: string;
+    provenance: string | null | undefined;
+    expandable: boolean;
+    children: ReactNode;
+}) {
+    const { t } = useTranslation();
+    const [open, setOpen] = useState(false);
+    const panel = useId();
+    return (
+        <li data-capability={id} data-open={open && expandable}>
+            <strong>{title}</strong>
+            <span>{text}</span>
+            <TrustMark trust={trust} label={provenance} />
+            {expandable && (
+                <button
+                    type="button"
+                    className="capability-toggle"
+                    aria-expanded={open}
+                    aria-controls={panel}
+                    aria-label={t("overview.detailsFor", { title })}
+                    onClick={() => setOpen(!open)}
+                >
+                    {t("overview.details")}
+                    <ChevronDown aria-hidden="true" />
+                </button>
+            )}
+            {expandable && open && (
+                <div id={panel} className="capability-details">
+                    {children}
+                </div>
+            )}
+        </li>
+    );
+}
+
+// What a capability needs and gives, in the interface's own words.
+function Explained({ id }: { id: string }) {
+    const { t } = useTranslation();
+    return (
+        <dl className="capability-explained">
+            <dt>{t("overview.needs")}</dt>
+            <dd>{t(`cap.${id}.needs`)}</dd>
+            <dt>{t("overview.gives")}</dt>
+            <dd>{t(`cap.${id}.gives`)}</dd>
+            <dt>{t("overview.example")}</dt>
+            <dd>{t(`cap.${id}.example`)}</dd>
+        </dl>
+    );
+}
+
+function CapabilityCard({ item }: { item: Capability }) {
+    const { t, i18n } = useTranslation();
     const advanced = useAdvanced();
     // A capability the interface has no wording for is still listed: under its
     // id made readable, with the server's own description.
     const text = t(`cap.${item.id}.text`, { defaultValue: item.description });
+    const explained = ["needs", "gives", "example"].every((part) =>
+        i18n.exists(`cap.${item.id}.${part}`),
+    );
     return (
-        <li data-capability={item.id}>
-            <strong>{capabilityTitle(t, item.id)}</strong>
-            <span>{text}</span>
-            <span className="capability-source">
-                {provenanceLabel(t, item)}
-            </span>
+        <CardShell
+            id={item.id}
+            title={capabilityTitle(t, item.id)}
+            text={text}
+            trust={item.trust}
+            provenance={provenanceLabel(t, item)}
+            expandable={explained || advanced}
+        >
+            {explained && <Explained id={item.id} />}
             {advanced && (
                 <Contract item={item} described={text !== item.description} />
             )}
-        </li>
+        </CardShell>
+    );
+}
+
+// The AI web search is not a step a plan is built from, so the server does not
+// list it; it is shown here from what the interface already knows of it.
+function WebSearchCard() {
+    const { t } = useTranslation();
+    const offered = useOffered();
+    return (
+        <CardShell
+            id={LOOKUP_CAPABILITY}
+            title={capabilityTitle(t, LOOKUP_CAPABILITY)}
+            text={t(`cap.${LOOKUP_CAPABILITY}.text`)}
+            trust="ai_found"
+            provenance={provenanceLabel(
+                t,
+                capabilityProvenance(offered, LOOKUP_CAPABILITY),
+            )}
+            expandable
+        >
+            <Explained id={LOOKUP_CAPABILITY} />
+        </CardShell>
     );
 }
 
