@@ -5,7 +5,7 @@
 **Version:** 0.1 (Initial Draft)  
 **Status:** Proposed  
 **Project type:** Agentic AI / Data Engineering / Software Engineering  
-**Academic context:** Neoversity — MSc Artificial Intelligence and Machine Learning, Agentic AI Final Project  
+**Academic context:** GoIT Neoversity (Woolf) — MSc Computer Science, Agentic AI Final Project  
 **Academic project topic:** Universal AI Excel Data Enrichment System
 
 ---

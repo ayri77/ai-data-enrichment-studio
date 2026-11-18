@@ -240,7 +240,7 @@ Documentation and code are in English.
 ## About
 
 The project began as the final assignment for the **Agentic AI** course of the
-Neoversity MSc programme in Artificial Intelligence and Machine Learning, and
-continues as an engineering portfolio project.
+MSc Computer Science programme at GoIT Neoversity (Woolf), and continues as an
+engineering portfolio project.
 
 **License:** [MIT](LICENSE). It covers this repository's own code and documents; the libraries it depends on and the data returned by Open-Meteo and Wikidata keep their own terms.
