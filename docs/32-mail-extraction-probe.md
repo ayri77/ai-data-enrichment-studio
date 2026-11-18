@@ -196,10 +196,18 @@ meaning if a name differs.
 5. Data Access: add the scope `https://www.googleapis.com/auth/gmail.readonly`. The console
    lists it as a restricted scope; that is expected.
 6. Clients: create an OAuth client of type "Desktop app" and download its JSON file.
-7. Keep that file **outside the repository** and point `--gmail-client PATH` or the
-   environment variable `ENRICHMENT_GMAIL_CLIENT_FILE` at it. The script never copies it. If
-   it finds the file inside the repository it prints a warning (`client_secret*.json` is in
-   `.gitignore`, but do not rely on that). The file is needed only when a sign-in is needed.
+7. Keep that file outside the repository, or in the folder `credentials/` at its top, which
+   git ignores (so does the name `client_secret*.json` anywhere). Point `--gmail-client PATH`
+   or the environment variable `ENRICHMENT_GMAIL_CLIENT_FILE` at it. The script never copies
+   it. If the file is inside the repository in a place git does not ignore, the script prints
+   a warning. The file is needed only when a sign-in is needed.
+
+   The variable can stand in `.env`; then every command needs `--env-file .env`, the dry run
+   too. Write the path with forward slashes (`credentials/client_secret_….json`, relative to
+   the folder you run from, or `C:/Users/…`). `uv` cannot read a value with single
+   backslashes, quoted with `"` or not quoted: it stops reading the file at that line, with a
+   warning, and every variable below it is lost too. Single quotes or doubled backslashes
+   work as well.
 
 **First run.** The browser opens (the address is printed too, in case it does not). Google
 warns that the app is not verified. That is expected for an app in testing; continue only

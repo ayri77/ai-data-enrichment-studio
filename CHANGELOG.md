@@ -12,6 +12,9 @@
   libraries from the optional `mail` extra (`uv sync --extra mail`), `--save-eml` keeps the
   messages for a repeat run, `--gmail-sign-out` removes the local token. Not run against a
   real mailbox yet.
+- The folder `credentials/` at the top of the repository is ignored by git, and the mail probe
+  no longer warns about an OAuth client file that git ignores. The probe's note says how to write
+  the path in `.env`: `uv` stops reading the file at a value with single backslashes.
 
 ## 0.4.0 — beta (2026-11-18)
 

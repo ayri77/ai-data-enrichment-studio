@@ -5,12 +5,13 @@ A fake mailbox stands in for Gmail and a fake API for OpenAI; nothing touches th
 
 import builtins
 import json
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
-from scripts.experiment_mail_extraction import REPO_ROOT, check_save_dir, run
+from scripts.experiment_mail_extraction import REPO_ROOT, check_save_dir, ignored_by_git, run
 from tests.support.gmail_fakes import FIXTURES, MailboxSession, Reply, raw_of
 from tests.support.text_extraction import entry, response
 from tests.support.web_lookup import RowApi
@@ -254,15 +255,37 @@ def test_the_client_file_comes_from_the_option_or_the_environment_and_is_not_rea
     assert opener.opened == [(None, "default")]  # fine when a stored token exists
 
 
-def test_a_client_file_inside_the_repository_gets_a_warning(
+def test_a_client_file_inside_the_repository_that_git_does_not_ignore_gets_a_warning(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    inside = REPO_ROOT / "client_secret_invented.json"
+    inside = REPO_ROOT / "docs" / "oauth_client_invented.json"  # no ignore rule matches it
     run(
         argv(tmp_path / "o", "--dry-run", "--gmail-client", str(inside)),
         gmail_opener=Opener(mailbox()),
     )
-    assert "is inside the repository; it must not be committed" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "is inside the repository and git does not ignore it" in out
+    assert "must not be committed" in out
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+@pytest.mark.parametrize(
+    "relative",
+    ["credentials/client_secret_invented.json", "credentials/anything_invented.json"],
+)
+def test_a_client_file_in_an_ignored_place_of_the_repository_gets_no_warning(
+    relative: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run(
+        argv(tmp_path / "o", "--dry-run", "--gmail-client", str(REPO_ROOT / relative)),
+        gmail_opener=Opener(mailbox()),
+    )
+    assert "inside the repository" not in capsys.readouterr().out
+
+
+def test_git_that_cannot_answer_counts_as_not_ignored(tmp_path: Path) -> None:
+    # A folder that is no clone: git cannot say, so the warning is given.
+    assert not ignored_by_git(tmp_path / "client.json", root=tmp_path)
 
 
 # --- failures ---------------------------------------------------------------------------

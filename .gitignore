@@ -34,6 +34,8 @@ client_secrets*.json
 gmail-token*.json
 token.json
 credentials.json
+# A local folder for such files, if you prefer to keep them next to the code
+/credentials/
 
 # Note: uv.lock MUST be committed.
 

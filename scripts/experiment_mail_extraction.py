@@ -37,6 +37,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from collections import Counter
 from collections.abc import Callable, Collection, Sequence
@@ -482,6 +483,20 @@ def inside(path: Path, root: Path) -> bool:
     return path.resolve().is_relative_to(root.resolve())
 
 
+def ignored_by_git(path: Path, root: Path = REPO_ROOT) -> bool:
+    """Whether git ignores the path. False also when git cannot say (no git, not a clone)."""
+    try:
+        done = subprocess.run(  # noqa: S603 - fixed command, the path is an argument
+            ["git", "-C", str(root), "check-ignore", "-q", "--", str(path.resolve())],  # noqa: S607
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return done.returncode == 0
+
+
 def check_save_dir(directory: Path, root: Path = REPO_ROOT) -> str | None:
     """A reason to refuse DIR for real mail: inside the repository, outside ``artifacts/``."""
     if inside(directory, root) and not inside(directory, root / "artifacts"):
@@ -571,10 +586,11 @@ def run(
         )
         if client_file is not None:
             client_file = client_file.expanduser()
-            if inside(client_file, REPO_ROOT):
+            if inside(client_file, REPO_ROOT) and not ignored_by_git(client_file):
                 print(
-                    f"Warning: {client_file} is inside the repository; it must not be committed. "
-                    "Move it outside."
+                    f"Warning: {client_file} is inside the repository and git does not ignore "
+                    "it; it must not be committed. Move it outside, or into the ignored "
+                    "credentials/ folder."
                 )
         backend: gmail.Backend | None = None
         if gmail_opener is None:
