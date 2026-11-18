@@ -337,9 +337,11 @@ reopened file.
 For a task no registered capability covers, a plan of one step, `web_lookup`, asks a
 model with web search for several columns of each row (`capabilities/fallback.py`,
 `providers/web_lookup*.py`; what a measurement of the idea showed is in
-[the universal lookup probe](31-universal-lookup-probe.md)). **It is off by default and
-not verified by a live run:** every test of this route and of the worker uses a fake
-client inside the worker process; no request to the OpenAI API has been made through it.
+[the universal lookup probe](31-universal-lookup-probe.md)). **It is off by default.**
+Every test of this route and of the worker uses a fake client inside the worker process;
+the owner ran it live through the application twice (2026-11-16 and 2026-11-17, single
+trials recorded in the changelog and in the probe note), and no value was checked
+against a reference.
 Every row costs one model request with web search, so model tokens and a search fee, and
 the values are the model's claims, not records.
 

@@ -2,145 +2,295 @@
 
 ## Unreleased
 
-- A run of a plan that searches the web started from the interface no longer gets a shorter
-  limit than the server gives it. The interface sent `timeout_seconds: 180` with every run and
-  resume, so the longest limit (`max_timeout_seconds`) never applied to a `fallback` or `mixed`
-  plan; for such a plan it now leaves the field out until the person edits the time limit, and
-  the Advanced field shows the limit that will apply. Planner plans send 180 as before. The
-  resume route already applied the same default as the start route; a test now says so.
-- The answer "nothing found" of the web search is kept like a found answer. A row that ended
-  `NOTHING_FOUND` is stored in the plan's value cache for `RESULT_REUSE_SECONDS` (as a found
-  record without a value, read back as the same failure) and is not asked again by a rerun or a
-  resume of the same plan; `answers_kept` counts it. Failures of delivery or of the input
-  (`PROVIDER_ERROR`, `DEADLINE_REACHED`, `INVALID_RESPONSE` and the others) are still asked
-  again, and so is every other capability. A plan built again is a new plan and asks again. The
-  record of the first mixed run through the application is in
-  `docs/31-universal-lookup-probe.md`.
-- Mixed plans, on the server and in the interface (nothing was run live: every test, in the
-  browser too, uses fake clients and the offline stand-in for the model). The switch under the
-  task now reads "If the system has no source for the task or for some of its columns, search
-  the web with AI for them". A planner draft that passed the check and left columns unfilled gets
-  the web search for those columns added at once (switch on) or after a press of a button in the
-  notice for the columns without a source (switch off, with the same checkbox as for the whole
-  task); the mixed plan has a notice naming the columns of the sources and the searched ones, the
-  search as a marked step in the picture and the list, the usual button for what is sent and the
-  kinds (restricted to the searched columns, built again from the same planner draft), and a link
-  "Use only the system's sources", which fetches the stored planner draft with the existing
-  `GET /api/plans/{id}`. A refusal keeps the partial plan, with the server's message and the form.
-  Review is that of a planner job; Results take each column's trust from `step_provenance`, mark
-  the searched cells and name the searched columns; the Advanced spend line adds
-  `answers_kept`, also for the search of the whole task. A mixed run that ends in "needs review"
-  no longer says its results hold only verified values. The server side:
-  `POST /api/fallback-plans` accepts `plan_id`, a planner draft with
-  `unfilled_targets`, and answers a new draft of kind `mixed`: the planner's plan unchanged plus
-  one `web_lookup` step (`build_mixed_plan`) for exactly those columns, with `searched_targets`
-  and `planner_plan_id` inside the fingerprint; the planner draft is kept and never dropped to
-  make room for it. `fallback_registry` accepts the one-step and the mixed shape (`plan_shape`),
-  the gate knows `planner`, `fallback` and `mixed`, and a mixed job runs through the normal
-  executor assembly (request policies, reuse caches, review, resume) with the lookup bound in
-  addition: `execute_workbook` has one branch, and the executor factory gets `registry=` and
-  `web_lookup=` for such plans. A mixed job can be reviewed and resumed (the lookup is answered
-  from kept answers); a pure fallback job still cannot. New error codes `mixed_base_not_planner`,
-  `mixed_nothing_unfilled`, `mixed_base_invalid`.
-- The universal search keeps its answers for the lifetime of one plan. A successful answer (the
-  codec now stores a found record with its evidence; the format string is unchanged because only
-  a new value type was added) is written to the plan's value cache and taken over by the next job
-  of the same plan for `RESULT_REUSE_SECONDS`, so running the plan again after `DEADLINE_REACHED`
-  asks and pays only for the rows not answered; failures are not kept, and another plan sees
-  nothing. The fallback worker now opens the plan's caches like every other run. The report's
-  `web_lookup` gains `answers_kept`; the text of `results.cause.deadline` says that running
-  again continues. A resume of a lookup job stays refused (there is nothing to decide). The key
-  checks are unchanged: setting and key apply to every job. Not verified by a live run.
-- The planner may name the columns it has no source for. Its answer gains `unfilled_targets`
-  (empty by default; only with `ready`; no blank or repeated names; a ready answer that lists
-  any must still have a step and an output), and when the context lists output targets it is
-  told to answer `ready` with a plan for the targets it can fill and to list the others, only
-  when no capability can produce them. The columns a plan must write are the requested ones
-  minus the listed ones (`apply_unfilled_targets`, used by the planner loop and by the server's
-  validation; wrong names are diagnostics `UNKNOWN_UNFILLED_TARGET`,
-  `UNFILLED_TARGET_ALSO_WRITTEN`, `UNFILLED_TARGETS_WITHOUT_TARGETS` repaired through the loop).
-  The draft stores `unfilled_targets` inside its fingerprint (a supplied plan still has to write
-  every chosen column); the run writes only what the plan writes, so an unfilled new column is
-  not created and an unfilled existing column is left as it is; the report lists them. The plan
-  view gets a notice above the steps and Results one line. Also told to the planner: that cells
-  of a target column that already hold a value are kept by the run (the cause of the one
-  baseline refusal on `mountains_gaps`), and the abstention challenge now allows partial plans.
-  The route check gains `TARGET_HANDED_AWAY` / `TARGET_NOT_HANDED_AWAY` and two cases,
-  `mountains_age` and `capitals_mayor`. The planner is not told, and nothing in this change
-  offers or starts, a web search for the listed columns. **Measured by the owner on 2026-11-17
-  before merging** (`gpt-6-luna`, ten runs per case): 80 of 80 valid and on the expected route
-  over the six existing cases and the two new ones, no target handed away wrongly, no refusal;
-  the table is in `docs/26-live-planning-reliability.md`. Not measured: other models, tasks
-  with several columns without a source.
-- The usage summary survives a restart and opens on one's own machine without setup. Events can
-  be kept in a file (`UsageStore`; one JSON object per line, appended per event, replayed through the
-  same counting at start, so totals, the events by kind and the latest 300 events come back; a
-  line that is not a valid event is skipped and counted as `skipped_lines`; above 5 MB the file
-  is rewritten once as a totals record plus the latest 300 events; a failed write logs one
-  warning without content and the counting goes on in memory with `persistent: false`,
-  `reason: "write_failed"`). The local launcher keeps it by default in the user's state folder
-  (`usage/events.jsonl`, not in the working directory); a hosted application keeps nothing
-  unless `ENRICHMENT_USAGE_FILE` names a file (which lasts only until the next restart on an
-  ephemeral disk); `ENRICHMENT_USAGE_FILE=off` switches it off. The file holds exactly the events
-  as before: numbers and fixed words, tested after a whole plan, run and download with marker
-  texts in the file name, the cells and the task. `GET /api/usage` opens without a code only when
-  the launcher started the app and neither access codes nor an admin code are set (an admin code
-  is required as before, and a hosted application never answers without it); the response gains
-  `persistent`, `since`, `process_started_at`, `skipped_lines` and `reason`; the usage page
-  says "kept since" or "cleared by a restart", and Advanced mode links to it. Tested offline
-  only: not run on Windows or macOS (the state-folder rule is untested there), not measured
-  with a real 5 MB file or a long-running server, not tried on an actual ephemeral host.
-- "Suggest a task" could propose to invent values and could name internal functions: for
-  mountains with a column that no capability can fill (geological age) it suggested filling that
-  column with "an invented approximate age" and wrote `resolve_entity`, `lookup_property` and
-  their parameters into the text for the person, and the planner followed it (live run,
-  2026-11-16). The prompts for one and for several columns now ask for real facts in a person's
-  words, forbid inventing, estimating or filling a column "so that it differs", and say to ask
-  plainly for the real value of a column the capabilities do not cover; a suggestion that
-  names a capability id or another identifier of the registry is dropped (if all are dropped the
-  interface shows its usual "no suggestion" text), and the `task_ideas` usage event counts them as
-  `internal_names`. The kept suggestion is now keyed by the model as well (after changing the
-  model in the settings the old model's text was still served), and a "Suggest again" button
-  beside the shown suggestion or the "none" text sends `again` to `POST /api/task-ideas`, which
-  asks the model anew, replaces the kept answer and counts against the same per-workbook limit
-  (`task_idea_limit` as before; the usage event gains `again`). Tested against a fake model only;
-  the behaviour of the live model after the change was not measured.
-- The universal search can be asked for through the API and the run worker and, when the
-  server offers it, from the interface with one switch on the task step ("If the system has no
-  source for this task, search the web with AI", off by default, remembered in the browser): when
-  the planner has no runnable plan (it refused, or its plan failed the check), the interface asks
-  `POST /api/fallback-plans` at once with defaults (the task as the question, the columns to fill
-  with `number` or `text`, every text or number column that is not filled as an identifying
-  column, notes for the links) and shows the search plan as the plan, with a notice of why, the
-  columns that are sent, a button to change them in a form, and the planner's answer one click
-  away; with the switch off the refusal view has one short block with one button that does the
-  same. The plan, Run and Results views carry a "not verified" banner, mark
-  values concluded by the model, and Review says there is nothing to choose. `POST /api/fallback-plans` makes a draft with `"kind": "fallback"` and one step,
-  `web_lookup`, which asks a model with web search for several columns of each row; approval,
-  run, review, download and the audit use the existing routes. It is off unless the server sets
-  `ENRICHMENT_ALLOW_WEB_LOOKUP=1` (and has a key); `GET /api/limits` gains `web_lookup`. Each
-  row costs one model request and a search fee; the report gains `web_lookup` (requests, tokens,
-  searches) and `ai_found` per row, and the usage summary a `web_lookup` model event and
-  `web_searches`. A plan with `web_lookup` is refused on the normal route, from the planner
-  and as a supplied plan. Tested only against a fake client and the offline fixture server: no live run
-  through the application has been made, and the values are not verified.
-- The kind of trust behind a value is now shown instead of staying in the code:
-  `GET /api/capabilities` gains `trust` (`computed`, `record`, `resolved_name`,
-  `service`) beside `source`, and the audit report gains `step_provenance`
-  (capability, source and trust of each step) and `sources_in_workbook`. Results
-  says under each output column how its values were obtained, and the overview
-  words each capability from `trust` and its source; a kind this interface does
-  not know is shown as its source. A new request field `sources_in_workbook`
-  (`none`, the default; `notes`; `sheet`) makes the result workbook say where each
-  written value came from, in a note on the cell or on an added `Sources` sheet.
-  The planner is not shown `trust`. The note and sheet texts are English only.
-- A measurement script, `scripts/experiment_web_lookup.py`, with a probe workbook and
-  [a note](docs/31-universal-lookup-probe.md), tests whether a model with web search can fill
-  a column for tasks no registered capability covers. It is not part of the application.
-- The interface reads `GET /api/limits` again after the provider settings are saved or the
-  key is removed, and after the planner refuses a task, so the search offer no longer needs
-  a page reload when the key is entered after the page was opened. The last known limits stay
-  when the request fails.
+Nothing yet.
+
+## 0.4.0 — beta (2026-11-18)
+
+A task the system has no source for, or has a source for only in part, can now be
+searched on the web by an AI model, as an option that is off by default. The
+values it finds are marked as not verified and keep their links; the columns the
+sources can fill are still filled from the sources. Besides that, the planner can
+name the columns it cannot fill, the answers of the search are kept while a plan
+lives, usage statistics survive a restart, and planning was measured again with a
+verdict on the route of each plan.
+
+### What is new
+
+**The universal search**
+
+- A task no registered capability covers can be searched on the web with an AI
+  model. It is off unless the server sets `ENRICHMENT_ALLOW_WEB_LOOKUP=1` and has a
+  key (the network gate and the consent of the request apply as for every run);
+  `ENRICHMENT_WEB_LOOKUP_MODEL` names the model (default `gpt-6-luna`, reasoning
+  effort `low` is fixed in code). `GET /api/limits` gains `web_lookup`, true only
+  when the setting is on, a key exists and the network gate is open. The planner,
+  the plan repair, the suggested tasks and `GET /api/capabilities` never mention
+  the capability. `POST /api/fallback-plans` makes a draft of kind `fallback` with
+  one step, `web_lookup`; approval, run, review, download and the audit use the
+  existing routes. A plan with `web_lookup` is refused on the normal route
+  (`web_lookup_plan_refused`), also when it is supplied or comes from the planner.
+  Before a run the draft's fingerprint is computed again from what is stored, and a
+  draft changed after approval is refused (`approval_mismatch`).
+- What is asked and what is sent: one request per row, one after another, each
+  with web search, a time limit of 30 s and no retry. Each request holds the
+  question and the values of the identifying columns of that row, and those values
+  go to OpenAI. The plan names the columns before anything runs, and approving the
+  plan is the consent to send them. Each row costs model tokens and a search fee.
+- What comes back: one typed answer per requested column. A column is `text`,
+  `number` with a unit, or `yes_no` (the cell holds `Yes` or `No`). A value counts
+  only with a link that the search itself reported; a value whose link the search
+  did not return is dropped. Known tracking parameters are ignored when links are
+  compared and removed from the link that is kept; a parameter that can select
+  content (`?sku=…`) must still match exactly. Each value has a basis, `stated` (on
+  the page) or `concluded` (for instance from the absence of a statement), set by
+  the model. A column with no value is left empty with a reason; a row in which no
+  column has a value ends as `NOTHING_FOUND`.
+- Where the links go: the request field `sources_in_workbook` (`none`, the
+  default; `notes`; `sheet`) makes the result workbook say where each written value
+  came from, in a note on the cell or on an added `Sources` sheet. The note and
+  sheet texts are English only. `GET /api/capabilities` gains `trust` (`computed`,
+  `record`, `resolved_name`, `service`) beside `source`, the audit report gains
+  `step_provenance` (capability, source and trust of each step) and
+  `sources_in_workbook`, and the searched columns carry the kind of trust "found by
+  AI, not verified" (`ai_found`). Results say under each output column how its
+  values were obtained, and the overview words each capability from `trust` and its
+  source.
+- In the interface it is one switch on the task step, "If the system has no source
+  for the task or for some of its columns, search the web with AI for them", off by
+  default and remembered in the browser. It appears only where `web_lookup` is on.
+  The planner has no runnable plan when it refused the task or when its plan failed
+  the check; with the switch on, the interface then asks `POST /api/fallback-plans`
+  at once with defaults (the task as the question, the columns to fill as `number`
+  where the existing column holds numbers and as `text` otherwise, every non-empty
+  text or number column that is not filled as an identifying column, notes for the
+  links) and shows the search plan as the plan, with a notice of why, the columns
+  that are sent, a button "Change what is sent and the kinds of values" that opens
+  a form, and the planner's own answer one click away. With the switch off the
+  refusal view has one short block with one button that does the same. Plan, Run and
+  Results carry a "not verified" banner; Results mark the values concluded by the
+  model and filter them ("Concluded by AI"); Review says there is nothing to choose.
+- The audit report gains `web_lookup` (`configuration_id`, requests, input and
+  output tokens, `web_searches`, `answers_kept`) and `ai_found` per row (column,
+  basis, number of links). The usage summary gains a `model` event with `purpose`
+  `web_lookup` and `web_searches`. The interface reads `GET /api/limits` again
+  after the provider settings are saved or the key is removed, and after the planner
+  refuses a task, so the offer needs no page reload.
+- A measurement script, `scripts/experiment_web_lookup.py`, with a probe workbook
+  (`samples/probe/mountains_probe.xlsx`) and
+  [a note](docs/31-universal-lookup-probe.md), tests the idea outside the
+  application. With `--target` it sends the request of the application's own lookup
+  handler; `--repeat N` asks every row N times.
+
+**Mixed plans**
+
+- The planner may name the columns it has no source for. Its answer gains
+  `unfilled_targets` (empty by default; only with `ready`; no blank or repeated
+  names). When the context lists output targets it is told to answer `ready` with a
+  plan for the targets it can fill and to list the others, only when no capability
+  can produce them. The columns a plan must write are the requested ones minus the
+  listed ones (`apply_unfilled_targets`, used by the planner loop and by the
+  server's validation; wrong names are the diagnostics `UNKNOWN_UNFILLED_TARGET`,
+  `UNFILLED_TARGET_ALSO_WRITTEN` and `UNFILLED_TARGETS_WITHOUT_TARGETS`, repaired
+  through the loop). The draft stores `unfilled_targets` inside its fingerprint; the
+  run writes only what the plan writes, so an unfilled new column is not created and
+  an unfilled existing column is left as it is; the report lists them. The plan view
+  gets a notice above the steps and Results one line. The planner is also told that
+  cells of a target column that already hold a value are kept by the run (the cause
+  of the one baseline refusal on `mountains_gaps`), and the abstention challenge now
+  allows partial plans. The planner is not told what happens to the listed columns.
+- A mixed plan fills both kinds of columns. `POST /api/fallback-plans` accepts
+  `plan_id`, a planner draft with `unfilled_targets`, and answers a new draft of
+  kind `mixed`: the planner's plan unchanged plus one `web_lookup` step
+  (`build_mixed_plan`) for exactly those columns, with `searched_targets` and
+  `planner_plan_id` inside the fingerprint. The planner draft is kept and never
+  dropped to make room for it. New error codes: `mixed_base_not_planner`,
+  `mixed_nothing_unfilled`, `mixed_base_invalid`. The gate knows three kinds of
+  plan, `planner` (no `web_lookup` step), `fallback` (the lookup step and nothing
+  else) and `mixed` (the lookup step and other steps). A mixed job runs through the
+  normal executor assembly (request policies, reuse caches, review, resume) with the
+  lookup bound in addition. It can be reviewed and resumed, and the lookup is
+  answered from kept answers; a job of the whole-task search still cannot be resumed.
+- In the interface the same switch covers a plan the planner could only partly make.
+  With the switch on, the mixed plan is built as soon as such a draft arrives. With
+  it off, the partial plan is shown with its notice for the columns without a source,
+  a button "Search the web with AI for these columns" and the checkbox "Do this
+  automatically from now on"; the partial plan can be approved and run as it is. The
+  mixed plan has a notice naming the columns of the sources and the searched ones,
+  the search as a marked step in the picture and the list, the usual button for what
+  is sent and the kinds (restricted to the searched columns, built again from the same
+  planner draft), and a link "Use only the system's sources", which fetches the
+  stored planner draft with `GET /api/plans/{id}`. A refusal keeps the partial plan,
+  with the server's message and the form. Review is that of a planner job. Results
+  take each column's trust from `step_provenance`, mark only the searched cells and
+  name the searched columns; the Advanced spend line adds `answers_kept`, also for
+  the search of the whole task.
+
+**Kept answers**
+
+- The answers of the search are kept for the lifetime of one plan. A found answer
+  (the codec stores a found record with its evidence; the format string is
+  unchanged because only a new value type was added) and the answer "nothing found"
+  (`NOTHING_FOUND`, stored as a found record without a value and read back as the
+  same failure) are written to the plan's value cache and taken over by the next job
+  of the same plan for `RESULT_REUSE_SECONDS`. Running the plan again after
+  `DEADLINE_REACHED` asks and pays only for the rows not answered; `answers_kept`
+  counts the rows a kept answer settled. A failure of delivery or of the input
+  (`PROVIDER_ERROR`, `DEADLINE_REACHED`, `INVALID_RESPONSE` and the others) is still
+  asked again, and so is every other capability. Another plan sees nothing, and a
+  plan built again is a new plan. The key is made of the capability, its source, the
+  configuration id, the whole task text and the row's context values. The fallback
+  worker now opens the plan's caches like every other run.
+
+**Planner measurement**
+
+- `scripts/experiment_planner.py` now judges the route of each valid plan, not only
+  its validity. The expected route of each case is data in `scripts/planner_routes.py`
+  (capability, field, parameters, where each input comes from, unit); a deviation has
+  a code (`WRONG_CAPABILITY`, `WRONG_FIELD`, `LITERAL_INPUT`, `MISSING_TARGET`,
+  `TARGET_HANDED_AWAY`, `TARGET_NOT_HANDED_AWAY` and others) and the headline reads
+  "N of M: valid and on the expected route". `--routes-only` judges a saved run
+  without calling the model. Two cases were added, `mountains_age` and
+  `capitals_mayor`, whose second column no capability can fill. The check knows these
+  cases and no others and does not run the plan.
+- A test (`tests/unit/test_planner_surface_frozen.py`) compares everything the
+  planning model is shown (capability descriptions with and without the routing key,
+  the response schema, the instruction texts and one complete request) with committed
+  snapshots and says when a change needs a new measurement.
+
+**Usage statistics**
+
+- The usage summary survives a restart and opens on one's own machine without setup.
+  Events can be kept in a file (`UsageStore`; one JSON object per line, appended per
+  event, replayed through the same counting at start, so totals, the events by kind
+  and the latest 300 events come back; a line that is not a valid event is skipped
+  and counted as `skipped_lines`; above 5 MB the file is rewritten once as a totals
+  record plus the latest 300 events; a failed write logs one warning without content
+  and the counting goes on in memory with `persistent: false`, `reason:
+  "write_failed"`). The local launcher keeps it by default in the user's state folder
+  (`usage/events.jsonl`, not in the working directory); a hosted application keeps
+  nothing unless `ENRICHMENT_USAGE_FILE` names a file (which lasts only until the next
+  restart on an ephemeral disk); `ENRICHMENT_USAGE_FILE=off` switches it off. The file
+  holds exactly the events as before: numbers and fixed words, tested after a whole
+  plan, run and download with marker texts in the file name, the cells and the task.
+  `GET /api/usage` opens without a code only when the launcher started the app and
+  neither access codes nor an admin code are set (an admin code is required as before,
+  and a hosted application never answers without it); the response gains `persistent`,
+  `since`, `process_started_at`, `skipped_lines` and `reason`; the usage page says
+  "kept since" or "cleared by a restart", and Advanced mode links to it.
+
+**Suggested tasks**
+
+- "Suggest a task" could propose to invent values and could name internal functions:
+  for mountains with a column that no capability can fill (geological age) it
+  suggested filling that column with "an invented approximate age" and wrote
+  `resolve_entity`, `lookup_property` and their parameters into the text for the
+  person, and the planner followed it (live run, 2026-11-16). The prompts for one and
+  for several columns now ask for real facts in a person's words, forbid inventing,
+  estimating or filling a column "so that it differs", and say to ask plainly for the
+  real value of a column the capabilities do not cover. A suggestion that names a
+  capability id or another identifier of the registry is dropped (if all are dropped
+  the interface shows its usual "no suggestion" text), and the `task_ideas` usage
+  event counts them as `internal_names`. The kept suggestion is now keyed by the model
+  as well (after changing the model in the settings the old model's text was still
+  served), and a "Suggest again" button beside the shown suggestion or the "none" text
+  sends `again` to `POST /api/task-ideas`, which asks the model anew, replaces the kept
+  answer and counts against the same per-workbook limit (`task_idea_limit` as before;
+  the usage event gains `again`).
+
+**Fixes**
+
+- The local launcher dropped new settings: it rebuilt the settings from two named
+  fields, so `ENRICHMENT_ALLOW_WEB_LOOKUP` and `ENRICHMENT_WEB_LOOKUP_MODEL` never
+  reached a locally started server and `GET /api/limits` said `web_lookup` false. It
+  now copies every setting of the environment, and only the network gate can also be
+  opened by the flag. `.env.example` names the two settings. The hosted entry was not
+  affected.
+- A row with some values written and some not is "Partly filled", for every kind of
+  plan; "Empty" means that nothing was written.
+- A run of a plan that searches the web started from the interface no longer gets a
+  shorter limit than the server gives it. The interface sent `timeout_seconds: 180`
+  with every run and resume, so the longest limit (`max_timeout_seconds`) never
+  applied to a `fallback` or `mixed` plan; for such a plan it now leaves the field out
+  until the person edits the time limit, and the Advanced field shows the limit that
+  will apply. Planner plans send 180 as before. The resume route already applied the
+  same default as the start route; a test now says so.
+- A mixed run that ends in "needs review" no longer says its results hold only
+  verified values.
+
+### Measured
+
+- Planning with a verdict on the route, `gpt-6-luna` at effort `low`, ten runs per
+  case, 2026-11-17 ([live planning reliability](docs/26-live-planning-reliability.md),
+  "Baseline with a route verdict" and "Naming the columns it cannot fill"). Before the
+  change: 59 valid plans of 60, all on the expected route, on six cases; one refusal,
+  on `mountains_gaps`. After the change: 80 of 80 valid and on the expected route on
+  eight cases (the six and the two new ones); no column that has a source was handed
+  away, and the two mixed cases (`mountains_age`, `capitals_mayor`) named exactly the
+  column without a source in every run. The measurement judges the route of each plan;
+  it does not run the plan or compare values. Not measured: other models, tasks with
+  more than one column without a source.
+- The search as the application sends it, measured with the probe script and not
+  through the application ([universal lookup probe](docs/31-universal-lookup-probe.md),
+  "Third run" and "Repeat run"), `gpt-6-luna` at effort `low`: on a table of 8 rows
+  and 5 columns, 37 of 40 values were found (34 stated, 3 concluded), 9.2 s per row
+  (6.6 to 13.0 s), two searches per row, an estimated 2.2 cents per row. Asking three
+  rows three times each, 13 of 15 values were the same in all three requests, one was
+  worded three ways (an IP rating) and one was found in only some of the requests;
+  10.8 s per request, an estimated 2.5 cents. The cost is an estimate from token counts
+  and the printed prices; it was not compared with the provider's bill. No value was
+  checked against a reference, so these numbers say how often a value came back, not
+  how often it was right.
+
+### Checked by the owner since 0.3.0
+
+Single live trials, not measurements:
+
+- The universal search through the application on a table of 8 phones with 5
+  columns (2026-11-16): 38 of 40 cells filled, numbers as numbers, `Yes` and `No`,
+  notes with source, basis and quote. Whether the values are correct was not checked.
+- The first mixed plan through the application (2026-11-17,
+  [record](docs/31-universal-lookup-probe.md)): the height came from Wikidata for 10
+  of 10 mountains, including one name choice in Review and a resume; the searched
+  column had a value for 5 of 10 and `NOTHING_FOUND` for the rest. The five values
+  answer different questions (the age of a rock, the start of the Himalayan collision),
+  and one `stated` mark was wrong.
+- The usage summary survived a restart of the local server.
+
+### Not verified
+
+- The correctness of any value found by the search: there is no reference set.
+- The estimated cost of a lookup request against the provider's bill.
+- The two changes of the last pull request, the time limit of a run that searches and
+  the kept answer "nothing found", in a live run.
+- A run of the whole-task search after the execution paths were unified (the server
+  change for mixed plans), in a live run.
+- The universal search on a hosted instance: it is not enabled on the demo.
+- A mixed plan that also contains `road_distance`.
+- The Ukrainian and German texts of the new screens were not read by a native speaker.
+- The usage file on macOS and Linux (the rule for the state folder; the owner's machine
+  is Windows), with a real 5 MB file or a long-running server, and on an ephemeral host.
+- "Suggest a task" with the changed prompts on a live model: it was tested against a
+  fake model only.
+
+### Known limits
+
+- An empty or new column is searched as `text`. Number with a unit and yes/no have to
+  be set by hand under "Change what is sent…".
+- Rows are asked one after another, about 9 s each in the probe runs (6.6 to 13.0 s).
+  With the row limit of 20 and the limit of 300 s this fits, with little room.
+- The mark `stated` or `concluded` is the model's own and can be wrong (seen once).
+- Rows are searched independently, and nothing compares the answers of neighbouring
+  rows, so a question without one defined answer gives values that cannot be compared.
+- A text column is not reproduced to the letter: the same fact came back in three
+  wordings in the repeat run.
+- A job stays "needs review" while any row is not completely filled, also when there
+  is nothing to choose. A row for which nothing was found is not asked again for the
+  life of the plan; to ask it again, build the plan again or change the task. The kept
+  answers are in the application's temporary workspace and are gone when it ends.
+- The usage file is off on a hosted instance by default, and there is no database
+  backend.
+- The limits of 0.3.0 still apply, except that the usage summary of a local launcher
+  is no longer cleared by a restart.
 
 ## 0.3.0 — beta (2026-11-15)
 
