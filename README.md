@@ -140,8 +140,10 @@ Open <http://127.0.0.1:5173>.
   and `--allow-network`) the AI web search described above is offered. Each row costs a
   model request and a search fee. `ENRICHMENT_WEB_LOOKUP_MODEL` changes its model.
 - **With `ENRICHMENT_ALLOW_MAIL=1`** (local launcher only) the API can build a table from
-  `.eml` files, one row per mail; no mail is sent to a model and there is no interface for it
-  yet ([note](docs/32-mail-extraction-probe.md)).
+  `.eml` files, one row per mail. With an OpenAI key and the network gate, the API can also plan,
+  approve and run an extraction of values from the text column (`POST /api/extraction-plans`;
+  the text is sent to the model). There is no interface for it yet, and it has not been run on
+  real mail or a real model through the application ([note](docs/32-mail-extraction-probe.md)).
 
 Details: [provider settings](docs/25-provider-settings.md).
 

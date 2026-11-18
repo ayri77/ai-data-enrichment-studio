@@ -70,6 +70,7 @@ __all__ = [
     "build_extraction_plan",
     "extraction_registry",
     "is_extraction_plan",
+    "text_column_of",
     "text_extraction_spec",
 ]
 
@@ -301,6 +302,13 @@ def _read_plan(plan: EnrichmentPlan) -> tuple[PlanStep, ExtractionTask]:
                 "to it; its cells may change during the run."
             )
     return step, task
+
+
+def text_column_of(plan: EnrichmentPlan) -> str:
+    """The name of the column a well-formed extraction plan reads its text from."""
+    reference = _read_plan(plan)[0].inputs["text"]
+    assert isinstance(reference, ColumnReference)
+    return reference.name
 
 
 def extraction_registry(

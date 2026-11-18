@@ -435,3 +435,66 @@ def test_a_named_cell_may_be_replaced_and_no_other(tmp_path: Path) -> None:
     # A number and a formula are both replaced by the new value.
     assert cells == {"B2": 391.5, "B3": 232.0, "B4": "kept", "B5": 7.0}
     assert source.read_bytes() == original
+
+
+def test_a_column_can_be_emptied_in_the_copy_below_its_header(tmp_path: Path) -> None:
+    source = tmp_path / "source.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet.title = "Mail"
+    sheet.append(["Subject", "Text"])
+    sheet.append(["a", "first text"])
+    sheet.append(["b", "second text"])
+    workbook.save(source)
+    workbook.close()
+
+    output = write_excel_cells(
+        source,
+        tmp_path / "out.xlsx",
+        sheet_name="Mail",
+        writes={"C1": "Amount"},
+        clear_below={"B": 1},
+    )
+    copy = load_workbook(output)
+    original = load_workbook(source)
+    try:
+        assert [[c.value for c in row] for row in copy["Mail"].iter_rows()] == [
+            ["Subject", "Text", "Amount"],
+            ["a", None, None],
+            ["b", None, None],
+        ]
+        # The source is never changed.
+        assert original["Mail"]["B2"].value == "first text"
+    finally:
+        copy.close()
+        original.close()
+
+
+def test_without_clear_below_nothing_is_emptied_and_a_written_cell_cannot_be_cleared(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet.append(["Text"])
+    sheet.append(["kept"])
+    workbook.save(source)
+    workbook.close()
+
+    kept = write_excel_cells(source, tmp_path / "a.xlsx", sheet_name="Sheet", writes={})
+    copy = load_workbook(kept)
+    try:
+        assert copy["Sheet"]["A2"].value == "kept"
+    finally:
+        copy.close()
+    with pytest.raises(ValueError, match="both written and cleared"):
+        write_excel_cells(
+            source,
+            tmp_path / "b.xlsx",
+            sheet_name="Sheet",
+            writes={"A2": "x"},
+            clear_below={"A": 1},
+            replace=["A2"],
+        )

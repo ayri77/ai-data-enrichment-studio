@@ -1,7 +1,7 @@
 """Coordinate a validated Excel enrichment workflow."""
 
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, time
 from pathlib import Path
@@ -110,6 +110,8 @@ class ExcelEnrichmentRunner:
         sources_in_workbook: SourcesMode = "none",
         on_record_done: Callable[[int, int], None] | None = None,
         on_row_result: Callable[[RowExecutionResult], None] | None = None,
+        clear_columns: Sequence[str] = (),
+        private_text: bool = False,
     ) -> ExcelEnrichmentResult:
         """Validate, execute and publish one selected Excel table.
 
@@ -134,6 +136,12 @@ class ExcelEnrichmentRunner:
         listing them (``output.provenance``). Kept cells and skipped rows are not
         described. If adding them fails, the error is logged, the workbook stays
         as it was written and ``sources_applied`` is False; the run does not fail.
+
+        ``clear_columns`` names headers of the selected table whose cells are emptied in the
+        result workbook, in every row below the header to the end of the sheet (the header
+        stays; the source is not changed). ``private_text`` says that the plan reads texts
+        that must not spread: a failure to add the sources is then logged with the
+        exception's class only, never its message. Both are off for every other plan.
         """
         if replace_existing_outputs and not preserve_existing_outputs:
             raise ValueError("Replacing existing outputs requires tolerating them.")
@@ -270,6 +278,17 @@ class ExcelEnrichmentRunner:
         )
         kept = preserved - set(replaced)
 
+        # The named columns are emptied in the copy below the header, whatever the rows the
+        # run accepted: a row beyond the run's limit or one left out holds its text too.
+        unknown = [name for name in clear_columns if name not in existing_headers.values()]
+        if unknown:
+            raise ValueError("A column to clear is not in the selected table.")
+        cleared = {
+            letter: selection.bounds[1]
+            for letter, name in existing_headers.items()
+            if name in clear_columns
+        }
+
         # Publish only through the existing safe Excel writer.
         write_excel_cells(
             source_path,
@@ -281,6 +300,7 @@ class ExcelEnrichmentRunner:
                 if cell not in kept
             },
             replace=tuple(replaced),
+            clear_below=cleared,
         )
 
         sources_applied = True
@@ -304,10 +324,16 @@ class ExcelEnrichmentRunner:
                         },
                     ),
                 )
-            except Exception:
+            except Exception as exc:
                 # The values are already in the workbook and are what the run is
                 # for; the failure is logged and stated in the audit.
-                logging.getLogger(__name__).exception("Adding sources to the workbook failed")
+                if private_text:
+                    # A library's message can quote a cell: the class tells enough.
+                    logging.getLogger(__name__).error(
+                        "Adding sources to the workbook failed (%s)", type(exc).__name__
+                    )
+                else:
+                    logging.getLogger(__name__).exception("Adding sources to the workbook failed")
                 sources_applied = False
 
         return ExcelEnrichmentResult(

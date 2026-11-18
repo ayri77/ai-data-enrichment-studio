@@ -634,3 +634,40 @@ def test_the_summary_opens_without_a_code_only_for_the_launcher_with_no_codes_at
         if admin:
             assert usage(client).status_code == 200
             assert usage(client, "wrong-admin-code").status_code == 401
+
+
+def test_a_hosted_app_never_offers_the_text_extraction_whatever_the_environment_says(
+    site: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Everything that would switch it on on a local installation is set; the hosted entry
+    # point still does not offer it, because the text of a cell would go to OpenAI from a
+    # machine other than the visitor's own.
+    monkeypatch.setenv("ENRICHMENT_STATIC_DIR", str(site))
+    monkeypatch.setenv("ENRICHMENT_ACCESS_CODE", CODE)
+    monkeypatch.setenv("ENRICHMENT_ALLOW_MAIL", "1")
+    monkeypatch.setenv("ENRICHMENT_ALLOW_NETWORK", "1")
+    monkeypatch.setenv("ENRICHMENT_TEXT_EXTRACTION_MODEL", "gpt-6-luna")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-not-a-real-key-for-this-test")
+    monkeypatch.delenv("ENRICHMENT_ADMIN_CODE", raising=False)
+    granted = {"X-Access-Code": CODE}
+    app = create_hosted_app()
+    assert app.state.plan_run.settings.allow_mail is True  # the setting is read...
+    with TestClient(app) as client:
+        limits = client.get("/api/limits", headers=granted).json()
+        assert limits["text_extraction"] is False and limits["mail"] is False  # ...and not used
+        uploaded = upload(client, **granted)
+        for body in (
+            {
+                "dataset_id": uploaded.json()["dataset_id"],
+                "question": "What was paid?",
+                "text_column": "Capital",
+                "targets": [{"column": "Amount", "kind": "number"}],
+            },
+            {"nonsense": True},
+        ):
+            refused = client.post("/api/extraction-plans", json=body, headers=granted)
+            assert refused.status_code == 403, refused.text
+            assert refused.json()["error"]["code"] == "extraction_not_allowed"
+        assert app.state.plan_run.plans == {}
+        # Without the access code the route is closed like every other.
+        assert client.post("/api/extraction-plans", json={}).status_code == 401

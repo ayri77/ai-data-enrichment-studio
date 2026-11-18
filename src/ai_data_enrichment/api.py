@@ -32,7 +32,12 @@ from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.mail import upload as mail_upload
 from ai_data_enrichment.mail.workbook import write_mail_workbook
 from ai_data_enrichment.plan_run import PlanBodyLimit, PlanRunService, PlanRunSettings
-from ai_data_enrichment.plan_run_worker import ApiFactory, ExecutorFactory, builtin_registry
+from ai_data_enrichment.plan_run_worker import (
+    ApiFactory,
+    ExecutorFactory,
+    ExtractionApiFactory,
+    builtin_registry,
+)
 from ai_data_enrichment.planning.llm_planner import PlanCompletionClient
 from ai_data_enrichment.provider_settings import ProviderConfiguration, configuration_router
 from ai_data_enrichment.run_limits import MAX_TABLE_CELLS, MAX_TABLE_ROWS
@@ -180,6 +185,7 @@ def create_app(
     offline_plan_client: PlanCompletionClient | None = None,
     offline_executor_factory: ExecutorFactory | None = None,
     offline_lookup_api: ApiFactory | None = None,
+    offline_extraction_api: ExtractionApiFactory | None = None,
     access_code: str | None = None,
     access_codes: Mapping[str, str] | None = None,
     admin_code: str | None = None,
@@ -194,7 +200,8 @@ def create_app(
     counted per visitor. `admin_code` opens the usage summary and nothing else;
     without it there is no such route. `usage_lines` also writes each counted
     event to standard output. `offline_lookup_api` stands in, inside the run worker, for
-    the model client of the universal search (tests only). `static_dir` serves the
+    the model client of the universal search, and `offline_extraction_api` for the one that
+    reads values out of texts (tests only). `static_dir` serves the
     built frontend from the same origin. All are unset for the local launcher.
     """
     datasets: dict[str, Path] = {}
@@ -217,6 +224,7 @@ def create_app(
         offline_lookup_api,
         # Never on a hosted app, whatever the environment says.
         mail_available=settings.allow_mail and local_browser_configuration,
+        offline_extraction_api=offline_extraction_api,
     )
 
     @asynccontextmanager

@@ -312,6 +312,17 @@ class ExtractionUsage:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._totals = UsageTotals()
+        self._dropped: dict[str, int] = {}
+
+    def drop(self, reason: str) -> None:
+        """Count one value the reader did not keep, by its reason code."""
+        with self._lock:
+            self._dropped[reason] = self._dropped.get(reason, 0) + 1
+
+    def dropped(self) -> dict[str, int]:
+        """The values dropped so far, per reason code."""
+        with self._lock:
+            return dict(self._dropped)
 
     def add(self, *, input_tokens: int = 0, output_tokens: int = 0) -> None:
         with self._lock:

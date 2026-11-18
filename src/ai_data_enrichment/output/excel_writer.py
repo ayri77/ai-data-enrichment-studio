@@ -50,12 +50,19 @@ def write_excel_cells(
     sheet_name: str,
     writes: Mapping[str, str | float],
     replace: Collection[str] = (),
+    clear_below: Mapping[str, int] | None = None,
 ) -> Path:
     """Write values to empty cells in a separate workbook.
 
     A cell named in ``replace`` may already hold a value, which the write then
     replaces. Every other target must be empty. The caller names such cells one
     by one, so nothing is overwritten that it did not decide to overwrite.
+
+    ``clear_below`` maps a column letter to its header row: every cell of that column below
+    the header, to the last row of the sheet, is emptied in the copy (the value, not the
+    place; the header stays). The source is never changed. A cleared cell must not also be
+    written. Nothing is cleared unless the caller asks, so every other caller's output is as
+    it was.
     """
 
     if source_path.suffix.lower() != ".xlsx":
@@ -96,6 +103,17 @@ def write_excel_cells(
                 raise ValueError(f"Non-finite output value at {coordinate}")
 
             pending.append((cell, value))
+
+        emptied = []
+        for letter, header_row in (clear_below or {}).items():
+            for row in range(header_row + 1, sheet.max_row + 1):
+                coordinate = f"{letter}{row}"
+                if coordinate in writes:
+                    raise ValueError(f"Cell is both written and cleared: {coordinate}")
+                emptied.append(_checked_empty_target_cell(sheet, coordinate, may_hold_value=True))
+
+        for cell in emptied:
+            cell.value = None
 
         for cell, value in pending:
             cell.value = value
