@@ -11,15 +11,32 @@ export function useOffered() {
     return useContext(CapabilitiesContext);
 }
 
-export function useCapabilities(): Capability[] | null {
-    const [listed, setListed] = useState<Capability[] | null>(null);
+// The categories the server lists, in its order; null for a server that does
+// not say, and until it has answered.
+export const CategoriesContext = createContext<string[] | null>(null);
+export function useCategories() {
+    return useContext(CategoriesContext);
+}
+
+export interface Catalog {
+    capabilities: Capability[];
+    categories: string[] | null;
+}
+
+export function useCatalog(): Catalog | null {
+    const [listed, setListed] = useState<Catalog | null>(null);
     useEffect(() => {
         let active = true;
         void (async () => {
             try {
                 const stated = await api.capabilities();
                 if (active && Array.isArray(stated?.capabilities))
-                    setListed(stated.capabilities);
+                    setListed({
+                        capabilities: stated.capabilities,
+                        categories: Array.isArray(stated.categories)
+                            ? stated.categories
+                            : null,
+                    });
             } catch {
                 // Without the list the page names what it knows by id.
             }
@@ -29,6 +46,40 @@ export function useCapabilities(): Capability[] | null {
         };
     }, []);
     return listed;
+}
+
+export function useCapabilities(): Capability[] | null {
+    return useCatalog()?.capabilities ?? null;
+}
+
+/** The category of the AI web search: the interface's own, never the server's list. */
+export const WEB_SEARCH_CATEGORY = "web_search";
+
+export interface CapabilityGroup {
+    /** The category id; empty for a list that states none. */
+    id: string;
+    items: Capability[];
+}
+
+/**
+ * The server's capabilities grouped by category, in the server's order. A
+ * category an item names but the list does not is added after it, in the order
+ * first met; an item without one (when others have) goes to "other". A server
+ * that states no categories at all gives one group with no id, so that the page
+ * shows everything together and no tiles.
+ */
+export function groupCapabilities(
+    items: Capability[],
+    categories?: string[] | null,
+): CapabilityGroup[] {
+    if (!items.some((item) => item.category)) return [{ id: "", items }];
+    const order = [...(categories ?? [])];
+    const idOf = (item: Capability) => item.category || "other";
+    for (const item of items)
+        if (!order.includes(idOf(item))) order.push(idOf(item));
+    return order
+        .map((id) => ({ id, items: items.filter((item) => idOf(item) === id) }))
+        .filter((group) => group.items.length > 0);
 }
 
 /** "currency_rate" → "Currency rate": a name for an id that has no wording yet. */

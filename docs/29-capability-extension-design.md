@@ -156,6 +156,23 @@ over the same files as before. Two things the list cannot say yet, because no
 declaration holds them: the *kind of trust* of a capability (point 4), which
 the page words by hand for the six known ones, and the wording of failures.
 
+*Category, added later.* The binding also declares the **category** of a capability
+(`CapabilityBinding.category`, one of `CATEGORIES` in `capabilities/bindings.py`,
+which is also the order of the groups): `lookup`, `distance`, `calculate`, and
+`web_search` for the fallback. `GET /api/capabilities` carries it per entry and lists
+the categories in use as `categories`. The planner is not shown it (the spec and
+`describe_all` are unchanged). The Overview groups the cards by it, so a new capability
+in an existing category appears in the right group without a change to the interface.
+
+What adding a capability touches today, for the page: its contract and binding (with the
+category); and, in the interface, **three hand-written texts per language** —
+`cap.<id>.needs`, `cap.<id>.gives`, `cap.<id>.example` — beside the existing
+`cap.<id>.title` and `cap.<id>.text`, and a `source.<id>` name. Without them the card still
+appears, under its id made readable with the server's English description, and has nothing
+to open in Basic mode. A new *category* needs a tuple entry and, in the interface, `cat.<id>.title`
+and `cat.<id>.text` plus, optionally, an icon; without them the group appears under the
+readable id with a generic icon.
+
 **Step 3 — prove it with one new capability**, added only through a binding,
 and repeat the planning measurement with it. The choice of capability decides
 how much of the contract is exercised: a computed one tests little, one that

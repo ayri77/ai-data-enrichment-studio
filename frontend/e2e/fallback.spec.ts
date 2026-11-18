@@ -111,11 +111,10 @@ test("universal search: with the switch on, a task the planner refuses gets a se
     await page.goto("/");
     const limits = await (await page.request.get("/api/limits")).json();
     expect(limits.web_lookup).toBe(true);
-    await expect(
-        page.getByText("this server can search the web with AI instead", {
-            exact: false,
-        }),
-    ).toBeVisible();
+    // The overview has a card for it, among the categories.
+    await expect(page.locator('[data-capability="web_lookup"]')).toContainText(
+        "Search the web with AI",
+    );
     await openTable(page, source);
     await threeColumns(
         page,

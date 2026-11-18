@@ -14,7 +14,12 @@ from openpyxl.utils import get_column_letter
 from openpyxl.utils.cell import column_index_from_string
 from pydantic import SecretStr
 
-from ai_data_enrichment.capabilities.bindings import BINDINGS, Trust, binding_for
+from ai_data_enrichment.capabilities.bindings import (
+    BINDINGS,
+    CATEGORIES,
+    Trust,
+    binding_for,
+)
 from ai_data_enrichment.capabilities.definitions import offered_capabilities
 from ai_data_enrichment.capabilities.fallback import fallback_registry, plan_shape
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
@@ -93,7 +98,8 @@ def offered_descriptions() -> list[dict[str, Any]]:
     Each entry is the capability's own contract (the one the planner is shown)
     with the id of the source its values come from in a live run and the kind of
     trust that stands behind them (``Trust``, as a lowercase word). Neither is in
-    the contract the planner is shown: that is ``CapabilityRegistry.describe_all``
+    the contract the planner is shown, and neither is the category: that is
+    ``CapabilityRegistry.describe_all``
     and stays the specs' own dump. The list
     follows the registry, so a capability added to it is listed without any
     further change, and one that is not offered here is not listed.
@@ -103,9 +109,19 @@ def offered_descriptions() -> list[dict[str, Any]]:
             **spec.model_dump(mode="json"),
             "source": binding_for(spec.id).source_id,
             "trust": binding_for(spec.id).trust.value,
+            "category": binding_for(spec.id).category,
         }
         for spec in builtin_registry().list_all()
     ]
+
+
+def offered_categories(offered: list[dict[str, Any]]) -> list[str]:
+    """The declared categories that have at least one offered capability, in order.
+
+    ``web_search`` is never among them: the web search is not offered to a plan.
+    """
+    present = {item["category"] for item in offered}
+    return [name for name in CATEGORIES if name in present]
 
 
 def remote_sources(registry: CapabilityRegistry) -> list[str]:

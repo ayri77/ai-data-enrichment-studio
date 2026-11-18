@@ -35,6 +35,12 @@ class Trust(StrEnum):
     AI_FOUND = "ai_found"
 
 
+# What a person wants to do with a capability, in the order a client lists the
+# groups. The category is declared here with the binding, never on the capability
+# spec: the planner is not shown it. A client keeps its own wording for each id.
+CATEGORIES: tuple[str, ...] = ("lookup", "distance", "calculate", "web_search")
+
+
 def _parameters(*items: dict[str, str]) -> tuple[Mapping[str, str], ...]:
     return tuple(MappingProxyType(item) for item in items)
 
@@ -72,6 +78,8 @@ class CapabilityBinding:
     # Bound whether or not a registry lists it: the four of release 0.1.0. The
     # others are bound only where the registry holds them.
     always_bound: bool
+    # One of ``CATEGORIES``: what a person wants to do with it.
+    category: str
     # Offered only where a personal key for the source is configured.
     requires_key: bool = False
     name_resolution: NameResolution | None = None
@@ -89,6 +97,7 @@ BINDINGS: tuple[CapabilityBinding, ...] = (
         trust=Trust.RESOLVED_NAME,
         reusable=True,
         always_bound=True,
+        category="lookup",
         name_resolution=NameResolution(
             name_input="city",
             entity_type="city",
@@ -105,6 +114,7 @@ BINDINGS: tuple[CapabilityBinding, ...] = (
         trust=Trust.COMPUTED,
         reusable=False,
         always_bound=True,
+        category="distance",
     ),
     CapabilityBinding(
         capability_id="resolve_entity",
@@ -112,6 +122,7 @@ BINDINGS: tuple[CapabilityBinding, ...] = (
         trust=Trust.RESOLVED_NAME,
         reusable=True,
         always_bound=True,
+        category="lookup",
         name_resolution=NameResolution(
             name_input="name",
             entity_type="mountain",
@@ -128,6 +139,7 @@ BINDINGS: tuple[CapabilityBinding, ...] = (
         trust=Trust.RECORD,
         reusable=True,
         always_bound=True,
+        category="lookup",
     ),
     CapabilityBinding(
         capability_id="ratio",
@@ -135,6 +147,7 @@ BINDINGS: tuple[CapabilityBinding, ...] = (
         trust=Trust.COMPUTED,
         reusable=False,
         always_bound=False,
+        category="calculate",
     ),
     CapabilityBinding(
         capability_id="road_distance",
@@ -142,6 +155,7 @@ BINDINGS: tuple[CapabilityBinding, ...] = (
         trust=Trust.SERVICE,
         reusable=True,
         always_bound=False,
+        category="distance",
         requires_key=True,
     ),
 )
@@ -159,6 +173,7 @@ FALLBACK_BINDINGS: tuple[CapabilityBinding, ...] = (
         # and pay for the row again. Failures are never kept.
         reusable=True,
         always_bound=False,
+        category="web_search",
         # Needs the OpenAI key of the installation; nothing without it.
         requires_key=True,
     ),

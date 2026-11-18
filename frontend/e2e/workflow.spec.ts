@@ -1581,13 +1581,23 @@ test("overview: the page a visitor opens says what the system is and lists what 
         "ratio",
         "road_distance",
     ]);
-    const cards = page.getByTestId("capability-list").locator("> li");
-    await expect(cards).toHaveCount(offered.length);
+    // The cards are grouped by category; the AI web search (this server has it
+    // switched on) is the interface's own card in a group of its own, last.
+    const cards = page.getByTestId("capability-list").locator("li");
+    await expect(cards).toHaveCount(offered.length + 1);
     expect(
         await cards.evaluateAll((items) =>
             items.map((item) => item.getAttribute("data-capability")),
         ),
-    ).toEqual(offered.map((item) => item.id));
+    ).toEqual([
+        "geocode",
+        "resolve_entity",
+        "lookup_property",
+        "geodesic_distance",
+        "road_distance",
+        "ratio",
+        "web_lookup",
+    ]);
     const roads = page.locator('[data-capability="road_distance"]');
     await expect(roads).toContainText("Calculate the driving distance by road");
     await expect(roads).toContainText(
@@ -1602,11 +1612,17 @@ test("overview: the page a visitor opens says what the system is and lists what 
     await page.screenshot({ path: testInfo.outputPath("overview.png") });
     await languagesFit(page, testInfo, "overview");
 
-    // Advanced adds each contract as the planning model is shown it.
+    // Advanced adds each contract, in the opened card, as the planning model
+    // is shown it.
     await page
         .locator(".studio-preferences select")
         .nth(2)
         .selectOption("advanced");
+    for (const item of offered)
+        await page
+            .locator(`[data-capability="${item.id}"]`)
+            .getByRole("button", { name: /^Details/ })
+            .click();
     await expect(page.getByTestId("capability-contract")).toHaveCount(
         offered.length,
     );
