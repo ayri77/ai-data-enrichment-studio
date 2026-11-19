@@ -35,6 +35,7 @@ import {
     PlanRefusal,
     UnfilledNotice,
 } from "./PlanDescription";
+import { ExtractionBanner, ExtractionTask } from "./ExtractionTask";
 import {
     FallbackBanner,
     FallbackOffer,
@@ -48,6 +49,7 @@ import {
     UnfilledSearch,
     PlannerAnswerView,
 } from "./FallbackSearch";
+import { isExtractionDraft, isExtractionRun } from "../mailModel";
 import {
     isFallbackDraft,
     isFallbackRun,
@@ -155,6 +157,10 @@ function RunRows({ w, preview }: { w: Workflow; preview: Preview | null }) {
                             last: w.runLast,
                         })}{" "}
                 {total > w.maxRows && t("run.rowsLimit", { max: w.maxRows })}
+                {/* A table of e-mails is only on a local installation, where the limit is a setting. */}
+                {total > w.maxRows &&
+                    w.mailTable &&
+                    ` ${t("extract.rowsSetting")}`}
             </p>
         </div>
     );
@@ -507,6 +513,16 @@ export function DatasetConfiguration({
                       ).join(", "),
                   }),
               ];
+    // A table built from e-mails is not planned by the AI: its task is what to
+    // read from each mail.
+    if (w.mailTable && preview)
+        return (
+            <MailConfiguration
+                workflow={w}
+                preview={preview}
+                onOpenSettings={onOpenSettings}
+            />
+        );
     return (
         <section className="configuration workspace-panel">
             <div className="panel-scroll configuration-fields">
@@ -836,6 +852,125 @@ export function DatasetConfiguration({
     );
 }
 
+/** What is still missing before the extraction plan can be built. */
+function ExtractionNeeds({ w }: { w: Workflow }) {
+    const { t } = useTranslation();
+    const needs = [
+        ...(w.withinBounds
+            ? []
+            : [
+                  [
+                      "selection",
+                      t("workflow.selectionLimit", { max: w.maxRows }),
+                  ],
+              ]),
+        ...(w.extractionProblems.includes("question")
+            ? [["question", t("extract.need.question")]]
+            : []),
+        ...(w.extractionProblems.includes("columns")
+            ? [["columns", t("extract.need.columns")]]
+            : []),
+        ...(w.consent ? [] : [["consent", t("provider.consentMissing")]]),
+    ];
+    if (!needs.length) return null;
+    return (
+        <div className="build-checklist" role="status">
+            <strong>{t("ws.need.title")}</strong>
+            <ul>
+                {needs.map(([key, text]) => (
+                    <li key={key} data-requirement={key}>
+                        {text}
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+}
+
+/**
+ * The task step for a table built from e-mails: what to read from each mail
+ * instead of the instruction for the planner. Nothing here sends anything; the
+ * texts leave only when the plan is run, with the person's consent.
+ */
+function MailConfiguration({
+    workflow: w,
+    preview,
+    onOpenSettings,
+}: {
+    workflow: Workflow;
+    preview: Preview;
+    onOpenSettings?: () => void;
+}) {
+    const { t } = useTranslation();
+    const advanced = useAdvanced();
+    return (
+        <section className="configuration workspace-panel">
+            <div className="panel-scroll configuration-fields">
+                <div className="panel-title">
+                    <GitBranch aria-hidden="true" />
+                    <h2>{t("ws.enrichmentTask")}</h2>
+                </div>
+                {(w.plan || w.job) && (
+                    <p className="notice">
+                        {t(
+                            advanced
+                                ? "ws.invalidateWarning"
+                                : "ws.invalidateWarningBasic",
+                        )}
+                    </p>
+                )}
+                <fieldset disabled={w.locked}>
+                    <ExtractionTask
+                        w={w}
+                        preview={preview}
+                        onOpenSettings={onOpenSettings}
+                    />
+                    {w.textExtraction && (
+                        <>
+                            <RunRows w={w} preview={preview} />
+                            <Advanced>
+                                <label className="network-opt-in">
+                                    <input
+                                        type="checkbox"
+                                        checked={w.network}
+                                        onChange={(e) =>
+                                            w.edit(() =>
+                                                w.setNetwork(e.target.checked),
+                                            )
+                                        }
+                                    />
+                                    {t("workflow.network")}
+                                </label>
+                            </Advanced>
+                            <Advanced>
+                                <AdvancedControls w={w} />
+                            </Advanced>
+                        </>
+                    )}
+                </fieldset>
+            </div>
+            {w.textExtraction && (
+                <div className="workspace-actions">
+                    <ExtractionNeeds w={w} />
+                    <Button
+                        disabled={!w.canBuildExtraction}
+                        onClick={() =>
+                            void w.action(w.createExtraction, "extraction")
+                        }
+                    >
+                        {t("ws.buildPlan")}
+                        {w.operation?.kind === "extraction" ? (
+                            <LoaderCircle className="spin" aria-hidden="true" />
+                        ) : (
+                            <ArrowRight aria-hidden="true" />
+                        )}
+                    </Button>
+                </div>
+            )}
+        </section>
+    );
+}
+
 const NEW_COLUMN = "__new__";
 // As many result columns as one plan request accepts.
 const MAX_OUTPUTS = 20;
@@ -883,6 +1018,8 @@ export function PlanWorkspace({
         w.operation?.kind === "fallback" && !!draft && !draft.kind;
     const search = isFallbackDraft(draft);
     const mixed = isMixedDraft(draft);
+    // A plan that reads values out of the text of each mail: one step, told in words.
+    const extraction = isExtractionDraft(draft);
     // The web search for the columns a runnable plan has no source for is
     // being added to it.
     const searchingColumns =
@@ -906,6 +1043,10 @@ export function PlanWorkspace({
             <MixedPlanNotice draft={draft} />
             <MixedBanner draft={draft} />
         </div>
+    ) : extraction ? (
+        <div className="fallback-banner-row">
+            <ExtractionBanner />
+        </div>
     ) : null;
     return (
         <div className="stage-layout">
@@ -913,18 +1054,24 @@ export function PlanWorkspace({
                 {/* A refusal is its own heading: there is no workflow to title. */}
                 {(!draft || draft.plan) && (
                     <div className="panel-title">
-                        {advanced ? (
+                        {advanced && !extraction ? (
                             <GitBranch aria-hidden="true" />
                         ) : (
                             <ListChecks aria-hidden="true" />
                         )}
-                        <h2>{t(advanced ? "ws.graph" : "plan.title")}</h2>
+                        <h2>
+                            {t(
+                                advanced && !extraction
+                                    ? "ws.graph"
+                                    : "plan.title",
+                            )}
+                        </h2>
                     </div>
                 )}
                 {/* In Basic the notice and the banner scroll with the plan, so
                     that the form under it has the room; the graph of Advanced
                     has its own area and they stay above it. */}
-                {advanced && banner}
+                {advanced && !extraction && banner}
                 {!draft ? (
                     <EmptyState icon="plan" text={t("ws.noPlan")} />
                 ) : searching ? (
@@ -953,7 +1100,7 @@ export function PlanWorkspace({
                             )}
                         </PlanRefusal>
                     </div>
-                ) : advanced ? (
+                ) : advanced && !extraction ? (
                     <>
                         {unfilled}
                         <PlanGraph key={draft.fingerprint} draft={draft} />
@@ -1122,7 +1269,8 @@ export function PlanWorkspace({
                                         <>
                                             <h3>
                                                 {t(
-                                                    draft.kind === "fallback"
+                                                    draft.kind === "fallback" ||
+                                                        extraction
                                                         ? "fallback.howObtained"
                                                         : "workflow.assumptions",
                                                 )}
@@ -1238,16 +1386,29 @@ export function QualitySummary({ w }: { w: Workflow }) {
         "failed_rows",
     ];
     if (!w.job?.metrics) return null;
+    // The job counts a mail that is not about the task among the rows that
+    // gave no value; here it is its own number and is not a failure.
+    const settled = isExtractionRun(w.job, w.plan)
+        ? (w.job.rows_not_applicable ?? 0)
+        : 0;
     return (
         <dl className="quality-summary">
             {keys.map((key, i) => (
                 <div key={key} className={`quality-${i}`}>
                     <dt>{t(`workflow.metric.${key}`)}</dt>
                     <dd data-testid={`metric-${key}`}>
-                        {w.job!.metrics![key] ?? "—"}
+                        {key === "failed_rows" && w.job!.metrics![key] != null
+                            ? w.job!.metrics![key] - settled
+                            : (w.job!.metrics![key] ?? "—")}
                     </dd>
                 </div>
             ))}
+            {isExtractionRun(w.job, w.plan) && (
+                <div className="quality-4">
+                    <dt>{t("workflow.metric.not_applicable")}</dt>
+                    <dd data-testid="metric-not_applicable">{settled}</dd>
+                </div>
+            )}
         </dl>
     );
 }
@@ -1343,7 +1504,10 @@ export function ExecutionWorkspace({
     const { t } = useTranslation();
     const advanced = useAdvanced();
     const terminal = !!w.job && isTerminal(w.job.status);
-    const toReview = w.job?.status === "needs_review";
+    // A mail that is not about the task, or gave nothing to read, is not
+    // something to review: there is no name to settle in such a run.
+    const toReview =
+        w.job?.status === "needs_review" && !isExtractionRun(w.job, w.plan);
     // A run that ended without a filled table: failed, cancelled or timed out.
     const produced = !!w.job?.artifacts.result;
     const stopped = terminal && !produced;
@@ -1351,6 +1515,7 @@ export function ExecutionWorkspace({
     const controls = advanced || !w.job || w.active;
     const fallback = isFallbackRun(w.job, w.plan);
     const mixed = isMixedRun(w.job, w.plan);
+    const extraction = isExtractionRun(w.job, w.plan);
     const outcome =
         !advanced && w.job
             ? runOutcome(
@@ -1359,6 +1524,7 @@ export function ExecutionWorkspace({
                   w.plan?.plan ?? null,
                   w.review,
                   fallback,
+                  extraction,
               )
             : null;
     // How many rows passed each step, once the audit of this run has arrived.
@@ -1416,6 +1582,19 @@ export function ExecutionWorkspace({
                             </p>
                         </>
                     )}
+                    {extraction && (
+                        <>
+                            <ExtractionBanner
+                                done={
+                                    w.job?.status === "completed" ||
+                                    w.job?.status === "needs_review"
+                                }
+                            />
+                            <p className="muted" data-testid="extraction-notes">
+                                {t("extract.runNotes")}
+                            </p>
+                        </>
+                    )}
                     {w.job?.previous_job_id && (
                         <p className="muted">{t("review.continued")}</p>
                     )}
@@ -1438,11 +1617,13 @@ export function ExecutionWorkspace({
                                 : terminal
                                   ? t(
                                         w.job!.status === "needs_review"
-                                            ? fallback
-                                                ? "fallback.unresolved"
-                                                : mixed
-                                                  ? "fallback.mixed.unresolved"
-                                                  : "workflow.unresolved"
+                                            ? extraction
+                                                ? "extract.unresolved"
+                                                : fallback
+                                                  ? "fallback.unresolved"
+                                                  : mixed
+                                                    ? "fallback.mixed.unresolved"
+                                                    : "workflow.unresolved"
                                             : "ws.terminalHint",
                                     )
                                   : t("ws.startHint")}

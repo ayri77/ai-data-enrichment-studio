@@ -3,6 +3,7 @@ import { CircleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { PlanDraft } from "../api";
 import { LOOKUP_CAPABILITY, readLookupTask } from "../fallbackModel";
+import { readExtractionTask } from "../mailModel";
 import {
     columnLabels,
     describePlan,
@@ -42,6 +43,12 @@ export function StepRows({ outcome }: { outcome: StepOutcome }) {
                     className="skipped"
                     style={{ width: share(outcome.skipped) }}
                 />
+                {!!outcome.notApplicable && (
+                    <i
+                        className="not-applicable"
+                        style={{ width: share(outcome.notApplicable) }}
+                    />
+                )}
             </span>
             <span>
                 {[
@@ -57,6 +64,13 @@ export function StepRows({ outcome }: { outcome: StepOutcome }) {
                         : []),
                     ...(outcome.skipped
                         ? [t("exec.step.skipped", { n: outcome.skipped })]
+                        : []),
+                    ...(outcome.notApplicable
+                        ? [
+                              t("exec.step.notApplicable", {
+                                  n: outcome.notApplicable,
+                              }),
+                          ]
                         : []),
                 ].join(" · ")}
             </span>
@@ -87,6 +101,7 @@ export function PlanDescription({
                 ?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
     };
     const lookup = readLookupTask(draft.plan, draft.output_columns);
+    const extracted = readExtractionTask(draft.plan, draft.output_columns);
     const reference = (ref: PlanRef) =>
         ref.kind === "column"
             ? t("plan.ref.column", { name: ref.name })
@@ -101,6 +116,15 @@ export function PlanDescription({
         return (
             <LookupDescription
                 lookup={lookup}
+                stepId={lines[0].id}
+                outcome={outcomes?.get(lines[0].id)}
+            />
+        );
+    // The same for the plan that reads values out of the text of each mail.
+    if (extracted && draft.kind === "extraction" && lines.length === 1)
+        return (
+            <ExtractionDescription
+                view={extracted}
                 stepId={lines[0].id}
                 outcome={outcomes?.get(lines[0].id)}
             />
@@ -192,6 +216,57 @@ export function PlanDescription({
                         </li>
                     ),
                 )}
+            </ol>
+        </div>
+    );
+}
+
+/**
+ * The one step of an extraction plan in the words a person would use: what is
+ * read from the text of each mail, the columns it fills with their kinds, and
+ * that the texts go to OpenAI.
+ */
+function ExtractionDescription({
+    view,
+    stepId,
+    outcome,
+}: {
+    view: NonNullable<ReturnType<typeof readExtractionTask>>;
+    stepId: string;
+    outcome?: StepOutcome;
+}) {
+    const { t } = useTranslation();
+    return (
+        <div className="plan-description" data-testid="extraction-plan">
+            <p className="muted">{t("plan.perRow")}</p>
+            <ol className="plan-steps">
+                <li data-step={stepId} data-extraction="true">
+                    <strong>{t("extract.plan.title")}</strong>
+                    <span className="muted">{t("extract.plan.text")}</span>
+                    <span className="plan-step-inputs">
+                        {t("extract.plan.question", {
+                            question: view.question,
+                        })}
+                    </span>
+                    <span className="plan-step-writes">
+                        {t("extract.plan.fills")}
+                    </span>
+                    <span className="fallback-fills">
+                        {view.columns.map((column) => (
+                            <span className="fallback-fill" key={column.header}>
+                                {t("extract.plan.column", {
+                                    name: column.header,
+                                    letter: column.letter ?? "?",
+                                    kind: t(
+                                        `extract.plan.kind.${column.kind}`,
+                                        { options: column.options.join(", ") },
+                                    ),
+                                })}
+                            </span>
+                        ))}
+                    </span>
+                    {outcome && <StepRows outcome={outcome} />}
+                </li>
             </ol>
         </div>
     );

@@ -1,4 +1,5 @@
 import type { AuditReport, EnrichmentPlan, Job, Review } from "./api";
+import { extractionCounts, EXTRACTION_CAPABILITY } from "./mailModel";
 import { resultRows } from "./resultsModel";
 
 /**
@@ -36,6 +37,8 @@ export function runOutcome(
     review: Review | null,
     /** A run of the universal search: there is nothing to choose in its review. */
     fallback = false,
+    /** A run that reads values out of texts: told by what became of each mail. */
+    extraction = false,
 ): Outcome | null {
     const reached = job.progress
         ? [
@@ -65,6 +68,7 @@ export function runOutcome(
         default:
             return null;
     }
+    if (extraction) return extractionOutcome(job, report);
     // Rows that were not looked up (every chosen cell already had a value) are
     // neither filled nor failed: the sentences count the rows that needed filling.
     const rows = (
@@ -120,6 +124,45 @@ export function runOutcome(
     };
 }
 
+/**
+ * What a finished run that reads texts amounts to: the mails with a value, and
+ * apart from them the ones that are not about the task (settled, no failure)
+ * and the ones about the task that gave nothing to read.
+ */
+function extractionOutcome(job: Job, report: AuditReport | null): Outcome {
+    const counts = extractionCounts(job, report);
+    const { total, found } = counts;
+    const key =
+        found >= total && total > 0
+            ? "extractionAll"
+            : found === 0
+              ? "extractionNone"
+              : "extractionSome";
+    const more: Outcome["more"] = [];
+    if (counts.notApplicable)
+        more.push({
+            key: "notApplicable",
+            values: { count: counts.notApplicable },
+        });
+    // The report tells the two reasons apart; until it arrives they are one number.
+    if (counts.nothingFound === null) {
+        if (counts.unread)
+            more.push({ key: "unread", values: { count: counts.unread } });
+    } else {
+        if (counts.nothingFound)
+            more.push({
+                key: "nothingFound",
+                values: { count: counts.nothingFound },
+            });
+        if (counts.failed)
+            more.push({
+                key: "requestFailed",
+                values: { count: counts.failed },
+            });
+    }
+    return { key, values: { found, total }, more };
+}
+
 /** What one step of the plan did over the rows of a finished run. */
 export interface StepOutcome {
     /** Rows the run looked up (not the ones that already had their values). */
@@ -130,6 +173,11 @@ export interface StepOutcome {
     failed: number;
     /** Rows in which it was not reached: a step it needs gave no value. */
     skipped: number;
+    /**
+     * Only a step that reads texts has it: rows whose text is not about the
+     * task. Settled, so neither filled nor without a value.
+     */
+    notApplicable?: number;
     /** Rows whose value follows a match the user chose during review. */
     chosen: number;
     /** The step's own failures by code, the most frequent first. */
@@ -175,6 +223,9 @@ export function stepOutcomes(
             chosen: 0,
             codes: [],
             sources: [],
+            ...(step.capability === EXTRACTION_CAPABILITY
+                ? { notApplicable: 0 }
+                : {}),
         });
     for (const record of records)
         for (const step of record.row_result.steps) {
@@ -189,6 +240,13 @@ export function stepOutcomes(
                         outcome.sources.push(evidence.source);
             } else if (step.result.error_code === "DEPENDENCY_FAILED") {
                 outcome.skipped += 1;
+            } else if (
+                outcome.notApplicable !== undefined &&
+                step.result.error_code === "NOT_APPLICABLE"
+            ) {
+                // A text the model says is not about the task: its own outcome,
+                // as the server counts it (only for a step that reads texts).
+                outcome.notApplicable += 1;
             } else {
                 outcome.failed += 1;
                 const code = step.result.error_code ?? "UNKNOWN";
@@ -229,6 +287,9 @@ export function liveStepOutcomes(
             chosen: 0,
             codes: [],
             sources: [],
+            ...(counts.not_applicable === undefined
+                ? {}
+                : { notApplicable: counts.not_applicable }),
         });
     }
     return outcomes;

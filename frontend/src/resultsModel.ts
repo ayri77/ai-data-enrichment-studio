@@ -1,5 +1,6 @@
 import type { AuditReport, EnrichmentPlan, ReviewValue } from "./api";
 import { LOOKUP_CAPABILITY, readLookupTask } from "./fallbackModel";
+import { EXTRACTION_CAPABILITY } from "./mailModel";
 
 type Scalar = string | number | boolean;
 export type Cause =
@@ -124,6 +125,21 @@ export interface ResultRow {
     found: Record<string, { basis: "stated" | "concluded"; links: number }>;
     /** The columns whose value the model concluded. */
     concluded: string[];
+    /** The row was read by a model out of a text (an extraction run). */
+    extraction: boolean;
+    /**
+     * The text of the row is not about the task: a settled outcome of an
+     * extraction run, neither a failure nor something to review.
+     */
+    notApplicable: boolean;
+    /**
+     * Values read out of the text, by column: what they rest on and the quote.
+     * "literal": the passage says it as it is; "derived": it follows from it.
+     */
+    extracted: Record<
+        string,
+        { basis: "literal" | "derived"; quote: string | null }
+    >;
 }
 export interface ResultColumn {
     key: string;
@@ -280,9 +296,15 @@ export function resultRows(
         lookup: false,
         found: {},
         concluded: [],
+        extraction: false,
+        notApplicable: false,
+        extracted: {},
     }));
     const lookup = (plan?.steps ?? []).some(
         (step) => step.capability === LOOKUP_CAPABILITY,
+    );
+    const extraction = (plan?.steps ?? []).some(
+        (step) => step.capability === EXTRACTION_CAPABILITY,
     );
     const executed: ResultRow[] = (report?.rows ?? []).map((row) => {
         const inputs = row.inputs ?? {};
@@ -319,9 +341,18 @@ export function resultRows(
                 const value = subject(planSteps.get(id), inputs, planSteps);
                 return value ? [value] : [];
             });
-        const failed = steps.find(
-            (s) => !s.ok && s.errorCode !== "DEPENDENCY_FAILED",
-        );
+        // Only the extraction's own code for a text that is not about the task.
+        const notApplicable =
+            extraction &&
+            steps.some(
+                (s) =>
+                    !s.ok &&
+                    s.capability === EXTRACTION_CAPABILITY &&
+                    s.errorCode === "NOT_APPLICABLE",
+            );
+        const failed = notApplicable
+            ? undefined
+            : steps.find((s) => !s.ok && s.errorCode !== "DEPENDENCY_FAILED");
         return {
             recordId: row.record_id,
             row: row.row ?? null,
@@ -399,6 +430,14 @@ export function resultRows(
             concluded: (row.ai_found ?? [])
                 .filter((item) => item.basis === "concluded")
                 .map((item) => item.column),
+            extraction,
+            notApplicable,
+            extracted: Object.fromEntries(
+                (row.extracted ?? []).map((item) => [
+                    item.column,
+                    { basis: item.basis, quote: item.quote },
+                ]),
+            ),
         };
     });
     // Sheet order; reports without row numbers keep the order they have.
@@ -415,13 +454,18 @@ export type RowFilter =
     | "skipped"
     | "chosen"
     | "automatic"
-    | "concluded";
+    | "concluded"
+    | "notApplicable";
 export function filterRows(rows: ResultRow[], filter: RowFilter) {
     if (filter === "filled") return rows.filter((r) => r.filled);
     // A row that was not looked up is not an empty one: its cells have values.
     if (filter === "partial") return rows.filter((r) => r.partial);
+    // A mail that is not about the task has its own filter: it is not an empty result.
     if (filter === "empty")
-        return rows.filter((r) => !r.filled && !r.partial && !r.skipped);
+        return rows.filter(
+            (r) => !r.filled && !r.partial && !r.skipped && !r.notApplicable,
+        );
+    if (filter === "notApplicable") return rows.filter((r) => r.notApplicable);
     if (filter === "skipped") return rows.filter((r) => r.skipped);
     if (filter === "chosen") return rows.filter((r) => r.chosen.length > 0);
     if (filter === "automatic")

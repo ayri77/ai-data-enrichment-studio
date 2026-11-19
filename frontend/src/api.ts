@@ -15,6 +15,21 @@ export interface Dataset {
     filename: string;
     worksheets: Worksheet[];
 }
+/**
+ * What the server made of an upload of e-mails: how many it read, skipped (not
+ * readable, or not an .eml file) and cut (very long), and how many masks of
+ * each kind it applied to their text.
+ */
+export interface MailCounts {
+    read: number;
+    skipped: number;
+    truncated: number;
+    masked: { card: number; phone: number; me: number };
+}
+/** A table built from e-mails: an ordinary dataset plus these counts. */
+export interface MailDataset extends Dataset {
+    mail: MailCounts;
+}
 export interface Preview {
     dataset_id: string;
     sheet_name: string;
@@ -36,6 +51,8 @@ export interface Preview {
         row_numbers: number[];
         values: (string | number | boolean | null)[][];
     };
+    /** Only a table the application built from e-mails says so. */
+    mail?: boolean;
 }
 /** Retain the backend's stable code; presentation decides how to localize it. */
 export class WorkspaceApiError extends Error {
@@ -234,6 +251,23 @@ export interface PlanRequest {
 }
 /** One column the universal search fills: what kind of value it holds. */
 export type LookupKind = "text" | "number" | "yes_no";
+/** What kind of value a column read out of a text holds. */
+export type ExtractionKind = "text" | "number" | "date" | "yes_no" | "one_of";
+/**
+ * The request for the plan that reads values out of the text column of a
+ * table of e-mails. The server builds the plan; the body names only what is
+ * asked and where the answers go.
+ */
+export interface ExtractionPlanRequest {
+    dataset_id: string;
+    question: string;
+    text_column: string;
+    targets: { column: string; kind: ExtractionKind; options?: string[] }[];
+    /** Both or neither: which table of the dataset to read. */
+    sheet_name?: string;
+    range_ref?: string;
+    sources_in_workbook?: SourcesInWorkbook;
+}
 /**
  * The universal search asks for its own draft: no instruction for the planner
  * but a question, the columns that identify a row and the columns to fill.
@@ -265,9 +299,12 @@ export interface MixedPlanRequest {
 export interface PlanDraft extends Omit<PlanRequest, "allow_network" | "plan"> {
     /**
      * Only a draft the server built says so: "fallback" for a plan that is one
-     * web search, "mixed" for the planner's steps and one web search.
+     * web search, "mixed" for the planner's steps and one web search,
+     * "extraction" for a plan that reads values out of the text of each row.
      */
-    kind?: "fallback" | "mixed";
+    kind?: "fallback" | "mixed" | "extraction";
+    /** An extraction draft: the text column is emptied in the result workbook. */
+    text_column_emptied?: boolean;
     /** A mixed draft: the columns the web search fills, in the order of the request. */
     searched_targets?: string[];
     /** A mixed draft: the planner draft it was built from, still stored. */
@@ -300,8 +337,11 @@ export const isTerminal = (status: JobStatus) =>
 export interface Job {
     job_id: string;
     plan_id: string;
-    /** Only a run of the universal search says so ("mixed": with source steps too). */
-    kind?: "fallback" | "mixed";
+    /**
+     * Only a run of the universal search says so ("mixed": with source steps
+     * too), or one that reads values out of texts ("extraction").
+     */
+    kind?: "fallback" | "mixed" | "extraction";
     fingerprint: string;
     status: JobStatus;
     created_at: string;
@@ -319,7 +359,13 @@ export interface Job {
         rows_total: number;
         steps?: Record<
             string,
-            { filled: number; failed: number; skipped: number }
+            {
+                filled: number;
+                failed: number;
+                skipped: number;
+                /** Only a plan that reads texts counts it: not about the task. */
+                not_applicable?: number;
+            }
         >;
     } | null;
     artifacts: { result?: string; report?: string };
@@ -333,6 +379,12 @@ export interface Job {
      * `progress` count the other rows only.
      */
     rows_skipped?: number;
+    /**
+     * Only a run that reads texts: rows whose text is not about the task. They
+     * are settled, neither filled nor failed (`metrics` still counts them as
+     * not successful).
+     */
+    rows_not_applicable?: number;
 }
 /** What a universal-search run asked of the model: numbers only. */
 export interface WebLookupSpend {
@@ -350,12 +402,39 @@ export interface AiFound {
     basis: "stated" | "concluded";
     links: number;
 }
+/** One value read out of a text: its column, what it rests on, the passage it quotes. */
+export interface ExtractedValue {
+    column: string;
+    /** "literal": the passage says it as it is; "derived": it follows from the passage. */
+    basis: "literal" | "derived";
+    quote: string | null;
+}
+/** What a run that reads texts asked of the model and what came of it: numbers only. */
+export interface TextExtractionReport {
+    configuration_id: string;
+    requests: number;
+    input_tokens: number;
+    output_tokens: number;
+    answers_kept?: number;
+    /** Rows by what became of their text; absent when the run did not finish. */
+    rows?: {
+        found: number;
+        nothing_found: number;
+        not_applicable: number;
+        failed: number;
+    };
+    values_kept?: { literal: number; derived: number };
+    values_dropped?: Record<string, number>;
+    text_column_emptied?: boolean;
+}
 export interface AuditReport extends Job {
     source_sha256: string;
     /** A mixed run: the columns the web search filled. */
     searched_targets?: string[];
     /** A universal-search run: what it asked of the model. */
     web_lookup?: WebLookupSpend;
+    /** A run that reads texts: what it asked of the model and what came of it. */
+    text_extraction?: TextExtractionReport;
     /** What each step is, where its values come from and what stands behind them. */
     step_provenance?: {
         step_id: string;
@@ -403,6 +482,8 @@ export interface AuditReport extends Job {
         empty_outputs?: Record<string, { field: string; code: string }>;
         /** A universal-search run: each value written from a web search. */
         ai_found?: AiFound[];
+        /** A run that reads texts: each value read, with its basis and quote. */
+        extracted?: ExtractedValue[];
     }[];
     execution?: {
         provider_requests: Record<string, Record<string, number>>;
@@ -535,7 +616,13 @@ export interface RunLimits {
     capabilities?: string[];
     /** The universal search can be asked for here (switched on, with a key). */
     web_lookup?: boolean;
+    /** A table can be built from e-mails here (a local installation, switched on). */
+    mail?: boolean;
+    /** Values can be read out of the text of e-mails here (a key, the network gate). */
+    text_extraction?: boolean;
 }
+/** The name every upload of e-mails goes under; the server only reads its ending. */
+export const MAIL_UPLOAD_NAME = "mails.zip";
 export const api = {
     limits: () => response<RunLimits>(call("/api/limits")),
     capabilities: () =>
@@ -567,6 +654,8 @@ export const api = {
     createPlan: (body: PlanRequest) => post<PlanDraft>("/api/plans", body),
     createFallbackPlan: (body: FallbackPlanRequest | MixedPlanRequest) =>
         post<PlanDraft>("/api/fallback-plans", body),
+    createExtractionPlan: (body: ExtractionPlanRequest) =>
+        post<PlanDraft>("/api/extraction-plans", body),
     getPlan: (id: string) => response<PlanDraft>(call(`/api/plans/${id}`)),
     validatePlan: (id: string) => post<Validation>(`/api/plans/${id}/validate`),
     approvePlan: (id: string, fingerprint: string) =>
@@ -632,6 +721,18 @@ export const api = {
             call(`/api/datasets?filename=${encodeURIComponent(file.name)}`, {
                 method: "POST",
                 body: file,
+                headers: { "Content-Type": "application/octet-stream" },
+            }),
+        ),
+    /**
+     * The e-mails as one .zip (or one .eml). The name in the address is always
+     * the same neutral one: the names of the person's files are never sent.
+     */
+    uploadMail: (body: Blob) =>
+        response<MailDataset>(
+            call(`/api/mail-datasets?filename=${MAIL_UPLOAD_NAME}`, {
+                method: "POST",
+                body,
                 headers: { "Content-Type": "application/octet-stream" },
             }),
         ),

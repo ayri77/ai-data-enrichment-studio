@@ -5,8 +5,10 @@ There are no new HTTP fixture switches or simulated execution results.
 """
 
 import atexit
+import dataclasses
 import json
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -21,7 +23,11 @@ from ai_data_enrichment.evaluation.plan_run_fixtures import (
     asks_for_tasks,
     offline_executor,
 )
+from ai_data_enrichment.plan_run import PlanRunSettings
+from tests.support.extraction_api import LoggedExtractionApiFactory
 from tests.support.lookup_api import LoggedApiFactory, mountain_answer
+from tests.support.text_extraction import entry
+from tests.support.text_extraction import response as extraction_response
 from tests.support.web_lookup import PAGE, response, slot
 
 # A task that contains this text is refused by the offline planner, so that the
@@ -136,6 +142,59 @@ def lookup_answer(kwargs: dict[str, Any]) -> Any:
     )
 
 
+def mail_answer(kwargs: dict[str, Any]) -> Any:
+    """What the stand-in model says about the ten invented mails in samples/probe/mail.
+
+    The first three targets the browser test fills are Amount (number), Paid on (date) and
+    Renews (yes or no); a wider test adds up to five text columns after them. The reply has
+    one slot for every column the request lists. The two advertisements are "not about the
+    task"; four mails are about payments but give no amount; four receipts give values, each
+    quoted from its own text.
+    """
+    text: str = kwargs["input"]
+    slots = len(re.findall(r"^- value_\d+ ", text, flags=re.MULTILINE))
+
+    def reply(applies: bool = True, **entries: dict[str, Any]) -> Any:
+        values = {f"value_{i}": entry() for i in range(1, slots + 1)}
+        values.update({key: value for key, value in entries.items() if key in values})
+        return extraction_response({"applies": applies, "values": values})
+
+    if "Subject: Black Friday" in text or "Subject: New this week" in text:
+        return reply(applies=False)
+    if "Subject: Ihre Rechnung" in text:
+        return reply(
+            value_1=entry(10.0, "Gesamt: 10,00 EUR"),
+            value_2=entry("2026-11-01", "Bezahlt am 01.11.2026"),
+            value_3=entry("Yes", "Ihr Tarif verlängert sich automatisch am 01.12.2026."),
+            value_4=entry("Cloudbox Plus", "Cloudbox Plus (2 TB Speicher)"),
+            value_5=entry("01.11.2026 bis 30.11.2026", "Zeitraum: 01.11.2026 bis 30.11.2026"),
+            value_6=entry("CB-2026-110417", "Rechnung Nr. CB-2026-110417"),
+            value_7=entry("19 %", "MwSt. 19 %: 1,60 EUR"),
+            value_8=entry("Cloudbox Billing", "From: Cloudbox Billing"),
+        )
+    if "Subject: Your receipt from PayRelay" in text:
+        return reply(
+            value_1=entry(29.99, "$29.99"),
+            value_2=entry("2026-11-03", "3 Nov 2026"),
+            value_3=entry("Yes", "Your plan renews on November 3, 2027."),
+            value_4=entry("Notes App Pro (annual plan)", "Notes App Pro (annual plan)"),
+            value_5=entry("AppMarket", "Payment to AppMarket"),
+            value_6=entry("PayRelay", "Receipt from PayRelay"),
+        )
+    if "Subject: Receipt for your payment to HostHill" in text:
+        return reply(
+            value_1=entry(4.5, "Amount: 4.50 EUR"),
+            value_2=entry("2026-11-04", "Date: 2026-11-04"),
+        )
+    if "Subject: Чек Streamly" in text:
+        return reply(
+            value_1=entry(399.0, "399,00 ₽ в месяц"),
+            value_2=entry("2026-11-12", "12 ноября 2026"),
+            value_3=entry("Yes", "Следующее списание: 12 декабря 2026"),
+        )
+    return reply()
+
+
 # Road distances are offered only with a routing key. The injected transport
 # answers every request itself, so this value never leaves the process.
 os.environ.setdefault("OPENROUTESERVICE_API_KEY", "offline-fixture")
@@ -158,4 +217,21 @@ app = create_app(
         os.environ["OPENAI_API_KEY"], LOOKUP_LOG, answer=lookup_answer
     ),
     admin_code=USAGE_CODE,
+)
+
+# A second app, for the e-mail scenario (frontend/e2e/mail.spec.ts), served on its own port
+# next to the one above, which keeps the mail entry off like a hosted installation. It differs
+# from `app` only in three things: mail is switched on (`allow_mail`, and
+# `local_browser_configuration`, which a hosted deployment never has), the run worker gets a
+# stand-in for the model client that reads values out of texts (`offline_extraction_api`, made
+# inside the worker like the search's), and it has no plan client, because a table of mails is
+# never planned by the model. The stand-in expects the same key as above and logs each request.
+EXTRACTION_LOG = LOOKUP_DIRECTORY / "extraction-requests.jsonl"
+mail_app = create_app(
+    settings=dataclasses.replace(PlanRunSettings.from_environment(), allow_mail=True),
+    local_browser_configuration=True,
+    offline_executor_factory=offline_executor,
+    offline_extraction_api=LoggedExtractionApiFactory(
+        os.environ["OPENAI_API_KEY"], EXTRACTION_LOG, answer=mail_answer
+    ),
 )

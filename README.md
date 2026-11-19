@@ -142,8 +142,10 @@ Open <http://127.0.0.1:5173>.
 - **With `ENRICHMENT_ALLOW_MAIL=1`** (local launcher only) the API can build a table from
   `.eml` files, one row per mail. With an OpenAI key and the network gate, the API can also plan,
   approve and run an extraction of values from the text column (`POST /api/extraction-plans`;
-  the text is sent to the model). There is no interface for it yet, and it has not been run on
-  real mail or a real model through the application ([note](docs/32-mail-extraction-probe.md)).
+  the text is sent to the model). The interface has a second way in on the first step, "Build a
+  table from e-mails", with its own task, plan and results screens; there is no Gmail button.
+  Its browser test uses a stand-in for the model; it has not been run with a real model through
+  the interface ([note](docs/32-mail-extraction-probe.md#in-the-application-the-interface)).
 
 Details: [provider settings](docs/25-provider-settings.md).
 

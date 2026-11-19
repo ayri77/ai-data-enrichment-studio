@@ -66,6 +66,7 @@
   alone was longer than the limit. The cut now takes a line or word boundary only in the last
   fifth of the allowance. The first run of real mail through the application is recorded in
   [the note](docs/32-mail-extraction-probe.md).
+- The interface can build a table from e-mails and fill columns from them, on a local installation only (the entry appears when `limits.mail` is true, the extraction when `limits.text_extraction` is true; on the hosted demo neither). The first step gets "Build a table from e-mails": `.eml` files are packed in the browser into one stored zip under neutral names and posted to `POST /api/mail-datasets`, then counts and the table are shown. A table of mails has an editor (question, columns with kind and options) instead of the planner, builds a plan through `POST /api/extraction-plans`, and runs and shows results with "read in the text" / "worked out from the text" marks, quotes, and a mail that is not about the task as its own outcome. No backend change. Tested offline with a stand-in for the model; not run with a real model. See [the note](docs/32-mail-extraction-probe.md#in-the-application-the-interface).
 
 ## 0.4.0 — beta (2026-11-18)
 
