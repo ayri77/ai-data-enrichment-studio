@@ -3,7 +3,7 @@
 The application fills columns of the rows that are in a table. This note describes the core of
 the second kind of task: adding new rows to a table from a source. The core is in
 `src/ai_data_enrichment/rows/`. It uses no model and no network. Four routes make it reachable
-(see "The routes"); there is no interface yet.
+(see "The routes") and the three steps of the interface use them (see "In the application").
 
 ## What the core does
 
@@ -145,11 +145,77 @@ sheet, 100 columns, 100,000 cells in the range): the core takes `max_last_row` a
 that still passes those limits. A finished run is counted as one usage event, `rows_append`,
 with numbers only (`in_source`, `added`, `written`, `duplicates`).
 
+## In the application
+
+The interface offers this task only where the server lists a source as `available` (a local
+installation with `ENRICHMENT_ALLOW_MAIL=1`). Elsewhere, the hosted demo included, the first step
+has no new heading and no new control, and the page asks `GET /api/row-sources` once and nothing
+else. The code is in `frontend/src/rowsModel.ts` (the task and the numbers as plain functions),
+`useRows.ts` (the state, kept inside the workflow) and `components/RowsTask.tsx`, `RowsPlan.tsx`
+and `RowsResults.tsx`.
+
+**Dataset.** The task has two optional parts, not two modes. *Rows* has "Fill the rows that are in
+the table" (on by default; the number of rows of a run belongs under it) and "Add new rows from a
+source" (off). *Columns* shows what it always showed while the first is on, and one line ("No
+column is filled in this task.") otherwise. With both on the plan cannot be built yet and the page
+says to add the rows first and then continue with the result. With only the second on the task
+text is optional and is not read. The source block holds the source (a select filled from the
+route), the files, the fields the source gives, and the conditions of "take only"
+(a field, an operator of its kind and a value of the right type). The files are packed in the
+browser exactly as the e-mail entrance packs them (neutral names, no file name is sent) and read by
+the server into candidates; choosing again replaces the set and forgets the old one with the
+DELETE route. A new workbook, or removing it, resets the task and forgets the candidates.
+
+**Plan.** "Build Plan" asks the preview route with no mapping and no key, so the server proposes
+both, and opens the plan. The first card shows the source, the conditions in words, the mapping
+(a select of the table's columns for each field, or "not written"; a mark "proposed" where the
+server chose), the duplicate key (a checkbox per mapped field) and what to do with a duplicate.
+Every change asks the preview again with the explicit mapping and key and shows the new counts; an
+answer that a later change has overtaken is ignored. The counts are one sentence (of N in the
+source, X already in the table, Y will be added) and, only when not zero, the rows left out by the
+conditions, without a key and twice in the source. A refused plan shows an alert in the card with
+the text of its code and the numbers it carries, and the run is off; so it is when nothing would
+be written. When the table has rows, something is left after the conditions and not one row
+matches, a notice (not an error) says to check how the dates are written. The second card says no
+column is filled; the third says how the run will be checked. "Approve and run" sends exactly the
+plan shown.
+
+**Results.** Three tiles (in the source, rows added, duplicates skipped, or "added and marked" with
+that setting), and more only when their number is not zero. A banner "The check holds" writes the
+sum out from the parts shown (for example "7 added + 3 duplicates = 10 in the source"); when the
+server says it does not hold, an error banner stands there instead. The banner also says how many
+rows the table had and that none has changed: the interface compares, cell by cell, the rows it read
+from the table before the run with the same rows of the new table (the values as the preview route
+shows them, in the table's columns); a difference turns the banner into an error, and the line is
+left out when the two cannot be compared. Right after the run the interface asks the preview route
+about the **new** table with the same plan and says what a second run on the same files would add (0
+is the good answer; with "add it and mark it" duplicates are added again by design). The last rows
+of the new table are read with the ordinary preview route and the written ones are marked. "Download
+workbook" saves the new table under the name the client knows plus `-rows-added`; "Continue with
+this table" makes it the table of the first step with a fresh task. Execution and Review are not
+steps of this task and are marked unavailable.
+
+**The download route.** `GET /api/datasets/{dataset_id}/workbook` serves the stored workbook as an
+`.xlsx` attachment under the fixed name `workbook.xlsx` (the client names the file it saves) and is
+counted as the usage event `download`, with no details. 404 `dataset_not_found`. A table built from
+e-mails is refused with 403 `mail_dataset_no_download`: its text column holds mail text, and such a
+table leaves the application only through an export that empties it. The access code covers the
+route like every route under `/api/`.
+
+**What stays on this computer.** The files are read by the application on the machine it runs on;
+no model is asked and nothing is sent to a service. The candidates (date, sender and subject of each
+mail, never its text) live in memory only. The workbook that is downloaded holds only what the
+person's own table held and the new rows' Received, From and Subject, as the application writes
+them for a table of mails.
+
 ## What does not exist yet
 
-- No interface: the routes are not used by the application's screens.
-- No saved recipe: a plan is not stored.
-- One source only, e-mail files.
+- No saved recipe: a plan is not stored, and the screens have no "Save recipe".
+- Rows and columns cannot be combined in one run: the person adds the rows, then continues with
+  the result and fills columns there.
+- No list of the skipped duplicates; only their number is shown.
+- One source only, e-mail files; "found by a description" is a disabled choice.
+- The task text is not read for rows: the source and the conditions are set in the panel.
 - The mail text is not kept in the new rows.
 - Ranges of conditional formatting and data validation and formulas in neighbouring columns are
   not extended to the new rows. Only an Excel table or an auto filter that spans the table is.

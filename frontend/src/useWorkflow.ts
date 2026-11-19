@@ -36,6 +36,7 @@ import {
     type ExtractionColumnDraft,
 } from "./mailModel";
 import { DEMO_LIMITS, type Limits } from "./useLimits";
+import { useRows } from "./useRows";
 import { validMappings, type OutputTarget } from "./workflowModel";
 import { defaultRunCount, runRows } from "./tableModel";
 import {
@@ -73,7 +74,10 @@ export type Operation =
     | "suggest"
     | "ideas"
     | "cancel"
-    | "download";
+    | "download"
+    | "rowsFiles"
+    | "rowsPlan"
+    | "rowsRun";
 /** What the planner answered when the search plan took its place. */
 export interface PlannerAnswer {
     draft: PlanDraft;
@@ -255,6 +259,17 @@ export function useWorkflow(
     const generation = useRef(0);
     const active = !!job && !isTerminal(job.status);
     const locked = busy || active || sourceBusy;
+    // The second kind of task, adding new rows from a source, with its own
+    // plan and result; it waits and fails through this workflow.
+    const rows = useRows({
+        preview,
+        tableKey: options.tableKey ?? sourceKey,
+        filename,
+        action,
+        fail: setError,
+        navigate: setWorkspace,
+        mounted,
+    });
     useEffect(() => {
         mounted.current = true;
         void refreshProvider();
@@ -360,6 +375,7 @@ export function useWorkflow(
         setSuggestions({});
         setError("");
         setPollError("");
+        rows.resetPlan();
     }
     function edit(change: () => void) {
         if (locked) return;
@@ -434,6 +450,12 @@ export function useWorkflow(
         consent &&
         problems.length === 0 &&
         !locked;
+    /** The plan of new rows; the plan and the run of the other task are left behind. */
+    async function createRows() {
+        if (!rows.canBuild) return;
+        invalidate();
+        await rows.build();
+    }
     // Insurance for a demo: the example's prepared plan needs no AI request.
     async function loadPreparedPlan() {
         if (!sample?.has_plan || locked) return;
@@ -1024,6 +1046,8 @@ export function useWorkflow(
         canRun,
         action,
         create,
+        rows,
+        createRows,
         createFallback,
         createMixed,
         searchColumnsInstead,

@@ -204,6 +204,32 @@ export function useDataset(
             setBusy(null);
         }
     }
+    // A table the application made itself (the one with new rows) becomes the
+    // current one: read like any other, as if its workbook had been uploaded.
+    async function adopt(next: Dataset) {
+        if (pending.current) return;
+        pending.current = true;
+        setBusy("preview");
+        setError("");
+        try {
+            const name = next.worksheets[0]?.name ?? "";
+            const selection = fullRange(next, name);
+            const old = dataset;
+            setSample(null);
+            setMail(null);
+            setDataset(next);
+            setSheet(name);
+            setRange(selection);
+            setPreview(null);
+            if (old) void api.remove(old.dataset_id);
+            if (name && selection) await show(next, name, selection);
+        } catch (err) {
+            setError(errorCode(err));
+        } finally {
+            pending.current = false;
+            setBusy(null);
+        }
+    }
     function editRange(value: string) {
         setRange(value);
         clearPreview();
@@ -232,6 +258,7 @@ export function useDataset(
         loadSample,
         upload,
         importMail,
+        adopt,
         selectSheet,
         editRange,
         loadPreview,
