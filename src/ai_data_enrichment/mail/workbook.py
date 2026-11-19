@@ -58,9 +58,30 @@ def _received(message: MailMessage) -> datetime | None:
     return moment if moment >= _EARLIEST else None
 
 
+def cell_text(value: str) -> str:
+    """The text as a cell can hold it: illegal characters removed, cut to ``MAX_CELL_CHARS``."""
+    return ILLEGAL_CHARACTERS_RE.sub("", value)[:MAX_CELL_CHARS]
+
+
+def mail_cells(
+    ordered: Sequence[MailMessage], message: MailMessage, mask: bool
+) -> tuple[datetime | None, str, str]:
+    """The Received, From and Subject values of a message, as the workbook holds them.
+
+    ``ordered`` is the list the message belongs to (it decides which address is the
+    mailbox owner's). The text is masked when ``mask`` is set and cleaned for a cell.
+    """
+    subject, sender = " ".join(message.subject.split()), sender_label(message)
+    if mask:
+        own = own_addresses(ordered, message)
+        subject = mask_text(subject, own_addresses=own)[0]
+        sender = mask_text(sender, own_addresses=own)[0]
+    return _received(message), cell_text(sender), cell_text(subject)
+
+
 def _write_text(sheet: Worksheet, row: int, column: int, value: str) -> None:
     """A string cell: text that starts with = + - @ stays text and is never a formula."""
-    text = ILLEGAL_CHARACTERS_RE.sub("", value)[:MAX_CELL_CHARS]
+    text = cell_text(value)
     if not text:
         return
     sheet.cell(row=row, column=column, value=text).data_type = "s"
@@ -84,12 +105,7 @@ def write_mail_workbook(
         document, counts = prepare(ordered, message, mask)
         for kind in KINDS:
             masked[kind] += counts[kind]
-        subject, sender = " ".join(message.subject.split()), sender_label(message)
-        if mask:
-            own = own_addresses(ordered, message)
-            subject = mask_text(subject, own_addresses=own)[0]
-            sender = mask_text(sender, own_addresses=own)[0]
-        moment = _received(message)
+        moment, sender, subject = mail_cells(ordered, message, mask)
         if moment is not None:
             sheet.cell(row=row, column=1, value=moment).number_format = RECEIVED_FORMAT
         _write_text(sheet, row, 2, sender)

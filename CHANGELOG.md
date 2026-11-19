@@ -88,6 +88,11 @@
   `rows.json`). The first runs of three local models are recorded in
   [the note](docs/32-mail-extraction-probe.md#local-model-probe-first-runs-2026-11-19). No truth
   table has been made yet.
+- The core of a second kind of task, adding new rows to a table from a source, exists in `rows/`:
+  a registry of sources (e-mail files first), conditions, a proposed mapping of fields to
+  columns, a duplicate key, and an append to a copy of the workbook with counts that add up. It is
+  not reachable from the application yet: no route, no interface. See
+  [rows from a source](docs/33-rows-from-a-source.md).
 
 ## 0.4.0 — beta (2026-11-18)
 
