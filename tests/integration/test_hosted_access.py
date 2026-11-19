@@ -488,6 +488,26 @@ def test_the_local_launcher_keeps_every_setting_of_the_environment(
         assert client.get("/api/limits").json()["web_lookup"] is False
 
 
+def test_the_local_launcher_passes_the_mail_setting_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ai_data_enrichment import local_server
+
+    started: dict = {}
+    monkeypatch.setattr(local_server.uvicorn, "run", lambda app, **options: started.update(app=app))
+    monkeypatch.setattr("sys.argv", ["local_server"])
+    monkeypatch.delenv("ENRICHMENT_ADMIN_CODE", raising=False)
+    monkeypatch.setenv("ENRICHMENT_ALLOW_MAIL", "1")
+    local_server.main()
+    assert started["app"].state.plan_run.settings.allow_mail is True
+    with TestClient(started["app"]) as client:
+        assert client.get("/api/limits").json()["mail"] is True
+
+    monkeypatch.delenv("ENRICHMENT_ALLOW_MAIL")
+    local_server.main()
+    assert started["app"].state.plan_run.settings.allow_mail is False
+    with TestClient(started["app"]) as client:
+        assert client.get("/api/limits").json()["mail"] is False
+
+
 def _launcher(monkeypatch: pytest.MonkeyPatch):
     from ai_data_enrichment import local_server
 

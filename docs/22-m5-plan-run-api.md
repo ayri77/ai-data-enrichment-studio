@@ -75,6 +75,7 @@ provide the dataset ID and actual worksheet/range; the range includes headers.
 | Action | Route | Behavior |
 | --- | --- | --- |
 | What a plan may use | `GET /api/capabilities` | Every capability registered on this installation, in the order the planner is shown them: its contract (`id`, `version`, `description`, `inputs`, `parameters`, `output`), `source` — the id of the source its values come from, or `local` for a calculation — and `trust`, the kind of trust behind its values as a lowercase word: `computed` (calculated here), `record` (read from an identified record of the source), `resolved_name` (a name matched to a record of the source) or `service` (calculated by an outside service, with no record to check it against). and `category`, what a person wants to do with it (`lookup`, `distance`, `calculate`; declared with the binding). The response also has `categories`: the declared order of categories, restricted to those with at least one capability offered here (`distance` stays without a routing key because of the straight-line distance; `web_search` is never listed, since the web search is not offered to a plan). `source`, `trust` and `category` are not part of the contract the planner is shown; a client must show an entry without `category` (an older server) in one group, and treat a category it has no wording for as its id made readable; a client must treat a `trust` it does not know as "unknown kind". `GET /api/limits` carries the same ids with the bounds of one run |
+| A table from e-mails | `POST /api/mail-datasets?filename=…` | 201; the raw body is one `.zip` of `.eml` files or one `.eml`; the answer is that of an upload plus `mail` (counts). 403 `mail_not_allowed` unless the server sets `ENRICHMENT_ALLOW_MAIL=1` **and** is the local launcher; never on the hosted app. Details and errors: [the mail note](32-mail-extraction-probe.md), "In the application" |
 | Task ideas from the model | `POST /api/task-ideas` | 200; up to three tasks that could be asked for with the selected table, in the language asked for; plans and writes nothing |
 | Create draft | `POST /api/plans` | 201; generate with `LLMPlanner`, or validate a supplied `plan` |
 | Create a universal-search draft | `POST /api/fallback-plans` | 201, the same draft as above with `"kind": "fallback"`; with `plan_id` (a planner draft that left columns unfilled) a draft with `"kind": "mixed"`; off unless the server switches it on (see "The universal search" and "A mixed plan" below) |
@@ -773,6 +774,20 @@ and never invents values for failed operations. Existing nonempty output cells a
 skipped and listed in `preserved_cells`; other empty destinations can still fill.
 Workbook-specific target checks happen again before any provider executes.
 Other CLI/library callers retain the runner's default strict collision behavior.
+
+### A table from e-mails
+
+`ENRICHMENT_ALLOW_MAIL=1` (any other value is off) makes `POST /api/mail-datasets` available
+on a local installation; `GET /api/limits` gains the boolean `mail`, true only then. The
+dataset it creates is an ordinary one (one sheet, `Mail`, columns `Received`, `From`,
+`Subject`, `Text`), but the planner never sees it: `POST /api/plans`, `POST /api/task-ideas`
+and `POST /api/fallback-plans` answer `mail_dataset_no_planner` (409) for it, before any model
+gate or call. Error codes of the route: `mail_not_allowed` (403), `invalid_mail_file_type` (422),
+`mail_upload_too_large` (413, over 32 MiB), `invalid_mail_archive` (422),
+`mail_too_many` (422, over 500 `.eml` files), `mail_entry_too_large` (413, over 10 MiB a
+mail), `mail_total_too_large` (413, over 64 MiB in all) and `no_mail_found` (422). The
+preview of such a dataset also carries `"mail": true`. See
+[the mail note](32-mail-extraction-probe.md).
 
 ## Bounds, cancellation, retention and limitations
 

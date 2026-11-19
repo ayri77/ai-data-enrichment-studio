@@ -40,7 +40,7 @@ import re
 import subprocess
 import sys
 from collections import Counter
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
 from time import perf_counter
@@ -63,8 +63,9 @@ from scripts.experiment_web_lookup import (
 
 from ai_data_enrichment.mail import gmail
 from ai_data_enrichment.mail.cleaning import DEFAULT_MAX_CHARS
+from ai_data_enrichment.mail.documents import message_document as message_document
+from ai_data_enrichment.mail.documents import prepare
 from ai_data_enrichment.mail.masking import KINDS as MASK_KINDS
-from ai_data_enrichment.mail.masking import mask_text
 from ai_data_enrichment.mail.messages import MailMessage, read_eml_folder_report, sort_messages
 from ai_data_enrichment.providers.text_extraction import (
     DEFAULT_EFFORT,
@@ -115,42 +116,6 @@ def parse_target(spec: str) -> ExtractionColumn:
         return ExtractionColumn(header, kind)
     except ValueError as exc:
         raise ValueError(f"--target {spec!r}: {exc}") from exc
-
-
-# --- What is sent --------------------------------------------------------------------
-
-
-def message_document(message: MailMessage) -> str:
-    """The text of one message as the model reads it: subject, sender, date, then the body."""
-    sender = message.sender_name or ""
-    if message.sender_address:
-        sender = f"{sender} <{message.sender_address}>".strip()
-    head = [f"Subject: {' '.join(message.subject.split())}", f"From: {sender}"]
-    if message.received is not None:
-        head.append(f"Date: {message.received.date().isoformat()}")
-    return "\n".join(head) + "\n\n" + message.text
-
-
-def own_addresses(
-    messages: Sequence[MailMessage], message: MailMessage, known: Collection[str] = ()
-) -> set[str]:
-    """The mailbox owner's addresses: this message's recipient, the commonest one, and the
-    address the mailbox itself reports (Gmail)."""
-    counts = Counter(m.recipient_address for m in messages if m.recipient_address)
-    common = {address for address, _ in counts.most_common(1)}
-    return {a for a in (message.recipient_address, *common, *known) if a}
-
-
-def prepare(
-    messages: Sequence[MailMessage],
-    message: MailMessage,
-    mask: bool,
-    known: Collection[str] = (),
-) -> tuple[str, dict[str, int]]:
-    document = message_document(message)
-    if not mask:
-        return document, dict.fromkeys(MASK_KINDS, 0)
-    return mask_text(document, own_addresses=own_addresses(messages, message, known))
 
 
 # --- Output files --------------------------------------------------------------------
