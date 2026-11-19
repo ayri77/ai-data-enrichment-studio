@@ -403,6 +403,10 @@ def execute_workbook(
         if sha256(task.source_path.read_bytes()).hexdigest() != task.source_sha256:
             raise ValueError("Source changed")
         capabilities = frozenset(step.capability for step in task.plan.steps)
+        # No route hands this worker a plan that reads texts yet, and it must not be taken
+        # for one of the web lookup's.
+        if plan_shape(task.plan) == "extraction":
+            raise ValueError("A plan that reads texts is not run by this worker yet.")
         # A plan with the web lookup runs with the lookup's own registry and options, and
         # only then; no other plan may, and a plan with the lookup may not run without them.
         if (plan_shape(task.plan) != "planner") != (lookup is not None):

@@ -179,6 +179,7 @@
     "error.web_lookup_disabled": "Die universelle Suche ist auf diesem Server nicht aktiviert. Sie kostet pro Zeile Modell-Tokens und eine Suchgebühr und wird deshalb bewusst von der Person eingeschaltet, die den Server betreibt.",
     "error.web_lookup_no_key": "Die universelle Suche braucht einen OpenAI-API-Schlüssel auf dem Server. In den Anbieter- / Modelleinstellungen hinzufügen.",
     "error.web_lookup_plan_refused": "Ein Plan mit Websuche kann nur die universelle Suche erstellen, nicht der Planer und auch kein eingefügter Plan.",
+    "error.extraction_plan_refused": "Ein Plan, der Werte aus Texten liest, kann noch nicht erstellt, geprüft oder ausgeführt werden.",
     "error.fallback_plan_invalid": "Die Anfrage der universellen Suche ist nicht verwendbar. Frage, Spalten zur Zeilenidentifikation und zu füllende Spalten prüfen.",
     "error.mixed_base_not_planner": "Nur ein vom Planer erstellter Plan kann mit der universellen Suche ergänzt werden.",
     "error.mixed_nothing_unfilled": "Dieser Plan füllt alle gewählten Spalten, es gibt also nichts zu suchen.",

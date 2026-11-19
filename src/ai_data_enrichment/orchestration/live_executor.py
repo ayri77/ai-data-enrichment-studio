@@ -8,6 +8,7 @@ from typing import Literal, cast
 
 from ai_data_enrichment.capabilities.bindings import (
     BINDINGS,
+    EXTRACTION_BINDINGS,
     FALLBACK_BINDINGS,
     name_resolvers,
 )
@@ -36,6 +37,15 @@ from ai_data_enrichment.providers.request_policy import (
     ProviderRequestSession,
 )
 from ai_data_enrichment.providers.retry_transport import TransportRetryPolicy
+from ai_data_enrichment.providers.text_extraction import (
+    EXTRACTION_CAPABILITY,
+    ExtractionClient,
+    ExtractionUsage,
+)
+from ai_data_enrichment.providers.text_extraction_handler import (
+    DEFAULT_TIMEOUT_SECONDS as DEFAULT_EXTRACTION_TIMEOUT_SECONDS,
+)
+from ai_data_enrichment.providers.text_extraction_handler import TextExtractionHandler
 from ai_data_enrichment.providers.web_lookup import (
     LOOKUP_CAPABILITY,
     WebLookupClient,
@@ -93,9 +103,38 @@ class WebLookupOptions:
             raise ValueError("The web lookup timeout must be positive.")
 
 
+@dataclass(frozen=True)
+class ExtractionOptions:
+    """What the ``text_extraction`` capability needs to run: the API object and how to use it.
+
+    Passed to ``build_live_executor`` only by a caller that runs a plan the server built
+    for the extraction. ``api`` is any object with ``responses.create(**kwargs)``; ``usage``
+    receives one count per request actually made.
+    """
+
+    api: ExtractionClient
+    model: str
+    reasoning_effort: str | None
+    usage: ExtractionUsage
+    timeout_seconds: float = DEFAULT_EXTRACTION_TIMEOUT_SECONDS
+    # A point on ``clock`` after which no further request is started.
+    deadline: float | None = None
+    clock: Callable[[], float] = time.monotonic
+
+    def __post_init__(self) -> None:
+        if not self.model.strip():
+            raise ValueError("The text extraction model must not be blank.")
+        if not self.timeout_seconds > 0:
+            raise ValueError("The text extraction timeout must be positive.")
+
+
 # The source and the job-wide operation budget of the fallback: not in BINDINGS.
 _LOOKUP_BINDING = next(
     item for item in FALLBACK_BINDINGS if item.capability_id == LOOKUP_CAPABILITY
+)
+# The same for the text extraction.
+_EXTRACTION_BINDING = next(
+    item for item in EXTRACTION_BINDINGS if item.capability_id == EXTRACTION_CAPABILITY
 )
 
 
@@ -113,6 +152,7 @@ def build_live_executor(
     reuse_seconds: float = RESULT_REUSE_SECONDS,
     routing_key: str | None = None,
     web_lookup: WebLookupOptions | None = None,
+    text_extraction: ExtractionOptions | None = None,
 ) -> JobExecutor:
     """Bind the registered capabilities to explicitly approved providers.
 
@@ -135,6 +175,12 @@ def build_live_executor(
     value cache, like a value read from a source, and a later job takes them over before
     the budget or the API is touched; failures are never kept. Without such a registry
     ``web_lookup`` is ignored.
+
+    A registry that holds ``text_extraction`` (the one built for an extraction plan) is
+    treated the same way with ``text_extraction``: refused at assembly without it, bound under
+    the source of ``EXTRACTION_BINDINGS``, one operation per row at most, kept like the web
+    lookup's answers (a text that is not about the task is a failed step and is never kept).
+    That registry holds the one capability, so only its handler is bound.
     """
 
     selections = dict(resume_selections or {})
@@ -167,6 +213,19 @@ def build_live_executor(
     if with_lookup and request_policies and lookup_source in request_policies:
         raise ValueError("The request limit of the web lookup is set by the assembly.")
 
+    with_extraction = registry.get(EXTRACTION_CAPABILITY) is not None
+    if with_extraction and text_extraction is None:
+        raise ValueError(
+            "A plan with text_extraction needs the text extraction options to be executed."
+        )
+    if with_extraction and len(registry.list_all()) != 1:
+        # There is no mixed plan with the extraction: a step of another capability would
+        # find no handler and fail row by row.
+        raise ValueError("A registry with text_extraction must hold no other capability.")
+    extraction_source = _EXTRACTION_BINDING.source_id
+    if with_extraction and request_policies and extraction_source in request_policies:
+        raise ValueError("The request limit of the text extraction is set by the assembly.")
+
     routing_configuration = "openrouteservice-driving-car-v1"
     with_ratio = registry.get("ratio") is not None
     with_roads = registry.get("road_distance") is not None
@@ -187,6 +246,11 @@ def build_live_executor(
         # job-scoped memo did not answer, so a job cannot start more than max_rows.
         # The lookup makes no transport attempts; the request limit only mirrors it.
         policies[lookup_source] = ProviderRequestPolicy(
+            max_requests_per_job=max_rows, max_operations_per_job=max_rows
+        )
+    if with_extraction:
+        # The same budget for the text extraction: one request per row at most.
+        policies[extraction_source] = ProviderRequestPolicy(
             max_requests_per_job=max_rows, max_operations_per_job=max_rows
         )
     session = ProviderRequestSession(policies) if policies else None
@@ -237,12 +301,18 @@ def build_live_executor(
         if isinstance(item, OtherName)
     }
 
-    handlers: dict[str, CapabilityHandler] = {
-        "geocode": OpenMeteoGeocodingHandler(city_transport),
-        "geodesic_distance": GeodesicDistanceHandler(),
-        "resolve_entity": WikidataMountainResolver(mountain_transport),
-        "lookup_property": WikidataElevationHandler(mountain_transport),
-    }
+    # The registry of an extraction plan holds that one capability and no other (there is no
+    # mixed plan with it), so none of the built-in handlers is bound for it.
+    handlers: dict[str, CapabilityHandler] = (
+        {}
+        if with_extraction
+        else {
+            "geocode": OpenMeteoGeocodingHandler(city_transport),
+            "geodesic_distance": GeodesicDistanceHandler(),
+            "resolve_entity": WikidataMountainResolver(mountain_transport),
+            "lookup_property": WikidataElevationHandler(mountain_transport),
+        }
+    )
     if with_ratio:
         handlers["ratio"] = RatioHandler()
     if routing_transport is not None:
@@ -259,6 +329,18 @@ def build_live_executor(
             clock=web_lookup.clock,
             deadline=web_lookup.deadline,
         )
+    extraction_handler: TextExtractionHandler | None = None
+    if with_extraction:
+        assert text_extraction is not None
+        extraction_handler = TextExtractionHandler(
+            text_extraction.api,
+            model=text_extraction.model,
+            reasoning_effort=text_extraction.reasoning_effort,
+            usage=text_extraction.usage,
+            timeout_seconds=text_extraction.timeout_seconds,
+            clock=text_extraction.clock,
+            deadline=text_extraction.deadline,
+        )
     for capability, handler in handlers.items():
         providers.register(
             capability_id=capability,
@@ -268,7 +350,8 @@ def build_live_executor(
     selected = {
         binding.capability_id: binding.source_id
         for binding in BINDINGS
-        if binding.always_bound or registry.get(binding.capability_id) is not None
+        if not with_extraction
+        and (binding.always_bound or registry.get(binding.capability_id) is not None)
     }
     if lookup_handler is not None:
         # Bound under the fallback's own source, outside BINDINGS and LIVE_SOURCES. Being in
@@ -278,6 +361,14 @@ def build_live_executor(
             capability_id=LOOKUP_CAPABILITY, provider_id=lookup_source, handler=lookup_handler
         )
         selected[LOOKUP_CAPABILITY] = lookup_source
+    if extraction_handler is not None:
+        # Bound under its own source, outside BINDINGS and LIVE_SOURCES, as the lookup is.
+        providers.register(
+            capability_id=EXTRACTION_CAPABILITY,
+            provider_id=extraction_source,
+            handler=extraction_handler,
+        )
+        selected[EXTRACTION_CAPABILITY] = extraction_source
 
     return JobExecutor(
         request_session=session,
@@ -296,6 +387,11 @@ def build_live_executor(
             **(
                 {LOOKUP_CAPABILITY: lookup_handler.configuration_id}
                 if lookup_handler is not None
+                else {}
+            ),
+            **(
+                {EXTRACTION_CAPABILITY: extraction_handler.configuration_id}
+                if extraction_handler is not None
                 else {}
             ),
         },
@@ -322,13 +418,24 @@ def build_live_executor(
                     if lookup_handler is not None and _LOOKUP_BINDING.reusable
                     else {}
                 )
+                | (
+                    {(EXTRACTION_CAPABILITY, extraction_source): reuse_seconds}
+                    if extraction_handler is not None and _EXTRACTION_BINDING.reusable
+                    else {}
+                )
                 if reuse
                 else {}
             ),
-            # The search's answer "nothing found" is kept like a found answer.
+            # The search's answer "nothing found" is kept like a found answer; so is the
+            # extraction's (the text is about the task, no value in it can be traced).
             kept_nothing_found=(
                 frozenset({(LOOKUP_CAPABILITY, lookup_source)})
                 if reuse and lookup_handler is not None and _LOOKUP_BINDING.reusable
+                else frozenset()
+            )
+            | (
+                frozenset({(EXTRACTION_CAPABILITY, extraction_source)})
+                if reuse and extraction_handler is not None and _EXTRACTION_BINDING.reusable
                 else frozenset()
             ),
         ),
@@ -340,6 +447,7 @@ def build_live_executor(
             **({"lookup_property": "1.0"} if reuse else {}),
             **({"road_distance": "1.0"} if reuse and with_roads else {}),
             **({LOOKUP_CAPABILITY: "1.0"} if reuse and lookup_handler is not None else {}),
+            **({EXTRACTION_CAPABILITY: "1.0"} if reuse and extraction_handler is not None else {}),
         },
         provider_versions={
             **({"resolve_entity": "wikidata-v1"} if audit_mountains else {}),
@@ -349,6 +457,11 @@ def build_live_executor(
             **(
                 {LOOKUP_CAPABILITY: lookup_handler.configuration_id}
                 if reuse and lookup_handler is not None
+                else {}
+            ),
+            **(
+                {EXTRACTION_CAPABILITY: extraction_handler.configuration_id}
+                if reuse and extraction_handler is not None
                 else {}
             ),
         },

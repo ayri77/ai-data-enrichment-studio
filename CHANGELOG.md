@@ -29,6 +29,15 @@
   temporary workspace. The planner, the task ideas and the AI web search refuse such a table
   (`mail_dataset_no_planner`). No extraction and no interface yet. See
   [the note](docs/32-mail-extraction-probe.md).
+- The capability layer of the extraction from texts (`text_extraction`), by the pattern of the AI
+  web search: a request with the text column and typed target columns (text, number, date,
+  yes/no, a choice), the one-step plan the server builds from it, the registry for that plan, a
+  handler that maps the probe's outcomes onto a step (a text that is not about the task is a failed
+  step and is never kept), and the executor binding. Unit-tested offline with a fake client and
+  one end-to-end run over the invented fixture mails. There is no route, no run worker and no
+  interface yet, the planner is not told about it, and a plan of this kind is refused wherever a
+  plan comes in. `FoundValue.basis` also takes `literal` and `derived`. See
+  [the note](docs/32-mail-extraction-probe.md).
 
 ## 0.4.0 — beta (2026-11-18)
 

@@ -33,12 +33,15 @@ class Trust(StrEnum):
     SERVICE = "service"
     # Found by a model with a web search and not checked against any record.
     AI_FOUND = "ai_found"
+    # Read by a model from a text the row itself carries; code checks that a literal
+    # value stands in that text. Nothing outside the row stands behind it.
+    EXTRACTED = "extracted"
 
 
 # What a person wants to do with a capability, in the order a client lists the
 # groups. The category is declared here with the binding, never on the capability
 # spec: the planner is not shown it. A client keeps its own wording for each id.
-CATEGORIES: tuple[str, ...] = ("lookup", "distance", "calculate", "web_search")
+CATEGORIES: tuple[str, ...] = ("lookup", "distance", "calculate", "web_search", "from_text")
 
 
 def _parameters(*items: dict[str, str]) -> tuple[Mapping[str, str], ...]:
@@ -179,8 +182,29 @@ FALLBACK_BINDINGS: tuple[CapabilityBinding, ...] = (
     ),
 )
 
+# Bound only where a user starts the extraction of values from a text of the row; like the
+# fallback it is not part of ``BINDINGS`` and the planner is never told about it.
+EXTRACTION_BINDINGS: tuple[CapabilityBinding, ...] = (
+    CapabilityBinding(
+        capability_id="text_extraction",
+        source_id="openai_text_extraction",
+        trust=Trust.EXTRACTED,
+        # A successful answer is kept in the plan's own value cache, so that running the
+        # plan again does not ask and pay for the text again. Failures are never kept; a
+        # text that is not about the task is a failure.
+        reusable=True,
+        always_bound=False,
+        category="from_text",
+        # Needs the OpenAI key of the installation; nothing without it.
+        requires_key=True,
+    ),
+)
+
 _BY_ID: Mapping[str, CapabilityBinding] = MappingProxyType(
-    {binding.capability_id: binding for binding in (*BINDINGS, *FALLBACK_BINDINGS)}
+    {
+        binding.capability_id: binding
+        for binding in (*BINDINGS, *FALLBACK_BINDINGS, *EXTRACTION_BINDINGS)
+    }
 )
 
 

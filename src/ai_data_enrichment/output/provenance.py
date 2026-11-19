@@ -44,6 +44,8 @@ TRUST_WORDS: Mapping[str, str] = {
     Trust.RESOLVED_NAME: "a name matched to a record of the source",
     Trust.SERVICE: "calculated by an outside service; there is no record to check it against",
     Trust.AI_FOUND: "found by an AI web search, not verified",
+    Trust.EXTRACTED: "read by an AI model from the text of the row; only that the quoted "
+    "passage is in the text was checked",
 }
 # What a source is called to a reader; an id without a name is shown as it is.
 SOURCE_NAMES: Mapping[str, str] = {
@@ -52,11 +54,14 @@ SOURCE_NAMES: Mapping[str, str] = {
     "wikidata": "Wikidata",
     "openrouteservice": "openrouteservice (OpenStreetMap data)",
     "openai_web_search": "OpenAI web search",
+    "openai_text_extraction": "OpenAI text extraction",
 }
 # How a found value rests on its page, in plain words.
 BASIS_WORDS: Mapping[str, str] = {
     "stated": "stated on the page",
     "concluded": "concluded by the model, not stated on the page",
+    "literal": "stated in the quoted passage",
+    "derived": "derived from the quoted passage, not stated in it as it is",
 }
 
 
@@ -71,8 +76,8 @@ class CellProvenance:
     source: str
     reference: str
     trust: str
-    # Only for a value found by an AI web search: "stated" or "concluded", and
-    # the passage quoted from the page. Empty for every other kind of cell.
+    # Only for a value found by an AI: "stated" or "concluded" (web search), "literal" or
+    # "derived" (read from a text), and the passage quoted. Empty for every other kind of cell.
     basis: str = ""
     quote: str = ""
 
@@ -161,7 +166,12 @@ def sheet_trust(entry: CellProvenance) -> str:
 def sheet_reference(entry: CellProvenance) -> str:
     """The "Reference" cell; a found value's quote follows its links."""
     if entry.quote:
-        return f"{entry.reference} | Quote: {entry.quote}" if entry.reference else entry.quote
+        # A value read from a text has a quote and no link.
+        return (
+            f"{entry.reference} | Quote: {entry.quote}"
+            if entry.reference
+            else f"Quote: {entry.quote}"
+        )
     return entry.reference
 
 
