@@ -7,7 +7,7 @@ from pathlib import Path
 from tempfile import mkstemp
 from zipfile import ZipFile
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.cell.cell import Cell, MergedCell
 from openpyxl.utils.cell import coordinate_to_tuple
 from openpyxl.worksheet.worksheet import Worksheet
@@ -43,6 +43,70 @@ def _checked_empty_target_cell(
     return cell
 
 
+def check_copy_paths(source_path: Path, output_path: Path) -> None:
+    """Refuse paths a copy of a workbook may not be written between."""
+
+    if source_path.suffix.lower() != ".xlsx":
+        raise ValueError("Source must be an .xlsx file")
+
+    if output_path.suffix.lower() != ".xlsx":
+        raise ValueError("Output must be an .xlsx file")
+
+    if source_path.resolve() == output_path.resolve():
+        raise ValueError("Source and output paths must differ")
+
+    if output_path.exists():
+        raise FileExistsError(output_path)
+
+
+def publish_workbook(workbook: Workbook, output_path: Path, sheet_name: str) -> None:
+    """Save the workbook to a new file, never replacing an existing one.
+
+    It is saved to a temporary file in the destination directory, the archive is
+    verified and opened again, and only then is the file linked to ``output_path``.
+    """
+
+    # Create the temporary workbook in the destination directory.
+    # This keeps temporary and final files on the same filesystem.
+    fd, temporary_name = mkstemp(
+        prefix=f".{output_path.stem}-",
+        suffix=".xlsx",
+        dir=output_path.parent,
+    )
+    os.close(fd)
+
+    temporary_path = Path(temporary_name)
+
+    try:
+        workbook.save(temporary_path)
+
+        # Verify that the generated XLSX archive is readable.
+        with ZipFile(temporary_path) as archive:
+            corrupt_member = archive.testzip()
+
+            if corrupt_member is not None:
+                raise ValueError(f"Corrupt XLSX archive member: {corrupt_member}")
+
+        # Verify that openpyxl can open the generated workbook.
+        verified = load_workbook(
+            temporary_path,
+            read_only=True,
+            data_only=False,
+        )
+
+        try:
+            if sheet_name not in verified.sheetnames:
+                raise ValueError("Generated workbook lost the selected worksheet")
+        finally:
+            verified.close()
+
+        # Publish without replacing an existing destination.
+        os.link(temporary_path, output_path)
+
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
 def write_excel_cells(
     source_path: Path,
     output_path: Path,
@@ -65,17 +129,7 @@ def write_excel_cells(
     it was.
     """
 
-    if source_path.suffix.lower() != ".xlsx":
-        raise ValueError("Source must be an .xlsx file")
-
-    if output_path.suffix.lower() != ".xlsx":
-        raise ValueError("Output must be an .xlsx file")
-
-    if source_path.resolve() == output_path.resolve():
-        raise ValueError("Source and output paths must differ")
-
-    if output_path.exists():
-        raise FileExistsError(output_path)
+    check_copy_paths(source_path, output_path)
 
     workbook = load_workbook(
         source_path,
@@ -122,45 +176,7 @@ def write_excel_cells(
             if isinstance(value, str):
                 cell.data_type = "s"
 
-        # Create the temporary workbook in the destination directory.
-        # This keeps temporary and final files on the same filesystem.
-        fd, temporary_name = mkstemp(
-            prefix=f".{output_path.stem}-",
-            suffix=".xlsx",
-            dir=output_path.parent,
-        )
-        os.close(fd)
-
-        temporary_path = Path(temporary_name)
-
-        try:
-            workbook.save(temporary_path)
-
-            # Verify that the generated XLSX archive is readable.
-            with ZipFile(temporary_path) as archive:
-                corrupt_member = archive.testzip()
-
-                if corrupt_member is not None:
-                    raise ValueError(f"Corrupt XLSX archive member: {corrupt_member}")
-
-            # Verify that openpyxl can open the generated workbook.
-            verified = load_workbook(
-                temporary_path,
-                read_only=True,
-                data_only=False,
-            )
-
-            try:
-                if sheet_name not in verified.sheetnames:
-                    raise ValueError("Generated workbook lost the selected worksheet")
-            finally:
-                verified.close()
-
-            # Publish without replacing an existing destination.
-            os.link(temporary_path, output_path)
-
-        finally:
-            temporary_path.unlink(missing_ok=True)
+        publish_workbook(workbook, output_path, sheet_name)
 
     finally:
         workbook.close()
