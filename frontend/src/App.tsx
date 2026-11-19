@@ -23,6 +23,7 @@ import {
 import { Advanced, ModeContext } from "./mode";
 import { initialMode, initialTheme, savePreference } from "./preferences";
 import { isFallbackRun } from "./fallbackModel";
+import { isExtractionRun } from "./mailModel";
 import { useDataset } from "./useDataset";
 import { useLimits } from "./useLimits";
 import { useWorkflow, type Workspace } from "./useWorkflow";
@@ -96,8 +97,10 @@ function Studio({ opening }: { opening: Opening }) {
     if (w.job?.status === "completed" || w.job?.status === "needs_review")
         completed.push("execution");
     // In Basic the review step is offered only when there is something to settle.
+    // A run that reads texts has no names to settle, so Basic never offers a review for it.
     const unavailable: Partial<Record<Workspace, string>> =
-        mode === "basic" && w.job?.status !== "needs_review"
+        mode === "basic" &&
+        (w.job?.status !== "needs_review" || isExtractionRun(w.job, w.plan))
             ? { review: t("ws.reviewUnavailable") }
             : {};
     const stranded = w.workspace in unavailable;
@@ -146,9 +149,12 @@ function Studio({ opening }: { opening: Opening }) {
                                         mode === "basic" && page === "plan"
                                             ? "ws.planHintBasic"
                                             : page === "review" &&
-                                                isFallbackRun(w.job, w.plan)
-                                              ? "fallback.reviewHint"
-                                              : `ws.${page}Hint`,
+                                                isExtractionRun(w.job, w.plan)
+                                              ? "extract.reviewHint"
+                                              : page === "review" &&
+                                                  isFallbackRun(w.job, w.plan)
+                                                ? "fallback.reviewHint"
+                                                : `ws.${page}Hint`,
                                     )}
                                 </p>
                             </div>

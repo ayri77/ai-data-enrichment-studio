@@ -15,6 +15,12 @@ import {
     useOffered,
 } from "../capabilities";
 import { columnGroups, isFallbackRun, isMixedRun } from "../fallbackModel";
+import {
+    MAIL_IDENTITY,
+    extractionCounts,
+    isExtractionRun,
+    mailIdentities,
+} from "../mailModel";
 import { useAdvanced } from "../mode";
 import type { Workflow } from "../useWorkflow";
 import {
@@ -38,6 +44,7 @@ import { columnLabels, unfilledColumns } from "../planModel";
 import { Button } from "./ui/button";
 import { Back, EmptyState, ModeNotice, StartOver } from "./WorkspaceViews";
 import { FallbackBanner, MixedBanner } from "./FallbackSearch";
+import { ExtractionBanner } from "./ExtractionTask";
 
 function SortHeader({
     label,
@@ -109,6 +116,14 @@ function Note({ row, w }: { row: ResultRow; w: Workflow }) {
                 <span className="result-kept" data-testid="result-kept">
                     {t("results.kept")}
                 </span>
+            ) : row.notApplicable ? (
+                <span
+                    className="outcome-not-applicable"
+                    data-testid="row-label"
+                    data-outcome="not-applicable"
+                >
+                    {t("results.notApplicable")}
+                </span>
             ) : (
                 <span
                     className={
@@ -170,48 +185,77 @@ function Note({ row, w }: { row: ResultRow; w: Workflow }) {
                         className="result-cause"
                         data-testid="result-gap"
                     >
-                        {row.lookup && searched.includes(gap.column)
-                            ? t("results.lookupGap", { column: gap.column })
-                            : t("results.cause.no_value", {
-                                  field: t(`plan.field.${gap.field}`, {
-                                      defaultValue: gap.field,
-                                  }),
-                                  subject: gap.subject ?? t("results.thisRow"),
-                              })}
+                        {row.extraction
+                            ? t("results.extract.gap", { column: gap.column })
+                            : row.lookup && searched.includes(gap.column)
+                              ? t("results.lookupGap", { column: gap.column })
+                              : t("results.cause.no_value", {
+                                    field: t(`plan.field.${gap.field}`, {
+                                        defaultValue: gap.field,
+                                    }),
+                                    subject:
+                                        gap.subject ?? t("results.thisRow"),
+                                })}
                     </span>
                 ))}
-            {!row.filled && row.kept.length === 0 && row.cause && (
-                <span className="result-cause">
-                    {t(`results.cause.${row.cause.kind}`, {
-                        subject: row.cause.subject ?? t("results.thisRow"),
-                        code: row.cause.code,
-                    })}
-                    {canSearch && (
-                        <>
-                            {" "}
-                            <button
-                                type="button"
-                                className="inline-link"
-                                onClick={() => w.navigate("review")}
-                            >
-                                {t("results.toSearch")}
-                            </button>
-                        </>
-                    )}
-                    {row.cause.kind === "ambiguous" && canReview && (
-                        <>
-                            {" "}
-                            <button
-                                type="button"
-                                className="inline-link"
-                                onClick={() => w.navigate("review")}
-                            >
-                                {t("results.toReview")}
-                            </button>
-                        </>
-                    )}
+            {row.notApplicable && (
+                <span
+                    className="result-cause"
+                    data-testid="result-not-applicable"
+                >
+                    {t("results.extract.notApplicable")}
                 </span>
             )}
+            {row.extraction &&
+                !row.filled &&
+                row.kept.length === 0 &&
+                row.cause && (
+                    <span
+                        className="result-cause"
+                        data-testid="result-extraction-cause"
+                    >
+                        {row.cause.code === "NOTHING_FOUND"
+                            ? t("results.extract.nothingFound")
+                            : t("results.extract.failed", {
+                                  code: row.cause.code,
+                              })}
+                    </span>
+                )}
+            {!row.extraction &&
+                !row.filled &&
+                row.kept.length === 0 &&
+                row.cause && (
+                    <span className="result-cause">
+                        {t(`results.cause.${row.cause.kind}`, {
+                            subject: row.cause.subject ?? t("results.thisRow"),
+                            code: row.cause.code,
+                        })}
+                        {canSearch && (
+                            <>
+                                {" "}
+                                <button
+                                    type="button"
+                                    className="inline-link"
+                                    onClick={() => w.navigate("review")}
+                                >
+                                    {t("results.toSearch")}
+                                </button>
+                            </>
+                        )}
+                        {row.cause.kind === "ambiguous" && canReview && (
+                            <>
+                                {" "}
+                                <button
+                                    type="button"
+                                    className="inline-link"
+                                    onClick={() => w.navigate("review")}
+                                >
+                                    {t("results.toReview")}
+                                </button>
+                            </>
+                        )}
+                    </span>
+                )}
         </>
     );
 }
@@ -348,8 +392,30 @@ function ResultTable({ w }: { w: Workflow }) {
     const { t, i18n } = useTranslation();
     const locale = i18n.resolvedLanguage ?? "en";
     const plan = w.plan?.plan ?? null;
-    const rows = useMemo(() => resultRows(w.report, plan), [w.report, plan]);
-    const inputs = useMemo(() => inputColumns(w.report), [w.report]);
+    // A run on a table of mails names each row by sender, subject and day,
+    // read from the preview the browser holds; the text is never shown. A row
+    // the preview does not hold keeps its number alone.
+    const identities = useMemo(
+        () =>
+            isExtractionRun(w.job, w.plan)
+                ? mailIdentities(w.preview)
+                : new Map<number, Record<string, string>>(),
+        [w.job, w.plan, w.preview],
+    );
+    const named = identities.size > 0;
+    const rows = useMemo(() => {
+        const made = resultRows(w.report, plan);
+        return named
+            ? made.map((row) => ({
+                  ...row,
+                  inputs: (row.row !== null && identities.get(row.row)) || {},
+              }))
+            : made;
+    }, [w.report, plan, named, identities]);
+    const inputs = useMemo(
+        () => (named ? [] : inputColumns(w.report)),
+        [w.report, named],
+    );
     const outputs = useMemo(() => outputColumns(plan), [plan]);
     const [filter, setFilter] = useState<RowFilter>("all");
     const [sort, setSort] = useState<Sort>({ key: "row", descending: false });
@@ -367,6 +433,7 @@ function ResultTable({ w }: { w: Workflow }) {
             "chosen",
             "automatic",
             "concluded",
+            "notApplicable",
         ] as const
     ).filter(
         (key) =>
@@ -374,6 +441,7 @@ function ResultTable({ w }: { w: Workflow }) {
                 key !== "automatic" &&
                 key !== "skipped" &&
                 key !== "partial" &&
+                key !== "notApplicable" &&
                 key !== "concluded") ||
             filterRows(rows, key).length > 0,
     );
@@ -394,6 +462,8 @@ function ResultTable({ w }: { w: Workflow }) {
     // Chosen columns the plan had no source for: named once, above the table.
     const unfilled = w.plan ? unfilledColumns(w.plan) : [];
     const spend = w.report?.web_lookup;
+    const extraction = isExtractionRun(w.job, w.plan);
+    const extracted = w.job ? extractionCounts(w.job, w.report) : null;
     const onSort = (key: string) =>
         setSort((old) => ({
             key,
@@ -401,7 +471,21 @@ function ResultTable({ w }: { w: Workflow }) {
         }));
     // The per-step detail of a row is an Advanced tool, and so is its column.
     const advanced = useAdvanced();
-    const span = inputs.length + outputs.length + (advanced ? 3 : 2);
+    const span =
+        inputs.length + (named ? 1 : 0) + outputs.length + (advanced ? 3 : 2);
+    const resultCell = (row: (typeof rows)[number]) => (
+        <td className="result-note">
+            <Note row={row} w={w} />
+        </td>
+    );
+    const resultHeader = (
+        <SortHeader
+            label={t("results.result")}
+            sortKey="status"
+            sort={sort}
+            onSort={onSort}
+        />
+    );
     return (
         <>
             {lookup && (
@@ -443,6 +527,21 @@ function ResultTable({ w }: { w: Workflow }) {
                                 })}`}
                         </p>
                     )}
+                </div>
+            )}
+            {extraction && extracted && (
+                <div
+                    className="fallback-summary"
+                    data-testid="extraction-summary"
+                >
+                    <ExtractionBanner done />
+                    <p>
+                        {t("results.extract.summary", {
+                            asked: extracted.total,
+                            found: extracted.found,
+                            notApplicable: extracted.notApplicable,
+                        })}
+                    </p>
                 </div>
             )}
             {unfilled.length > 0 && (
@@ -489,6 +588,15 @@ function ResultTable({ w }: { w: Workflow }) {
                                 sort={sort}
                                 onSort={onSort}
                             />
+                            {named && (
+                                <SortHeader
+                                    label={t("results.email")}
+                                    sortKey="in:Received"
+                                    sort={sort}
+                                    onSort={onSort}
+                                />
+                            )}
+                            {named && resultHeader}
                             {inputs.map((name) => (
                                 <SortHeader
                                     key={name}
@@ -507,12 +615,7 @@ function ResultTable({ w }: { w: Workflow }) {
                                     onSort={onSort}
                                 />
                             ))}
-                            <SortHeader
-                                label={t("results.result")}
-                                sortKey="status"
-                                sort={sort}
-                                onSort={onSort}
-                            />
+                            {!named && resultHeader}
                             {advanced && (
                                 <th>
                                     <span className="sr-only">
@@ -528,6 +631,7 @@ function ResultTable({ w }: { w: Workflow }) {
                                 <tr
                                     data-testid="row-outcome"
                                     data-filled={row.filled}
+                                    data-not-applicable={row.notApplicable}
                                     data-skipped={row.skipped}
                                     data-chosen={row.chosen.length > 0}
                                     data-automatic={row.automatic.length > 0}
@@ -536,6 +640,28 @@ function ResultTable({ w }: { w: Workflow }) {
                                     <td className="mono">
                                         {row.row ?? row.recordId}
                                     </td>
+                                    {named && (
+                                        <td
+                                            className="result-email"
+                                            data-testid="result-email"
+                                        >
+                                            <strong>
+                                                {row.inputs.From ?? "—"}
+                                            </strong>
+                                            <span
+                                                className="result-email-subject"
+                                                title={String(
+                                                    row.inputs.Subject ?? "",
+                                                )}
+                                            >
+                                                {row.inputs.Subject}
+                                            </span>
+                                            <span className="muted">
+                                                {row.inputs.Received}
+                                            </span>
+                                        </td>
+                                    )}
+                                    {named && resultCell(row)}
                                     {inputs.map((name) => (
                                         <td key={name}>
                                             {formatValue(
@@ -576,11 +702,14 @@ function ResultTable({ w }: { w: Workflow }) {
                                                 </td>
                                             );
                                         const basis = row.found[column.key];
+                                        const read = row.extracted[column.key];
                                         return (
                                             <td
                                                 key={column.key}
                                                 className="result-value"
-                                                data-basis={basis?.basis}
+                                                data-basis={
+                                                    basis?.basis ?? read?.basis
+                                                }
                                                 title={
                                                     value === undefined
                                                         ? undefined
@@ -593,6 +722,35 @@ function ResultTable({ w }: { w: Workflow }) {
                                                     column.unit,
                                                     column.digits,
                                                 )}
+                                                {read &&
+                                                    value !== undefined && (
+                                                        <>
+                                                            <span
+                                                                className="basis-mark"
+                                                                data-testid="basis-mark"
+                                                            >
+                                                                {t(
+                                                                    `extract.basis.${read.basis}`,
+                                                                )}
+                                                            </span>
+                                                            {read.quote && (
+                                                                <span
+                                                                    className="result-quote"
+                                                                    data-testid="result-quote"
+                                                                    title={t(
+                                                                        "extract.quote",
+                                                                        {
+                                                                            quote: read.quote,
+                                                                        },
+                                                                    )}
+                                                                >
+                                                                    “
+                                                                    {read.quote}
+                                                                    ”
+                                                                </span>
+                                                            )}
+                                                        </>
+                                                    )}
                                                 {basis &&
                                                     value !== undefined && (
                                                         <span
@@ -613,9 +771,7 @@ function ResultTable({ w }: { w: Workflow }) {
                                             </td>
                                         );
                                     })}
-                                    <td className="result-note">
-                                        <Note row={row} w={w} />
-                                    </td>
+                                    {!named && resultCell(row)}
                                     {advanced && (
                                         <td>
                                             {/* No step ran for a row that was not looked up. */}
@@ -681,7 +837,14 @@ export function ExportWorkspace({
 }) {
     const { t } = useTranslation();
     const advanced = useAdvanced();
-    const reviewable = advanced || w.job?.status === "needs_review";
+    const extraction = isExtractionRun(w.job, w.plan);
+    // The text column is emptied in the workbook of a table built from e-mails.
+    const emptied =
+        w.plan?.text_column_emptied === true ||
+        w.report?.text_extraction?.text_column_emptied === true;
+    // A run that reads texts has no names to settle: its review is only for the curious.
+    const reviewable =
+        advanced || (w.job?.status === "needs_review" && !extraction);
     return (
         <div className="stage-layout">
             <section className="workspace-panel panel-scroll summary-content">
@@ -768,14 +931,25 @@ export function ExportWorkspace({
                         </Button>
                     )}
                     <p className="muted">{t("ws.exportDetail")}</p>
+                    {/* The workbook of a table built from e-mails has no mail text in it. */}
+                    {extraction && emptied && (
+                        <p
+                            className="muted"
+                            data-testid="extraction-download-note"
+                        >
+                            {t("extract.download")}
+                        </p>
+                    )}
                     {w.job?.status === "needs_review" && (
                         <p className="notice">
                             {t(
-                                isFallbackRun(w.job, w.plan)
-                                    ? "fallback.unresolved"
-                                    : isMixedRun(w.job, w.plan)
-                                      ? "fallback.mixed.unresolved"
-                                      : "workflow.unresolved",
+                                extraction
+                                    ? "extract.unresolved"
+                                    : isFallbackRun(w.job, w.plan)
+                                      ? "fallback.unresolved"
+                                      : isMixedRun(w.job, w.plan)
+                                        ? "fallback.mixed.unresolved"
+                                        : "workflow.unresolved",
                             )}
                         </p>
                     )}

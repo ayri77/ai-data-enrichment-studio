@@ -10,7 +10,16 @@ export default defineConfig({
         trace: "retain-on-failure",
     },
     projects: [
-        { name: "workflow", testIgnore: /provider-settings\.spec\.ts$/ },
+        {
+            name: "workflow",
+            testIgnore: /(provider-settings|mail)\.spec\.ts$/,
+        },
+        {
+            // The e-mail scenario: its own server, with mail switched on.
+            name: "mail",
+            testMatch: /mail\.spec\.ts$/,
+            use: { baseURL: "http://127.0.0.1:5175" },
+        },
         {
             name: "provider-settings",
             testMatch: /provider-settings\.spec\.ts$/,
@@ -48,6 +57,19 @@ export default defineConfig({
             command: "npm run dev -- --port 5174",
             url: "http://127.0.0.1:5174",
             env: { API_PROXY_TARGET: "http://127.0.0.1:8011" },
+            reuseExistingServer: false,
+        },
+        {
+            command:
+                "uv run --locked uvicorn tests.browser.fixture_server:mail_app --host 127.0.0.1 --port 8012",
+            cwd: "..",
+            url: "http://127.0.0.1:8012/api/health",
+            reuseExistingServer: false,
+        },
+        {
+            command: "npm run dev -- --port 5175",
+            url: "http://127.0.0.1:5175",
+            env: { API_PROXY_TARGET: "http://127.0.0.1:8012" },
             reuseExistingServer: false,
         },
     ],

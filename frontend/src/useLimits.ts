@@ -13,6 +13,10 @@ export interface Limits {
     capabilities: string[];
     /** The universal search can be asked for on this server. */
     webLookup: boolean;
+    /** A table can be built from e-mails here (a local installation, switched on). */
+    mail: boolean;
+    /** Values can be read out of the text of e-mails here (a key, the network gate). */
+    textExtraction: boolean;
 }
 export const DEMO_LIMITS: Limits = {
     maxRows: 20,
@@ -27,6 +31,9 @@ export const DEMO_LIMITS: Limits = {
         "lookup_property",
     ],
     webLookup: false,
+    // Nothing of the e-mail features until the server says so: never on the hosted demo.
+    mail: false,
+    textExtraction: false,
 };
 
 const sameLimits = (a: Limits, b: Limits) =>
@@ -35,6 +42,8 @@ const sameLimits = (a: Limits, b: Limits) =>
     a.maxTableRows === b.maxTableRows &&
     a.maxTableCells === b.maxTableCells &&
     a.webLookup === b.webLookup &&
+    a.mail === b.mail &&
+    a.textExtraction === b.textExtraction &&
     a.capabilities.length === b.capabilities.length &&
     a.capabilities.every((id, i) => id === b.capabilities[i]);
 
@@ -63,6 +72,8 @@ export function useLimits(): { limits: Limits; refresh: () => Promise<void> } {
                     stated.max_table_cells ?? DEMO_LIMITS.maxTableCells,
                 capabilities: stated.capabilities ?? DEMO_LIMITS.capabilities,
                 webLookup: stated.web_lookup === true,
+                mail: stated.mail === true,
+                textExtraction: stated.text_extraction === true,
             };
             setLimits((current) =>
                 sameLimits(current, next) ? current : next,

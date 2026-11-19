@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import { RangeSelection } from "./RangeSelection";
 import { DatasetPreview } from "./DatasetPreview";
 import { DatasetConfiguration } from "./WorkspaceViews";
+import { MailCountsView, MailImport } from "./MailImport";
 import { Button } from "./ui/button";
 import { useAdvanced } from "../mode";
 import type { useDataset } from "../useDataset";
@@ -70,7 +71,7 @@ export function DatasetWorkspace({
                             }}
                         />
                         <span className="upload-glyph">
-                            {d.busy === "upload" ? (
+                            {d.busy === "upload" || d.busy === "mail" ? (
                                 <LoaderCircle className="spin" />
                             ) : d.dataset ? (
                                 <FileSpreadsheet />
@@ -82,16 +83,24 @@ export function DatasetWorkspace({
                             <strong>
                                 {d.busy === "upload"
                                     ? t("inspecting")
-                                    : d.dataset
-                                      ? d.dataset.filename
-                                      : t("dropWorkbook")}
+                                    : d.busy === "mail"
+                                      ? t("activity.mail")
+                                      : d.mail
+                                        ? t("mail.table")
+                                        : d.dataset
+                                          ? d.dataset.filename
+                                          : t("dropWorkbook")}
                             </strong>
                             <span>
-                                {d.dataset
-                                    ? t("worksheets", {
-                                          count: d.dataset.worksheets.length,
+                                {d.mail
+                                    ? t("mail.counts.read", {
+                                          count: d.mail.read,
                                       })
-                                    : t("uploadHint")}
+                                    : d.dataset
+                                      ? t("worksheets", {
+                                            count: d.dataset.worksheets.length,
+                                        })
+                                      : t("uploadHint")}
                             </span>
                         </div>
                         <div className="upload-actions">
@@ -134,6 +143,13 @@ export function DatasetWorkspace({
                             ))}
                         </div>
                     )}
+                    {workflow.mailOffered && (
+                        <MailImport
+                            disabled={!!d.busy || workflowLocked}
+                            onFiles={(files) => void d.importMail(files)}
+                        />
+                    )}
+                    {d.mail && <MailCountsView counts={d.mail} />}
                     <p
                         className="async-status"
                         role="status"
@@ -141,15 +157,17 @@ export function DatasetWorkspace({
                     >
                         {d.busy === "upload"
                             ? t("inspecting")
-                            : d.busy === "preview"
-                              ? t("reading")
-                              : d.preview
-                                ? t("sampleCount", {
-                                      shown: d.preview.profile.sample_records
-                                          .length,
-                                      total: d.preview.profile.row_count,
-                                  })
-                                : ""}
+                            : d.busy === "mail"
+                              ? t("activity.mail")
+                              : d.busy === "preview"
+                                ? t("reading")
+                                : d.preview
+                                  ? t("sampleCount", {
+                                        shown: d.preview.profile.sample_records
+                                            .length,
+                                        total: d.preview.profile.row_count,
+                                    })
+                                  : ""}
                     </p>
                     {d.error && (
                         <div

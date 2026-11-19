@@ -28,6 +28,13 @@ import {
     searchedMapping,
     type FallbackForm,
 } from "./fallbackModel";
+import {
+    blankColumn,
+    buildExtractionRequest,
+    extractionProblems,
+    isMailTable,
+    type ExtractionColumnDraft,
+} from "./mailModel";
 import { DEMO_LIMITS, type Limits } from "./useLimits";
 import { validMappings, type OutputTarget } from "./workflowModel";
 import { defaultRunCount, runRows } from "./tableModel";
@@ -55,6 +62,7 @@ export type Operation =
     | "plan"
     | "fallback"
     | "mixed"
+    | "extraction"
     | "check"
     | "prepared"
     | "validate"
@@ -126,8 +134,18 @@ export function useWorkflow(
             }
         }
     }
-    const { maxRows, maxTimeout, capabilities, webLookup } =
-        options.limits ?? DEMO_LIMITS;
+    const {
+        maxRows,
+        maxTimeout,
+        capabilities,
+        webLookup: webLookupOffered,
+        mail: mailOffered,
+        textExtraction,
+    } = options.limits ?? DEMO_LIMITS;
+    // A table built from e-mails is never planned by the AI and never searched
+    // on the web (the server refuses both): its task is the extraction.
+    const mailTable = isMailTable(preview);
+    const webLookup = webLookupOffered && !mailTable;
     const [workspace, setWorkspace] = useState<Workspace>("dataset");
     const [instruction, setInstruction] = useState("");
     const [mapping, setMapping] = useState<OutputTarget[]>([
@@ -170,6 +188,14 @@ export function useWorkflow(
         setTimeoutEdited(true);
     }
     const [plan, setPlan] = useState<PlanDraft | null>(null);
+    // What to read out of each mail: the columns to fill as they are typed (the
+    // question is the instruction). Kept with the task, so that going to
+    // another step and back does not lose it; another table starts empty.
+    const [extractionColumns, setExtractionColumns] = useState<
+        ExtractionColumnDraft[]
+    >([blankColumn(1)]);
+    // Why the server refused to build the extraction plan, in its own words.
+    const [extractionRefusal, setExtractionRefusal] = useState("");
     // The person's choice to search the web with AI where the system has no
     // source for the task; remembered in this browser. The server's own switch
     // still decides whether it can be used at all.
@@ -259,6 +285,7 @@ export function useWorkflow(
         );
         setSavedPlan("");
         setExistingOutputs("keep");
+        setExtractionColumns([blankColumn(1)]);
     }, [options.tableKey ?? sourceKey]);
     // A table with exactly one empty column most likely wants that column
     // filled: propose it, as long as nothing was chosen yet. The user sees the
@@ -324,6 +351,7 @@ export function useWorkflow(
         setPlan(null);
         setPlanner(null);
         setSearchRefusal(null);
+        setExtractionRefusal("");
         setJob(null);
         setReport(null);
         setReview(null);
@@ -344,7 +372,10 @@ export function useWorkflow(
     const mappingValid =
         !!preview && validMappings(mapping, preview, sheetColumns);
     const searchesWeb = plan?.kind === "fallback" || plan?.kind === "mixed";
-    const leaveTimeout = searchesWeb && !timeoutEdited;
+    // A plan that reads texts is left to the server's own limit too: its rows
+    // are asked one after another.
+    const leaveTimeout =
+        (searchesWeb || plan?.kind === "extraction") && !timeoutEdited;
     // What the field shows is the limit that will apply.
     const timeout = leaveTimeout ? String(maxTimeout) : typedTimeout;
     // Sent with a run; undefined leaves the limit to the server.
@@ -387,7 +418,22 @@ export function useWorkflow(
               ]),
     ];
     const missing = requirements.filter((r) => !r.met).map((r) => r.key);
-    const canBuild = missing.length === 0 && !locked;
+    const canBuild = missing.length === 0 && !locked && !mailTable;
+    // The extraction asks for the same: a table, the rows of the run, the
+    // consent to send the texts, a question and the columns to fill.
+    const problems = extractionProblems(
+        instruction,
+        extractionColumns,
+        preview?.profile.columns.map((column) => column.name),
+    );
+    const canBuildExtraction =
+        mailTable &&
+        textExtraction &&
+        !!preview &&
+        withinBounds &&
+        consent &&
+        problems.length === 0 &&
+        !locked;
     // Insurance for a demo: the example's prepared plan needs no AI request.
     async function loadPreparedPlan() {
         if (!sample?.has_plan || locked) return;
@@ -477,6 +523,46 @@ export function useWorkflow(
                 )
                     setSearchRefusal(refusal);
             }
+        }
+    }
+    /**
+     * Ask the server for the plan that reads the columns out of the text of
+     * each mail. A refusal of the request itself (`extraction_plan_invalid`) is
+     * kept, in the server's words, next to the form; anything else is an error
+     * of the page as for every request.
+     */
+    async function createExtraction() {
+        if (!canBuildExtraction || !preview) return;
+        invalidate();
+        const revision = generation.current;
+        let draft: PlanDraft;
+        try {
+            draft = await api.createExtractionPlan(
+                buildExtractionRequest({
+                    preview,
+                    // The run's rows, not the whole table that is shown.
+                    range: taken?.range,
+                    question: instruction,
+                    columns: extractionColumns,
+                }),
+            );
+        } catch (err) {
+            if (
+                err instanceof WorkspaceApiError &&
+                err.code === "extraction_plan_invalid"
+            ) {
+                if (mounted.current && revision === generation.current)
+                    setExtractionRefusal(err.message);
+                return;
+            }
+            throw err;
+        }
+        if (mounted.current && revision === generation.current) {
+            // Pressing the button is the consent in Basic; it stays given if the
+            // person switches to Advanced, where it is a ticked checkbox.
+            if (options.implicitConsent) setNetwork(true);
+            setPlan(draft);
+            setWorkspace("plan");
         }
     }
     /**
@@ -779,6 +865,7 @@ export function useWorkflow(
     // The AI needs what planning needs: consent, a model and a key.
     const canSuggestTasks =
         !!preview &&
+        !mailTable &&
         consent &&
         !locked &&
         (planningReadiness === "ready" || planningReadiness === "offline");
@@ -883,6 +970,8 @@ export function useWorkflow(
         runLast: taken?.last ?? null,
         timeout,
         setTimeout,
+        /** The table the run was made on, for naming the rows of its results. */
+        preview,
         plan,
         job,
         report,
@@ -895,6 +984,15 @@ export function useWorkflow(
         suggestions,
         suggestNames,
         taskIdeas,
+        mailTable,
+        mailOffered,
+        textExtraction,
+        extractionColumns,
+        setExtractionColumns,
+        extractionProblems: problems,
+        extractionRefusal,
+        canBuildExtraction,
+        createExtraction,
         /** How many columns a proposed task has to fill; 0 for the open question. */
         taskColumns: fillColumns.length > 1 ? fillColumns.length : 0,
         canSuggestTasks,

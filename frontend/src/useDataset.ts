@@ -3,10 +3,12 @@ import {
     api,
     WorkspaceApiError,
     type Dataset,
+    type MailCounts,
     type Preview,
     type Sample,
 } from "./api";
 import { columnLetter, parseRange } from "./range";
+import { packMails } from "./mailModel";
 
 export function useDataset(
     // Basic mode previews a table as soon as it is known; Advanced waits for
@@ -22,14 +24,19 @@ export function useDataset(
     const [sheet, setSheet] = useState("");
     const [range, setRange] = useState("");
     const [preview, setPreview] = useState<Preview | null>(null);
-    const [busy, setBusyKind] = useState<"upload" | "preview" | null>(null);
+    const [busy, setBusyKind] = useState<"upload" | "mail" | "preview" | null>(
+        null,
+    );
     // When the current wait began (browser clock), for the elapsed time shown.
     const [busySince, setBusySince] = useState<number | null>(null);
-    function setBusy(kind: "upload" | "preview" | null) {
+    function setBusy(kind: "upload" | "mail" | "preview" | null) {
         setBusyKind(kind);
         setBusySince((since) => (kind ? (since ?? Date.now()) : null));
     }
     const [error, setError] = useState("");
+    // What the server made of the e-mails the table was built from; null for
+    // every other table.
+    const [mail, setMail] = useState<MailCounts | null>(null);
     const pending = useRef(false);
     // Examples offered when there is no workbook yet, and the one in use (if any).
     const [samples, setSamples] = useState<Sample[]>([]);
@@ -109,6 +116,7 @@ export function useDataset(
             const next = await api.upload(file);
             if (dataset) void api.remove(dataset.dataset_id);
             setSample(null);
+            setMail(null);
             setDataset(next);
             const name = next.worksheets[0]?.name ?? "";
             selectSheet(name, next);
@@ -156,6 +164,34 @@ export function useDataset(
             const name = next.worksheets[0]?.name ?? "";
             const selection = fullRange(next, name);
             setSample(chosen);
+            setMail(null);
+            setDataset(next);
+            setSheet(name);
+            setRange(selection);
+            setPreview(null);
+            await show(next, name, selection);
+        } catch (err) {
+            setError(errorCode(err));
+        } finally {
+            pending.current = false;
+            setBusy(null);
+        }
+    }
+    // The chosen e-mail files are packed here (their names are not sent) and
+    // become an ordinary table; its preview is shown at once in either mode.
+    async function importMail(files: File[]) {
+        if (!files.length || pending.current) return;
+        setError("");
+        pending.current = true;
+        setBusy("mail");
+        try {
+            const body = await packMails(files);
+            const next = await api.uploadMail(body);
+            if (dataset) void api.remove(dataset.dataset_id);
+            const name = next.worksheets[0]?.name ?? "";
+            const selection = fullRange(next, name);
+            setSample(null);
+            setMail(next.mail);
             setDataset(next);
             setSheet(name);
             setRange(selection);
@@ -176,6 +212,7 @@ export function useDataset(
     function remove() {
         if (dataset) void api.remove(dataset.dataset_id);
         setSample(null);
+        setMail(null);
         setDataset(null);
         setSheet("");
         setRange("");
@@ -191,8 +228,10 @@ export function useDataset(
         error,
         samples,
         sample,
+        mail,
         loadSample,
         upload,
+        importMail,
         selectSheet,
         editRange,
         loadPreview,

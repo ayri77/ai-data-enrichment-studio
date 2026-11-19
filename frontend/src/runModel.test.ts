@@ -464,3 +464,56 @@ it("says plainly that nothing was looked up when every row already had its value
     // No row was looked up, so there is no step to count rows for.
     expect(stepOutcomes(run, audit, plan).size).toBe(0);
 });
+
+// --- A run that reads values out of mails ---
+import {
+    extractionJob,
+    extractionPlan,
+    extractionReport,
+} from "./extractionFixtures";
+
+it("tells a finished extraction run by what became of each mail", () => {
+    const outcome = runOutcome(
+        extractionJob,
+        extractionReport,
+        extractionPlan,
+        null,
+        false,
+        true,
+    );
+    expect(outcome?.key).toBe("extractionSome");
+    expect(outcome?.values).toMatchObject({ found: 2, total: 5 });
+    expect(outcome?.more.map((m) => m.key)).toEqual(
+        expect.arrayContaining(["notApplicable", "nothingFound"]),
+    );
+    const notApplicable = outcome?.more.find((m) => m.key === "notApplicable");
+    expect(notApplicable?.values).toMatchObject({ count: 1 });
+});
+
+it("counts the mail that is not about the task in its own tally", () => {
+    const step = stepOutcomes(
+        extractionJob,
+        extractionReport,
+        extractionPlan,
+    ).get("extract");
+    expect(step?.notApplicable).toBe(1);
+    expect(step?.filled).toBe(2);
+    const live = liveStepOutcomes(extractionJob, extractionPlan).get("extract");
+    expect(live?.notApplicable).toBe(1);
+});
+
+it("leaves the tally of other steps without that field", () => {
+    const live = liveStepOutcomes(
+        {
+            ...job,
+            progress: {
+                rows_done: 4,
+                rows_total: 4,
+                steps: { s1: { filled: 1, failed: 3, skipped: 0 } },
+            },
+        },
+        { ...plan, steps: [{ ...plan.steps[0], id: "s1" }] },
+    ).get("s1");
+    expect(live).toBeDefined();
+    expect(live?.notApplicable).toBeUndefined();
+});

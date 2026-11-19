@@ -449,7 +449,7 @@ are cut to 200 characters by the profiling limits (`ProfilingLimits`), so the pr
 the start of a `Text` cell only; the whole cell is in the stored workbook.
 
 **What does not exist yet:** extracting values from the mails, an interface for any of
-this, Gmail in the application (the probe's Gmail source is still the probe's), and
+this (added later, see "In the application: the interface"), Gmail in the application (the probe's Gmail source is still the probe's), and
 attachments.
 
 **Not verified:** nothing was run on real mail in the application; the fixtures are the
@@ -515,7 +515,7 @@ from the result workbook of a mail table. Quotes stay in the report and the work
 design. Contract and errors: [the plan/run API](22-m5-plan-run-api.md), "Values read out of mail
 texts".
 
-**What does not exist.** No interface. A plan of this shape that is supplied or returned by the
+**What does not exist.** No interface (see "In the application: the interface" below for the one added later). A plan of this shape that is supplied or returned by the
 planner, or mixed with other steps, is refused.
 
 **Not verified.** Everything above is tested offline with fake clients and invented mails. Nothing
@@ -695,3 +695,64 @@ with the fix.
 
 **Still not verified.** The values against real payments; a second run of the same plan (kept
 answers); a run that reaches the time limit; more than 40 mails.
+
+## In the application: the interface
+
+What exists: on a local installation with `ENRICHMENT_ALLOW_MAIL=1`, the first step has a second
+way in, "Build a table from e-mails", and a table built that way has its own task step, plan,
+run and results. Everything is gated by the server: the entry appears only when
+`GET /api/limits` says `mail`, and extraction only when it says `text_extraction`. On the hosted
+demo both are false and nothing of this is shown; the other screens are unchanged.
+
+**Choosing the mails.** `.eml` files through a file dialog or by dragging them onto the section,
+or one `.zip`. The browser packs several `.eml` files into one stored (uncompressed) zip in
+memory, with neutral entry names (`0001.eml`, ...) and its own CRC-32, and posts it to
+`POST /api/mail-datasets?filename=mails.zip`; the names of the person's files are never sent. A
+single `.zip` is sent as it is. The server's bounds are checked first, with its error texts: 500
+files, 10 MiB a file, 32 MiB in all. Before the upload the page says that the files are read by
+this application on this computer, that nothing goes to a model at this point, and that card
+tails, phone numbers and the owner's own address are masked while names and postal addresses
+are not. After it: mails read, skipped and cut, and the masks by kind, then the table.
+
+**The task step.** A mail table has no planner, no suggested tasks and no web-search switch.
+There is an editor instead: the question and the columns to fill (a name, a kind of text,
+number, date, yes or no, or one of a list with comma-typed options), with the server's bounds
+checked in the form. One button builds the plan through `POST /api/extraction-plans` with the
+text column `Text`; a refusal (`extraction_plan_invalid`) is shown next to the form in the
+server's words. When the table is there but extraction is not offered, the editor is replaced by
+one sentence about what is missing (the key, or the network switch) and the existing way to set
+the key. The draft survives moving between steps.
+
+**Plan, run, results.** The plan is shown in words: one step, reading values from the text of each
+mail, the columns with their kinds, and that the text of every mail in the run is sent to
+OpenAI. There is no "edit plan", and no time limit is sent (the server's applies). The run needs
+the same network consent and the same control as any other. A table with more rows than the run
+limit says so before the run and names `ENRICHMENT_MAX_RUN_ROWS`. A mail that is "not about the
+task" is its own outcome, not a failure and not something to review. A value is marked "read in
+the text" (`literal`) or "worked out from the text" (`derived`) and shows its quote. Near the
+download the page says that the `Text` column is empty in the downloaded workbook and that the
+notes hold the quotes.
+
+**What does not exist.** No Gmail button (Gmail stays the probe's and the acceptance script's).
+Extraction only for a table built from e-mails, not for any other table. Results are minimal: a
+row is named by its sender, subject and date (taken from the preview the browser holds, with a
+subject cut at 200 characters), followed by the outcome and then the values; a row with several
+empty cells repeats one sentence per cell; there is no filter by sender, and a value the checks
+dropped is not shown anywhere (the report only counts them). In Advanced the list of issue codes
+still shows the raw `NOT_APPLICABLE` code. The text of a mail is shown only in the preview of the
+table, cut at 200 characters, never in Results.
+
+**What was verified.** Offline only: unit tests of the zip writer (read back by an independent
+reader in the test), of the form's checks and of the model that reads the plan and the run;
+workflow tests with the API mocked; and a browser test (`frontend/e2e/mail.spec.ts`) of the whole
+path with the ten invented mails of `samples/probe/mail/` against the real backend, with a
+stand-in for the model made inside the run worker (`mail_app` in `tests/browser/fixture_server.py`,
+on its own port), checking the counts, the table, the plan request, the run, the two "not about
+the task" mails, the quotes and the downloaded workbook (empty `Text`, quotes as notes). A second
+browser test checks that a server with mail off shows no trace of any of it.
+
+**What was not verified.** Nothing in the interface was run with a real model, on real mail or on
+the hosted demo. The wording of the notes and the Ukrainian and German texts were not read by a
+native speaker. Browsers other than the one used by the tests were not tried, and nor was a
+selection of 500 files or of 32 MiB through a real file dialog (the bounds are tested with sizes
+set on the file objects).
