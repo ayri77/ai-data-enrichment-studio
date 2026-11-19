@@ -53,6 +53,8 @@ def server(call: Call) -> Any:
     if call.url.endswith("/api/tags"):
         return TAGS
     assert call.body is not None
+    if "messages" not in call.body:  # loading the model: no question, no answer
+        return {"model": MODEL, "done": True, "done_reason": "load"}
     prompt = call.body["messages"][1]["content"]
     if "Subject: Ihre Rechnung" in prompt:
         return chat_payload(
@@ -111,16 +113,18 @@ def test_full_run_with_a_local_model(
     console = capsys.readouterr().out
 
     assert "OPENAI_API_KEY" not in _no_openai
-    # The version and the model list come first, then one chat request per mail, all local.
+    # The version and the model list come first, then the load of the model, then one chat
+    # request per mail, all local.
     kinds = [(c.method, c.url.rpartition("/api/")[2]) for c in opener.calls]
     assert kinds[:2] == [("GET", "version"), ("GET", "tags")]
-    assert kinds[2:] == [("POST", "chat")] * 10
+    assert kinds[2:] == [("POST", "chat")] * 11
+    assert "messages" not in (opener.calls[2].body or {})
     assert {c.url.partition("/api/")[0] for c in opener.calls} == {"http://127.0.0.1:11434"}
-    first = opener.calls[2].body
+    first = opener.calls[3].body
     assert first is not None
     assert first["model"] == MODEL and first["think"] is False and first["stream"] is False
     assert first["options"]["temperature"] == 0.0 and first["options"]["num_ctx"] == 8192
-    assert opener.calls[2].timeout == 120.0
+    assert opener.calls[3].timeout == 120.0
 
     rows = json.loads((out / "rows.json").read_text(encoding="utf-8"))
     by_source = {r["source"][:2]: r for r in rows}
@@ -200,7 +204,9 @@ def test_a_missing_model_during_the_run_stops_it_like_a_rejected_request(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     def gone(call: Call) -> Any:
-        return http_error(404) if call.method == "POST" else server(call)
+        # The model loads, then it is gone when the first mail is asked.
+        gone_now = call.method == "POST" and "messages" in (call.body or {})
+        return http_error(404) if gone_now else server(call)
 
     opener = FakeOpener(choose=gone)
     assert run(args(tmp_path / "o"), ollama_opener=opener) == 0
@@ -260,7 +266,7 @@ def test_the_other_ollama_options_need_the_model(
 def test_a_custom_timeout_reaches_the_request(tmp_path: Path) -> None:
     opener = FakeOpener(choose=server)
     run([*args(tmp_path / "o", "--ollama-timeout", "33.5"), "--limit", "1"], ollama_opener=opener)
-    assert opener.calls[2].timeout == 33.5
+    assert opener.calls[3].timeout == 33.5
 
 
 def test_dry_run_prints_the_chat_body_and_contacts_nobody(
@@ -285,6 +291,157 @@ def test_thinking_can_be_left_to_the_model(
     assert "think" not in json.loads(output[output.index("{") :])
     out = tmp_path / "run"
     run([*args(out, "--ollama-think", "default"), "--limit", "1"], ollama_opener=opener)
-    assert "think" not in (opener.calls[2].body or {})
+    assert "think" not in (opener.calls[3].body or {})
     summary = json.loads((out / "summary.json").read_text("utf-8"))
     assert summary["ollama"]["think"] == "default"
+
+
+# --- loading the model before the first mail, and one more try for a lost request ----------
+
+
+def chat_calls(opener: FakeOpener) -> list[Call]:
+    return [c for c in opener.calls if c.method == "POST"]
+
+
+def test_the_model_is_loaded_before_the_first_mail(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    opener = FakeOpener(choose=server)
+    out = tmp_path / "o"
+    assert run([*args(out), "--limit", "2"], ollama_opener=opener) == 0
+    console = capsys.readouterr().out
+
+    load, *mails = chat_calls(opener)
+    # The documented empty request (docs.ollama.com/faq.md): the model name, no messages;
+    # the same window as the mails, no streaming, the default 600 s.
+    assert load.body == {"model": MODEL, "stream": False, "options": {"num_ctx": 8192}}
+    assert load.timeout == 600.0 and len(mails) == 2
+    assert opener.calls.index(load) == 2
+
+    summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    load_seconds = summary["ollama"]["load_seconds"]
+    assert isinstance(load_seconds, float) and load_seconds >= 0
+    rows = json.loads((out / "rows.json").read_text(encoding="utf-8"))
+    assert summary["seconds"] == round(sum(r["seconds"] for r in rows), 2)  # load is not in it
+    lines = console.splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith("Loading testmodel:latest"))
+    assert "limit 600 s" in lines[start]
+    assert lines[start + 1].startswith(f"Model loaded in {load_seconds} s")
+    assert lines[start + 2].startswith("This run will make 2 requests")
+    assert lines.index(next(x for x in lines if x.startswith("[1/2]"))) > start + 1
+
+
+def test_the_load_has_its_own_limit(tmp_path: Path) -> None:
+    opener = FakeOpener(choose=server)
+    run(
+        [*args(tmp_path / "o", "--ollama-load-timeout", "45"), "--limit", "1"], ollama_opener=opener
+    )
+    load, mail = chat_calls(opener)
+    assert load.timeout == 45.0 and mail.timeout == 120.0
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [TimeoutError(), urllib.error.URLError(ConnectionResetError()), http_error(404), b"no json"],
+)
+def test_a_model_that_does_not_load_stops_the_run_before_any_mail(
+    failure: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def broken(call: Call) -> Any:
+        if call.method == "POST":
+            return failure
+        return server(call)
+
+    opener = FakeOpener(choose=broken)
+    assert run(args(tmp_path / "o", "--ollama-load-timeout", "30"), ollama_opener=opener) == 1
+    captured = capsys.readouterr()
+    assert captured.err == (
+        "The model testmodel could not be loaded within 30 s; no mail was sent. "
+        "Check that it fits in memory, or raise --ollama-load-timeout.\n"
+    )
+    assert "Loading testmodel:latest into memory (limit 30 s)" in captured.out
+    assert "Model loaded" not in captured.out
+    assert len(chat_calls(opener)) == 1 and not (tmp_path / "o").exists()
+
+
+def test_dry_run_does_not_load_the_model(tmp_path: Path) -> None:
+    opener = FakeOpener(choose=server)
+    assert run(args(tmp_path / "o", "--dry-run"), ollama_opener=opener) == 0
+    assert opener.calls == []
+
+
+def one_mail_server(failures: list[Any]) -> Any:
+    """The reader for the first mail answers from ``failures`` first, then normally."""
+
+    def choose(call: Call) -> Any:
+        if call.method == "POST" and "messages" in (call.body or {}) and failures:
+            return failures.pop(0)
+        return server(call)
+
+    return choose
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        TimeoutError(),
+        urllib.error.URLError(TimeoutError()),
+        urllib.error.URLError(ConnectionRefusedError(111, "refused")),
+        ConnectionResetError(),
+    ],
+)
+def test_a_timeout_or_a_lost_connection_is_asked_once_more(
+    failure: Exception, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    opener = FakeOpener(choose=one_mail_server([failure]))
+    out = tmp_path / "o"
+    assert run([*args(out), "--limit", "1"], ollama_opener=opener) == 0
+    assert len(chat_calls(opener)) == 3  # the load, the mail, the mail again
+    (row,) = json.loads((out / "rows.json").read_text(encoding="utf-8"))
+    assert row["attempts"] == 2 and row["outcome"] != "PROVIDER_ERROR"
+    assert "asked twice" in capsys.readouterr().out
+
+
+def test_a_mail_that_fails_twice_is_a_failure_after_two_attempts(tmp_path: Path) -> None:
+    opener = FakeOpener(choose=one_mail_server([TimeoutError(), TimeoutError(), TimeoutError()]))
+    out = tmp_path / "o"
+    assert run([*args(out), "--limit", "2"], ollama_opener=opener) == 0
+    first, second = json.loads((out / "rows.json").read_text(encoding="utf-8"))
+    assert first["outcome"] == "PROVIDER_ERROR" and first["attempts"] == 2
+    assert "OllamaTimeout" in first["message"]
+    # The next mail is asked afresh: the one failure left is its first attempt.
+    assert second["attempts"] == 2 and second["outcome"] != "PROVIDER_ERROR"
+    assert len(chat_calls(opener)) == 1 + 2 + 2
+
+
+@pytest.mark.parametrize(
+    "failure", [http_error(500), http_error(429), b"not json", {"message": {"content": "{"}}]
+)
+def test_other_failures_are_not_asked_again(failure: Any, tmp_path: Path) -> None:
+    opener = FakeOpener(choose=one_mail_server([failure]))
+    out = tmp_path / "o"
+    assert run([*args(out), "--limit", "1"], ollama_opener=opener) == 0
+    assert len(chat_calls(opener)) == 2  # the load and the one try
+    (row,) = json.loads((out / "rows.json").read_text(encoding="utf-8"))
+    assert row["attempts"] == 1
+
+
+def test_a_prompt_that_does_not_fit_is_not_asked_again(tmp_path: Path) -> None:
+    opener = FakeOpener(choose=one_mail_server([chat_payload(reply(), prompt=8192, evals=0)]))
+    out = tmp_path / "o"
+    assert run([*args(out), "--limit", "1"], ollama_opener=opener) == 0
+    assert len(chat_calls(opener)) == 2
+    (row,) = json.loads((out / "rows.json").read_text(encoding="utf-8"))
+    assert row["attempts"] == 1 and row["prompt_did_not_fit"] is True
+
+
+def test_the_load_limit_goes_with_the_model(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    base = ["--eml-dir", str(FIXTURES), "--task", QUESTION, *TARGETS, "--out-dir", str(tmp_path)]
+    with pytest.raises(SystemExit) as stop:
+        run([*base, "--ollama-load-timeout", "30"])
+    assert stop.value.code == 2 and "go with --ollama-model" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as stop:
+        run(args(tmp_path / "o", "--ollama-load-timeout", "0"), ollama_opener=FakeOpener())
+    assert stop.value.code == 2 and "--ollama-load-timeout" in capsys.readouterr().err

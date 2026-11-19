@@ -77,6 +77,17 @@
   (outcomes, columns filled and equal, marks, drops, seconds, tokens) in numbers only. Tested
   offline with a fake HTTP opener; no local model was run, so nothing is known yet about its
   quality. See [the note](docs/32-mail-extraction-probe.md#local-model-probe-ollama).
+- Probe tooling for a hand-made truth table (outside the application; nothing the app does
+  changes): `scripts/make_mail_truth.py` merges several runs of the mail probe into one workbook
+  (one row per mail, what the runs agree on filled in, what they disagree on marked `?` with the
+  candidates in a comment) that the owner corrects once; `scripts/score_mail_runs.py` scores any run
+  against it in numbers only (records found, missed, false; values correct, close, wrong, missing,
+  extra; by column and mark). The Ollama path of the probe now loads the model before the first
+  mail (`--ollama-load-timeout`, default 600 s, recorded as `load_seconds`, not part of any mail's
+  seconds) and asks a mail once more after a timeout or a lost connection (`attempts` in
+  `rows.json`). The first runs of three local models are recorded in
+  [the note](docs/32-mail-extraction-probe.md#local-model-probe-first-runs-2026-11-19). No truth
+  table has been made yet.
 
 ## 0.4.0 — beta (2026-11-18)
 

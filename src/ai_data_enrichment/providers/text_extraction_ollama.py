@@ -36,6 +36,7 @@ from typing import Any, Protocol
 from ai_data_enrichment.providers.text_extraction import PROMPT_VERSION
 
 __all__ = [
+    "DEFAULT_LOAD_TIMEOUT_SECONDS",
     "DEFAULT_NUM_CTX",
     "DEFAULT_TIMEOUT_SECONDS",
     "DEFAULT_URL",
@@ -58,6 +59,8 @@ __all__ = [
 DEFAULT_URL = "http://127.0.0.1:11434"
 DEFAULT_NUM_CTX = 8192
 DEFAULT_TIMEOUT_SECONDS = 120.0
+# Loading a model that is not in memory yet can take minutes (the weights are read from disk).
+DEFAULT_LOAD_TIMEOUT_SECONDS = 600.0
 PREFLIGHT_TIMEOUT_SECONDS = 10.0
 TEMPERATURE = 0.0
 # A reply is a small JSON object; this only stops a runaway body from filling the memory.
@@ -287,6 +290,9 @@ class OllamaClient:
         # Numbers about the prompts that did not fit; set by every ``chat``.
         self.last_prompt_did_not_fit = False
         self.prompts_did_not_fit = 0
+        # Whether the last ``chat`` ended in a timeout or a lost connection (the probe asks
+        # such a mail once more); reset by every ``chat``.
+        self.last_transport_failure = False
 
     # -- the transport ----------------------------------------------------------------
 
@@ -355,20 +361,47 @@ class OllamaClient:
                 )
         return None
 
+    def load_model(self, name: str, timeout: float) -> None:
+        """Load ``name`` into memory with a request that asks for no answer.
+
+        The FAQ (https://docs.ollama.com/faq.md, "How can I preload a model into Ollama to
+        get faster response times?") says a model is preloaded "by sending the Ollama server
+        an empty request": ``POST /api/chat`` with the model name and no ``messages``. The
+        same ``num_ctx`` as the later requests is sent, so that the model is loaded the way it
+        will be used (assumption: the server may reload a model whose window differs; the
+        documentation read does not say). ``keep_alive`` is left out: the server's default
+        (five minutes after the last request) covers a run, which asks one mail after another.
+        ``OllamaUnavailable`` when the server answers with an error or not in time.
+        """
+        try:
+            self._send(
+                "POST",
+                "/api/chat",
+                {"model": name, "stream": False, "options": {"num_ctx": self.num_ctx}},
+                timeout,
+            )
+        except (OllamaConnectionError, OllamaTimeout, OllamaBadResponse, OllamaHttpError):
+            raise OllamaUnavailable("The model was not loaded.") from None
+
     # -- the call ---------------------------------------------------------------------
 
     def chat(self, request: dict[str, Any]) -> OllamaResponse:
         """One non-streaming ``POST /api/chat`` for the handler's request."""
         self.last_prompt_did_not_fit = False
+        self.last_transport_failure = False
         timeout = request.get("timeout")
-        payload = self._send(
-            "POST",
-            "/api/chat",
-            chat_body(
-                request, num_ctx=self.num_ctx, temperature=self.temperature, think=self.think
-            ),
-            float(timeout) if isinstance(timeout, int | float) else DEFAULT_TIMEOUT_SECONDS,
-        )
+        try:
+            payload = self._send(
+                "POST",
+                "/api/chat",
+                chat_body(
+                    request, num_ctx=self.num_ctx, temperature=self.temperature, think=self.think
+                ),
+                float(timeout) if isinstance(timeout, int | float) else DEFAULT_TIMEOUT_SECONDS,
+            )
+        except (OllamaTimeout, OllamaConnectionError):
+            self.last_transport_failure = True
+            raise
         if prompt_did_not_fit(payload, self.num_ctx):
             self.last_prompt_did_not_fit = True
             self.prompts_did_not_fit += 1

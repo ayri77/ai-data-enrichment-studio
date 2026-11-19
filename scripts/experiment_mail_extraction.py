@@ -31,6 +31,9 @@ is a loopback address):
     uv run python -m scripts.experiment_mail_extraction --ollama-model <model> \
         --eml-dir samples/probe/mail --task ... --target ...
 
+The model is loaded before the first mail (--ollama-load-timeout, not counted in any mail's
+seconds), and a mail that ends in a timeout or a lost connection is asked once more.
+
 Privacy: the cleaned and masked text of every message (plus its subject, sender and date)
 is sent to the model provider, and the answers with their quotes are written to
 artifacts/mail-extraction/ (ignored by git). Masking covers card tails, phone numbers
@@ -87,6 +90,7 @@ from ai_data_enrichment.providers.text_extraction import (
 )
 from ai_data_enrichment.providers.text_extraction_handler import TextExtractionHandler
 from ai_data_enrichment.providers.text_extraction_ollama import (
+    DEFAULT_LOAD_TIMEOUT_SECONDS,
     DEFAULT_NUM_CTX,
     DEFAULT_TIMEOUT_SECONDS,
     DEFAULT_URL,
@@ -523,7 +527,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--ollama-timeout",
         type=float,
         metavar="SECONDS",
-        help=f"Seconds per mail (default {DEFAULT_TIMEOUT_SECONDS:g})",
+        help=f"Seconds per mail (default {DEFAULT_TIMEOUT_SECONDS:g}). A mail that ends in a "
+        "timeout or a lost connection is asked once more.",
+    )
+    parser.add_argument(
+        "--ollama-load-timeout",
+        type=float,
+        metavar="SECONDS",
+        help="Seconds allowed for loading the model before the first mail (default "
+        f"{DEFAULT_LOAD_TIMEOUT_SECONDS:g}); the load is not part of any mail's seconds",
     )
     parser.add_argument(
         "--dry-run",
@@ -633,19 +645,28 @@ def run(
     ollama_url = args.ollama_url or DEFAULT_URL
     num_ctx = DEFAULT_NUM_CTX if args.ollama_num_ctx is None else args.ollama_num_ctx
     ollama_timeout = DEFAULT_TIMEOUT_SECONDS if args.ollama_timeout is None else args.ollama_timeout
+    load_timeout = (
+        DEFAULT_LOAD_TIMEOUT_SECONDS
+        if args.ollama_load_timeout is None
+        else args.ollama_load_timeout
+    )
     if not use_ollama and (
         args.ollama_url
         or args.ollama_allow_remote
         or args.ollama_num_ctx is not None
         or args.ollama_timeout is not None
+        or args.ollama_load_timeout is not None
         or args.ollama_think is not None
     ):
         parser.error("The --ollama-* options go with --ollama-model")
     if use_ollama:
         if not args.ollama_model.strip():
             parser.error("--ollama-model cannot be empty")
-        if num_ctx < 512 or ollama_timeout <= 0:
-            parser.error("--ollama-num-ctx must be at least 512 and --ollama-timeout positive")
+        if num_ctx < 512 or ollama_timeout <= 0 or load_timeout <= 0:
+            parser.error(
+                "--ollama-num-ctx must be at least 512 and --ollama-timeout and "
+                "--ollama-load-timeout positive"
+            )
         try:
             check_base_url(ollama_url, allow_remote=args.ollama_allow_remote)
         except ValueError as exc:
@@ -787,7 +808,23 @@ def run(
                 file=sys.stderr,
             )
             return 1
+        # The model is loaded before the first mail, so that loading is not counted in (and
+        # does not time out) the first mail.
+        print(f"Loading {found.name} into memory (limit {load_timeout:g} s)...", flush=True)
+        load_started = perf_counter()
+        try:
+            ollama_client.load_model(model, load_timeout)
+        except OllamaUnavailable:
+            print(
+                f"The model {model} could not be loaded within {load_timeout:g} s; no mail "
+                "was sent. Check that it fits in memory, or raise --ollama-load-timeout.",
+                file=sys.stderr,
+            )
+            return 1
+        load_seconds = round(perf_counter() - load_started, 2)
+        print(f"Model loaded in {load_seconds} s (not counted in any mail's seconds).", flush=True)
         ollama_facts = {
+            "load_seconds": load_seconds,
             "name": found.name,
             "model_digest": found.digest,
             "model_size_bytes": found.size,
@@ -827,16 +864,27 @@ def run(
     for number, (message, (document, counts)) in enumerate(zip(asked, prepared, strict=True), 1):
         started = perf_counter()
         result = handler.extract(task, document)
+        attempts = 1
+        if (
+            ollama_client is not None
+            and result.outcome == "PROVIDER_ERROR"
+            and ollama_client.last_transport_failure
+        ):
+            # A timeout or a lost connection, nothing else, is asked once more.
+            attempts = 2
+            result = handler.extract(task, document)
+        # With a second attempt the seconds are those of both.
         seconds = round(perf_counter() - started, 2)
         records.append((message, result))
         rows.append(json_row(message, result, counts, seconds))
         if ollama_client is not None:
             rows[-1]["prompt_did_not_fit"] = ollama_client.last_prompt_did_not_fit
+            rows[-1]["attempts"] = attempts
         detail = (
             f"{len(result.kept)} kept, {len(result.dropped)} dropped"
             if not result.failed
             else result.message
-        )
+        ) + (", asked twice" if attempts == 2 else "")
         print(
             f"[{number}/{len(asked)}] {message.source} | {result.outcome} | {detail} | {seconds} s"
         )
