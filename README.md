@@ -146,6 +146,8 @@ Open <http://127.0.0.1:5173>.
   table from e-mails", with its own task, plan and results screens; there is no Gmail button.
   Its browser test uses a stand-in for the model; it has not been run with a real model through
   the interface ([note](docs/32-mail-extraction-probe.md#in-the-application-the-interface)).
+  The same switch lets the API add the new e-mails of a source to a copy of a register, as new
+  rows (`POST /api/datasets/{id}/rows`, no interface yet; [note](docs/33-rows-from-a-source.md)).
 
 Details: [provider settings](docs/25-provider-settings.md).
 

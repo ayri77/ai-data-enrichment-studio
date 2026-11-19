@@ -93,6 +93,16 @@
   columns, a duplicate key, and an append to a copy of the workbook with counts that add up. It is
   not reachable from the application yet: no route, no interface. See
   [rows from a source](docs/33-rows-from-a-source.md).
+- The rows core can be reached over HTTP, still without an interface: `GET /api/row-sources`
+  lists the sources, `POST /api/row-sources/{source_id}/candidates` reads the files of a source
+  into memory (at most four sets, date, sender and subject only, never on disk),
+  `POST /api/datasets/{id}/rows/preview` gives the plan with its counts (a plan the core refuses
+  is an answer of the preview, with the code and the row), and `POST /api/datasets/{id}/rows`
+  appends the new rows to a copy and registers it as a new dataset. The copy never drops the
+  dataset it is made from, a table may not grow past the limits (`rows_too_many`), and a finished
+  run is counted as one `rows_append` event with numbers only. Available only where
+  `ENRICHMENT_ALLOW_MAIL=1` is set on a local installation. See
+  [rows from a source](docs/33-rows-from-a-source.md#the-routes).
 
 ## 0.4.0 — beta (2026-11-18)
 

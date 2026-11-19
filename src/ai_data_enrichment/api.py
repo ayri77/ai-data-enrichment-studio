@@ -40,6 +40,7 @@ from ai_data_enrichment.plan_run_worker import (
 )
 from ai_data_enrichment.planning.llm_planner import PlanCompletionClient
 from ai_data_enrichment.provider_settings import ProviderConfiguration, configuration_router
+from ai_data_enrichment.rows_api import RowCandidates, rows_router
 from ai_data_enrichment.run_limits import MAX_TABLE_CELLS, MAX_TABLE_ROWS
 from ai_data_enrichment.usage import (
     VISITOR,
@@ -238,7 +239,10 @@ def create_app(
                 usage.close()
                 datasets.clear()
                 plan_run.mail_datasets.clear()
+                row_candidates.clear()
                 provider.remove_key()
+
+    row_candidates = RowCandidates()
 
     app = FastAPI(title="Data Enrichment Workspace", lifespan=lifespan)
     app.state.usage = usage
@@ -396,17 +400,25 @@ def create_app(
         return {"status": "ok"}
 
     async def _register(
-        directory: Path, write: Callable[[Path], Awaitable[None]], *, mail: bool = False
+        directory: Path,
+        write: Callable[[Path], Awaitable[None]],
+        *,
+        mail: bool = False,
+        keep: str | None = None,
     ) -> tuple[str, dict]:
         """Make room, let ``write`` create the workbook under a new id, read it, register it.
 
-        The one place where a workbook becomes a dataset, for an upload and for a table
-        built from e-mails alike. A file that was not registered is removed again.
+        The one place where a workbook becomes a dataset, for an upload, for a table built
+        from e-mails and for a table with new rows alike. A file that was not registered is
+        removed again. ``keep`` is a dataset that is never dropped to make room: the one
+        ``write`` reads from.
         """
         async with lock:
             if len(datasets) >= MAX_DATASETS:
                 # Drop the oldest workbook together with its plans and finished jobs.
-                oldest = next((i for i in datasets if plan_run.release_dataset(i)), None)
+                oldest = next(
+                    (i for i in datasets if i != keep and plan_run.release_dataset(i)), None
+                )
                 if oldest is None:
                     raise WorkspaceError(
                         "workspace_full", "Wait for the current run to finish.", 409
@@ -555,6 +567,20 @@ def create_app(
         if plan is None:
             raise WorkspaceError("sample_not_found", "This example has no prepared plan.", 404)
         return plan
+
+    app.include_router(
+        rows_router(
+            datasets=datasets,
+            lock=lock,
+            register=_register,
+            check_bounds=_check_bounds,
+            plan_run=plan_run,
+            usage=usage,
+            candidates=row_candidates,
+            max_rows=MAX_ROWS,
+            max_cells=MAX_CELLS,
+        )
+    )
 
     if static_dir is not None:
         # Mounted last: API routes win, everything else is the single-page frontend.

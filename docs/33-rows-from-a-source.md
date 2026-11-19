@@ -2,8 +2,8 @@
 
 The application fills columns of the rows that are in a table. This note describes the core of
 the second kind of task: adding new rows to a table from a source. The core is in
-`src/ai_data_enrichment/rows/`. It uses no model and no network, and nothing in the
-application calls it yet.
+`src/ai_data_enrichment/rows/`. It uses no model and no network. Four routes make it reachable
+(see "The routes"); there is no interface yet.
 
 ## What the core does
 
@@ -74,9 +74,80 @@ A plan is refused before anything is written, with a code and, where it helps, n
   `rows_column_outside_table`, `rows_column_used_twice`, `rows_key_empty`, `rows_key_not_mapped`,
   `rows_sheet_missing`.
 
+## The routes
+
+They are in `src/ai_data_enrichment/rows_api.py`, wired in by `create_app`, and are all under
+`/api/`, so the access code covers them like the other routes. Errors are the usual
+`{"error": {"code", "message"}}`.
+
+**`GET /api/row-sources`** lists `ROW_SOURCES`: `{"sources": [{source_id, label, connect,
+file_suffixes, fields: [{field_id, kind, label}], default_key, listing, available}]}`.
+`available` is false for a `local_only` source unless `ENRICHMENT_ALLOW_MAIL=1` is set on a
+local installation (the one switch that exists; a hosted app never has it).
+
+**`POST /api/row-sources/{source_id}/candidates?filename=…`** takes the raw file (or a `.zip`) as
+the body, exactly like `POST /api/mail-datasets`: same suffix check, same size bounds, read in
+memory. Answer 201 `{candidates_id, source_id, count, skipped}`. 404 `rows_unknown_source`; 403
+`mail_not_allowed` for a local-only source that is not available; `invalid_mail_file_type` for
+a wrong suffix. **`DELETE /api/row-sources/candidates/{candidates_id}`** answers 204, also when
+the set does not exist.
+
+Candidates live in memory only, in a small store of the application: at most four sets, the
+oldest is dropped when a fifth comes, and all are gone on restart. A set holds the date, the
+sender and the subject of each mail, not its text, and is never written to disk, logged or
+counted.
+
+**`POST /api/datasets/{dataset_id}/rows/preview`** takes JSON (unknown fields are refused):
+
+```
+{"candidates_id": "…", "sheet_name": "Register", "range_ref": "A1:D40",
+ "mapping": {"received": "A", "sender": "B"} | null,   // field id -> column letter
+ "key": ["received", "sender"] | null,
+ "on_duplicate": "skip" | "add_marked",                // default skip
+ "conditions": [{"field_id": "received", "op": "within_last_days", "value": 30}]}
+```
+
+A `null` mapping is proposed from the header row of the selection, a `null` key is the default key
+of the source. Condition values: `within_last_days` a whole number, `on_or_after` and
+`on_or_before` a `YYYY-MM-DD` string, `contains` a string. The clock is the server's, in UTC. The
+answer is 200:
+
+```
+{"plan": {source_id, sheet_name, range_ref, mapping, key, on_duplicate, conditions},
+ "proposed": {"mapping": bool, "key": bool},
+ "count": {…the fields of RowsCount…, "holds": bool} | null,
+ "refused": {"code", "count", "row"} | null}
+```
+
+A plan the core refuses is a normal answer of the preview: `count` is null and `refused` says
+why, with the numbers the error carries (for `rows_key_not_comparable` the number of cells and the
+first row) or null. An empty key is refused the same way (`rows_key_empty`). Only a request that
+cannot be read is an HTTP error: 404 `dataset_not_found` or `rows_candidates_not_found`, 422
+`invalid_selection` (a bad sheet or range) or `worksheet_limit`.
+
+**`POST /api/datasets/{dataset_id}/rows`** takes the same body, but `mapping` and `key` are
+required: the run is exactly what the person saw and nothing is proposed. It appends to a copy
+and registers it as a **new** dataset; the source dataset stays. Answer 201: what an upload
+gives (`dataset_id` of the new dataset and the worksheet metadata) and `"rows": {"count": {…,
+"holds"}, "first_row", "last_row", "sheet_name", "range_ref"}`, where `range_ref` is the table
+after the append, header included. A refused plan is an **error** of the run: 422 with the same
+code as the preview's `refused.code` (`rows_unknown_source`, `rows_unknown_field`,
+`rows_bad_condition`, `rows_column_outside_table`, `rows_column_used_twice`, `rows_key_empty`,
+`rows_key_not_mapped`, `rows_key_not_comparable`, `rows_no_room`, `rows_sheet_missing`,
+`rows_too_many`), and no dataset is made. The plan is checked before room is made for the copy,
+so a refused run drops no other dataset either. Making room never drops the dataset that is
+appended to; when nothing else can be dropped the answer is 409 `workspace_full`. A source
+that is a table of e-mails gives a table of e-mails.
+
+The table has to stay within the limits of every table (5,001 rows counted from the top of the
+sheet, 100 columns, 100,000 cells in the range): the core takes `max_last_row` and refuses with
+`rows_too_many` when the last row it would write lies beyond it; the routes pass the last row
+that still passes those limits. A finished run is counted as one usage event, `rows_append`,
+with numbers only (`in_source`, `added`, `written`, `duplicates`).
+
 ## What does not exist yet
 
-- No route and no interface; the core cannot be reached from the application.
+- No interface: the routes are not used by the application's screens.
 - No saved recipe: a plan is not stored.
 - One source only, e-mail files.
 - The mail text is not kept in the new rows.
