@@ -429,3 +429,26 @@ def test_a_merged_cell_in_the_last_row_does_not_stop_the_append(tmp_path: Path) 
     )
     assert result.count.added == 1
     assert load_workbook(tmp_path / "out.xlsx")["Register"]["C3"].value == "b"
+
+
+def test_max_last_row_stops_an_append_before_anything_is_written(
+    book: Path, tmp_path: Path
+) -> None:
+    candidates = [cand(day(5), "A"), cand(day(6), "B"), cand(day(7), "C")]
+    # The table ends in row 3; three new rows reach row 6.
+    for limit in (5, 3):
+        with pytest.raises(RowsError) as error:
+            append_rows(
+                book, tmp_path / "out.xlsx", plan(3), candidates, now=NOW, max_last_row=limit
+            )
+        assert error.value.code == "rows_too_many"
+        assert not (tmp_path / "out.xlsx").exists()
+        with pytest.raises(RowsError) as previewed:
+            preview_rows(book, plan(3), candidates, now=NOW, max_last_row=limit)
+        assert previewed.value.code == "rows_too_many"
+    # Exactly at the limit is allowed, and so is a run that adds nothing.
+    result = append_rows(book, tmp_path / "out.xlsx", plan(3), candidates, now=NOW, max_last_row=6)
+    assert result.last_row == 6
+    assert preview_rows(book, plan(3), candidates, now=NOW, max_last_row=6).added == 3
+    assert preview_rows(book, plan(3), [cand(day(1), "Acme")], now=NOW, max_last_row=1).added == 0
+    assert preview_rows(book, plan(3), candidates, now=NOW) == result.count

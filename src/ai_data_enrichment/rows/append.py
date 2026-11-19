@@ -197,6 +197,7 @@ def _decide(
     plan: RowsPlan,
     candidates: Sequence[Candidate],
     now: datetime,
+    max_last_row: int | None,
 ) -> _Decision:
     """Check the plan and decide what happens to every candidate. Writes nothing."""
     source = source_for(plan.source_id)
@@ -244,6 +245,8 @@ def _decide(
             placed.append(_Placed(candidate, duplicate_of))
             next_row += 1
     if placed:
+        if max_last_row is not None and last_data_row + len(placed) > max_last_row:
+            raise RowsError("rows_too_many")
         _check_room(sheet, plan, last_data_row + 1, last_data_row + len(placed))
     count = RowsCount(
         in_source=len(candidates),
@@ -270,12 +273,21 @@ def _open_pair(path: Path) -> tuple[Workbook, Workbook]:
 
 
 def preview_rows(
-    path: Path, plan: RowsPlan, candidates: Sequence[Candidate], *, now: datetime
+    path: Path,
+    plan: RowsPlan,
+    candidates: Sequence[Candidate],
+    *,
+    now: datetime,
+    max_last_row: int | None = None,
 ) -> RowsCount:
-    """The counts an append of these candidates would give; nothing is written."""
+    """The counts an append of these candidates would give; nothing is written.
+
+    ``max_last_row`` is the last worksheet row the table may reach; an append that would
+    write beyond it is refused with ``rows_too_many``.
+    """
     formulas, values = _open_pair(path)
     try:
-        return _decide(formulas, values, plan, candidates, now).count
+        return _decide(formulas, values, plan, candidates, now, max_last_row).count
     finally:
         formulas.close()
         values.close()
@@ -376,8 +388,11 @@ def append_rows(
     candidates: Sequence[Candidate],
     *,
     now: datetime,
+    max_last_row: int | None = None,
 ) -> RowsResult:
     """Write the new rows to a copy of the workbook and return the counts.
+
+    ``max_last_row`` is as for ``preview_rows``; the check comes before anything is written.
 
     The copy is published the way ``write_excel_cells`` publishes: a new file, never an
     existing one. No cell that existed before is changed; the source is not touched.
@@ -385,7 +400,7 @@ def append_rows(
     check_copy_paths(source_path, output_path)
     formulas, values = _open_pair(source_path)
     try:
-        decision = _decide(formulas, values, plan, candidates, now)
+        decision = _decide(formulas, values, plan, candidates, now, max_last_row)
         source = source_for(plan.source_id)
         sheet = formulas[plan.selection.sheet_name]
         first = decision.last_data_row + 1
