@@ -112,12 +112,24 @@ def _substance(text: str) -> int:
     return sum(1 for c in text if c.isalnum())
 
 
+# The share of the allowance a cut may give up to end at a line, or else at a word.
+_CUT_SLACK = 0.2
+
+
 def _cut(text: str, max_chars: int) -> tuple[str, bool]:
+    """Cut at ``max_chars``, at the end of a line or of a word when one is near.
+
+    Only a boundary in the last fifth of the allowance is taken. A mail whose table arrives
+    as one long line would otherwise be cut back to the last short line before it, which can
+    be the greeting: nearly all of the text would be lost while the count says "cut".
+    """
     if len(text) <= max_chars:
         return text, False
-    boundary = text.rfind("\n", 0, max_chars + 1)
-    if boundary > 0:
-        return text[:boundary].rstrip(), True
+    floor = int(max_chars * (1 - _CUT_SLACK))
+    for mark in ("\n", " "):
+        boundary = text.rfind(mark, floor, max_chars + 1)
+        if boundary > 0:
+            return text[:boundary].rstrip(), True
     return text[:max_chars].rstrip(), True
 
 
