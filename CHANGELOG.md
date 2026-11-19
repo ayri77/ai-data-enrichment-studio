@@ -103,6 +103,18 @@
   run is counted as one `rows_append` event with numbers only. Available only where
   `ENRICHMENT_ALLOW_MAIL=1` is set on a local installation. See
   [rows from a source](docs/33-rows-from-a-source.md#the-routes).
+- New rows from a source have an interface. Where a source is available (a local installation
+  with `ENRICHMENT_ALLOW_MAIL=1`), the first step has two optional parts, Rows and Columns: next
+  to "Fill the rows that are in the table", "Add new rows from a source" with the source, the
+  files (read on this computer, no model), the fields it gives and conditions of "take only". The
+  plan shows the mapping and the duplicate key as the server proposed them, each change asks
+  again and shows the new counts, a refused plan stops the run with its reason, and the results
+  show the counts, the check written out, what a second run would add (0), the end of the new
+  table, the workbook as a download and "Continue with this table". In this version the two parts
+  cannot be combined in one run. Execution and Review are not steps of such a task. New route
+  `GET /api/datasets/{id}/workbook` serves the stored workbook (not for a table built from
+  e-mails: `mail_dataset_no_download`). Elsewhere the first step is unchanged. See
+  [rows from a source](docs/33-rows-from-a-source.md#in-the-application).
 
 ## 0.4.0 — beta (2026-11-18)
 

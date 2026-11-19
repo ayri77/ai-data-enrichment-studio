@@ -14,6 +14,8 @@ import {
 import { ExportWorkspace } from "./components/ExportWorkspace";
 import { OverviewWorkspace } from "./components/OverviewWorkspace";
 import { ReviewWorkspace } from "./components/ReviewWorkspace";
+import { RowsPlan } from "./components/RowsPlan";
+import { RowsResults } from "./components/RowsResults";
 import { Button } from "./components/ui/button";
 import {
     CapabilitiesContext,
@@ -93,7 +95,7 @@ function Studio({ opening }: { opening: Opening }) {
     }, [page]);
     const completed: Workspace[] = [];
     if (d.preview) completed.push("dataset");
-    if (w.plan?.status === "approved") completed.push("plan");
+    if (w.plan?.status === "approved" || w.rows.result) completed.push("plan");
     if (w.job?.status === "completed" || w.job?.status === "needs_review")
         completed.push("execution");
     // In Basic the review step is offered only when there is something to settle.
@@ -103,6 +105,13 @@ function Studio({ opening }: { opening: Opening }) {
         (w.job?.status !== "needs_review" || isExtractionRun(w.job, w.plan))
             ? { review: t("ws.reviewUnavailable") }
             : {};
+    // A task that adds rows has no steps of execution and review: the plan runs
+    // at once, and there is nothing to settle.
+    const rowsTask = w.rows.mode === "rows" || !!w.rows.plan || !!w.rows.result;
+    if (rowsTask) {
+        unavailable.execution = t("rows.stepUnavailable");
+        unavailable.review = t("rows.stepUnavailable");
+    }
     const stranded = w.workspace in unavailable;
     // A short request ends by opening its own step; leaving meanwhile would
     // only be undone. A running job does not hold the user in place.
@@ -148,13 +157,15 @@ function Studio({ opening }: { opening: Opening }) {
                                     {t(
                                         mode === "basic" && page === "plan"
                                             ? "ws.planHintBasic"
-                                            : page === "review" &&
-                                                isExtractionRun(w.job, w.plan)
-                                              ? "extract.reviewHint"
+                                            : page === "export" && rowsTask
+                                              ? "rows.exportHint"
                                               : page === "review" &&
-                                                  isFallbackRun(w.job, w.plan)
-                                                ? "fallback.reviewHint"
-                                                : `ws.${page}Hint`,
+                                                  isExtractionRun(w.job, w.plan)
+                                                ? "extract.reviewHint"
+                                                : page === "review" &&
+                                                    isFallbackRun(w.job, w.plan)
+                                                  ? "fallback.reviewHint"
+                                                  : `ws.${page}Hint`,
                                     )}
                                 </p>
                             </div>
@@ -227,9 +238,12 @@ function Studio({ opening }: { opening: Opening }) {
                                     }
                                 />
                             )}
-                            {page === "plan" && (
-                                <PlanWorkspace w={w} preview={d.preview} />
-                            )}
+                            {page === "plan" &&
+                                (rowsTask ? (
+                                    <RowsPlan w={w} preview={d.preview} />
+                                ) : (
+                                    <PlanWorkspace w={w} preview={d.preview} />
+                                ))}
                             {page === "execution" && (
                                 <ExecutionWorkspace
                                     w={w}
@@ -237,12 +251,21 @@ function Studio({ opening }: { opening: Opening }) {
                                 />
                             )}
                             {page === "review" && <ReviewWorkspace w={w} />}
-                            {page === "export" && (
-                                <ExportWorkspace
-                                    w={w}
-                                    onStartOver={startOver}
-                                />
-                            )}
+                            {page === "export" &&
+                                (rowsTask ? (
+                                    <RowsResults
+                                        w={w}
+                                        onContinue={(dataset) => {
+                                            void d.adopt(dataset);
+                                            open("dataset");
+                                        }}
+                                    />
+                                ) : (
+                                    <ExportWorkspace
+                                        w={w}
+                                        onStartOver={startOver}
+                                    />
+                                ))}
                         </div>
                         {diagnostics && (
                             <Diagnostics

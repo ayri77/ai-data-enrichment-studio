@@ -28,6 +28,9 @@ export function DatasetWorkspace({
     const [dragging, setDragging] = useState(false);
     const fileInput = useRef<HTMLInputElement>(null);
     const workflowLocked = workflow.locked;
+    // Without the columns part nothing is filled: no column is expected to be
+    // empty and no run limit marks the rows.
+    const columnsOff = workflow.rows.offered && !workflow.rows.task.fill;
     const advanced = useAdvanced();
     const worksheet = d.dataset?.worksheets.find((ws) => ws.name === d.sheet);
     // Basic finds the table itself. Its boundaries come into view when that did
@@ -226,10 +229,14 @@ export function DatasetWorkspace({
                     filename={d.dataset?.filename}
                     busy={d.busy === "preview"}
                     hasWorkbook={!!d.dataset}
-                    filled={workflow.mapping.map((entry) => entry.name)}
+                    filled={
+                        columnsOff
+                            ? []
+                            : workflow.mapping.map((entry) => entry.name)
+                    }
                     maxRows={workflow.maxRows}
                     capabilities={workflow.capabilities}
-                    runLast={workflow.runLast}
+                    runLast={columnsOff ? null : workflow.runLast}
                 />
             </div>
             <DatasetConfiguration

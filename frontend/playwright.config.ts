@@ -12,12 +12,13 @@ export default defineConfig({
     projects: [
         {
             name: "workflow",
-            testIgnore: /(provider-settings|mail)\.spec\.ts$/,
+            testIgnore: /(provider-settings|mail|rows)\.spec\.ts$/,
         },
         {
-            // The e-mail scenario: its own server, with mail switched on.
+            // The e-mail scenarios (reading values out of mails, adding rows from mails):
+            // their own server, with mail switched on.
             name: "mail",
-            testMatch: /mail\.spec\.ts$/,
+            testMatch: /(mail|rows)\.spec\.ts$/,
             use: { baseURL: "http://127.0.0.1:5175" },
         },
         {

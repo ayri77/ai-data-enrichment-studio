@@ -539,6 +539,32 @@ def create_app(
                 path.unlink(missing_ok=True)
         return Response(status_code=204)
 
+    @app.get("/api/datasets/{dataset_id}/workbook")
+    async def workbook(dataset_id: str):
+        """The stored workbook as a download; the client names the file it saves.
+
+        A table built from e-mails holds mail text in one column and leaves the application
+        only through an export that empties it, so it is never handed out as it is.
+        """
+        async with lock:
+            path = datasets.get(dataset_id)
+            if path is None:
+                raise WorkspaceError("dataset_not_found", "Upload the workbook again.", 404)
+            if dataset_id in plan_run.mail_datasets:
+                raise WorkspaceError(
+                    "mail_dataset_no_download",
+                    "A table built from e-mails holds their text and is not downloaded as it is.",
+                    403,
+                )
+            # Read while the lock is held: a workbook can be dropped to make room.
+            content = await run_in_threadpool(path.read_bytes)
+        usage.record("download")
+        return Response(
+            content,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="workbook.xlsx"'},
+        )
+
     @app.get("/api/samples")
     async def samples():
         """Example workbooks a visitor can try without a file of their own."""

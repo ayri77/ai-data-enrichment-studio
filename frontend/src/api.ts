@@ -30,6 +30,93 @@ export interface MailCounts {
 export interface MailDataset extends Dataset {
     mail: MailCounts;
 }
+/** One field a source of rows gives: what kind of value it is, and how it is called. */
+export interface RowSourceField {
+    field_id: string;
+    kind: "moment" | "text";
+    label: string;
+}
+/** A place new rows can come from, as the server lists it. */
+export interface RowSource {
+    source_id: string;
+    label: string;
+    connect: "files";
+    file_suffixes: string[];
+    fields: RowSourceField[];
+    default_key: string[];
+    listing: string;
+    /** False where the server does not offer it (for example a hosted demo). */
+    available: boolean;
+}
+/** The rows a source gave, kept in the server's memory under this id. */
+export interface RowCandidates {
+    candidates_id: string;
+    source_id: string;
+    count: number;
+    skipped: number;
+}
+/** One condition of "take only"; a number of days, a `YYYY-MM-DD` date, or text. */
+export interface RowsCondition {
+    field_id: string;
+    op: string;
+    value: number | string;
+}
+export type RowsDuplicate = "skip" | "add_marked";
+/** What the server sends and takes for a plan of new rows. */
+export interface RowsPlan {
+    source_id?: string;
+    sheet_name: string;
+    range_ref: string;
+    mapping: Record<string, string>;
+    key: string[];
+    on_duplicate: RowsDuplicate;
+    conditions: RowsCondition[];
+}
+/** What happened to the candidates: numbers only. */
+export interface RowsCount {
+    in_source: number;
+    left_out: number;
+    without_key: number;
+    duplicates_in_table: number;
+    duplicates_in_source: number;
+    added: number;
+    written: number;
+    table_rows_without_key: number;
+    holds: boolean;
+}
+export interface RowsRefusal {
+    code: string;
+    count: number | null;
+    row: number | null;
+}
+export interface RowsPreview {
+    plan: RowsPlan;
+    proposed: { mapping: boolean; key: boolean };
+    count: RowsCount | null;
+    refused: RowsRefusal | null;
+}
+/** What the request for a preview or a run says; the plan of the run is complete. */
+export interface RowsRequest {
+    candidates_id: string;
+    sheet_name: string;
+    range_ref: string;
+    mapping: Record<string, string> | null;
+    key: string[] | null;
+    on_duplicate: RowsDuplicate;
+    conditions: RowsCondition[];
+}
+/** What an upload gives, and what the run did. */
+export interface RowsRun {
+    dataset_id: string;
+    worksheets: Worksheet[];
+    rows: {
+        count: RowsCount;
+        first_row: number | null;
+        last_row: number | null;
+        sheet_name: string;
+        range_ref: string;
+    };
+}
 export interface Preview {
     dataset_id: string;
     sheet_name: string;
@@ -744,6 +831,31 @@ export const api = {
                 body: JSON.stringify({ sheet_name, range_ref }),
             }),
         ),
+    /** The places new rows can come from; the server says which are available. */
+    rowSources: () =>
+        response<{ sources: RowSource[] }>(call("/api/row-sources")),
+    /** The packed files of a source; the server keeps the rows they give in memory. */
+    readCandidates: (sourceId: string, body: Blob) =>
+        response<RowCandidates>(
+            call(
+                `/api/row-sources/${encodeURIComponent(sourceId)}/candidates?filename=${MAIL_UPLOAD_NAME}`,
+                {
+                    method: "POST",
+                    body,
+                    headers: { "Content-Type": "application/octet-stream" },
+                },
+            ),
+        ),
+    forgetCandidates: (id: string) =>
+        call(`/api/row-sources/candidates/${encodeURIComponent(id)}`, {
+            method: "DELETE",
+        }).catch(() => undefined),
+    previewRows: (datasetId: string, body: RowsRequest) =>
+        post<RowsPreview>(`/api/datasets/${datasetId}/rows/preview`, body),
+    runRows: (datasetId: string, body: RowsRequest) =>
+        post<RowsRun>(`/api/datasets/${datasetId}/rows`, body),
+    workbook: async (datasetId: string) =>
+        (await checked(call(`/api/datasets/${datasetId}/workbook`))).blob(),
     remove: (id: string) =>
         call(`/api/datasets/${id}`, { method: "DELETE" }).catch(
             () => undefined,
