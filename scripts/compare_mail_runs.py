@@ -117,7 +117,7 @@ def match_rows(
 # --- Values --------------------------------------------------------------------------
 
 
-def _text_key(value: object) -> str:
+def text_key(value: object) -> str:
     return " ".join(unicodedata.normalize("NFC", str(value)).casefold().split())
 
 
@@ -128,14 +128,14 @@ def same_value(kind: str, left: object, right: object) -> bool:
         try:
             a, b = float(left), float(right)
         except (TypeError, ValueError):
-            return _text_key(left) == _text_key(right)
+            return text_key(left) == text_key(right)
         return math.isfinite(a) and math.isfinite(b) and abs(a - b) <= NUMBER_TOLERANCE
     if kind == "date":
         try:
             return date.fromisoformat(str(left).strip()) == date.fromisoformat(str(right).strip())
         except ValueError:
-            return _text_key(left) == _text_key(right)
-    return _text_key(left) == _text_key(right)
+            return text_key(left) == text_key(right)
+    return text_key(left) == text_key(right)
 
 
 def _tally() -> dict[str, int]:

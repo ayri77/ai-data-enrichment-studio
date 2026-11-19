@@ -550,3 +550,18 @@ def test_the_fixture_folder_is_all_invented() -> None:
     for path in FIXTURES.glob("*.eml"):
         data = path.read_bytes().decode("utf-8", errors="replace")
         assert "example." in data
+
+
+def test_the_openai_path_has_no_retry_and_no_attempts(tmp_path: Path) -> None:
+    def lost(kwargs: dict[str, Any]) -> Any:
+        if "Subject: Ihre Rechnung" in kwargs["input"]:
+            return TimeoutError("the request timed out")
+        return choose(kwargs)
+
+    api = RowApi(lost, api_key=KEY)
+    out = tmp_path / "o"
+    assert run(args(out), client=api) == 0
+    assert len(api.calls) == 10  # one request per mail, none repeated
+    rows = json.loads((out / "rows.json").read_text(encoding="utf-8"))
+    assert [r["outcome"] for r in rows].count("PROVIDER_ERROR") >= 1
+    assert all("attempts" not in r for r in rows)

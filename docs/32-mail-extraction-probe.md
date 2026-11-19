@@ -780,8 +780,9 @@ saved `.eml` folder of an earlier OpenAI run, with the same `--task` and `--targ
 run (the comparison refuses runs with a different task or columns). `--ollama-num-ctx` (default
 8192) is the context window in tokens and `--ollama-timeout` (default 120) the seconds per mail.
 `--ollama-think default` leaves the `think` field out of the request instead of sending `false`,
-for a server that refuses the field for a model without thinking; the
-first mail also pays for loading the model.
+for a server that refuses the field for a model without thinking. `--ollama-load-timeout` (default
+600) is the seconds allowed for loading the model before the first mail (see "Loading, and one more
+try" below); `--ollama-timeout` is no longer spent on loading.
 
 POSIX shell:
 
@@ -812,12 +813,13 @@ uv run python -m scripts.compare_mail_runs `
 ```
 
 `--dry-run` with `--ollama-model` prints the body of the `POST /api/chat` request for the first
-mail and contacts nobody. Before the first mail a real run asks `GET /api/version` and
-`GET /api/tags`, and stops with one sentence when the server does not answer or the model is not
-pulled (`ollama pull <model>`). The outputs are the same files as before; `summary.json` has
+mail and contacts nobody (it does not load the model either). Before the first mail a real run asks
+`GET /api/version` and `GET /api/tags`, and stops with one sentence when the server does not answer
+or the model is not pulled (`ollama pull <model>`); then it loads the model. The outputs are the same files as before; `summary.json` has
 `"executor": "ollama"`, `configuration_id` `ollama-text-extraction-p1-<model>`, and an `ollama`
 block: the model's name, digest and size from `/api/tags`, the Ollama version, `num_ctx`,
-temperature, how many mails did not fit, and seconds per mail (median and maximum). There is no
+temperature, `load_seconds`, how many mails did not fit, and seconds per mail (median and maximum).
+Every row of `rows.json` of an Ollama run also has `attempts` (1 or 2). There is no
 cost estimate: the model is local.
 
 **What is sent.** `POST /api/chat`, not streamed, with `format` set to the JSON schema,
@@ -834,6 +836,26 @@ a prompt that did not fit are `PROVIDER_ERROR` (the message names the kind: `Oll
 `SOURCE_ACCESS_DENIED`; any other 4xx, including the 404 for a model that is not pulled, is
 `REQUEST_REFUSED` and stops the run; a reply cut by the length limit is `RESPONSE_INCOMPLETE`; a
 reply that is not the JSON asked for is `INVALID_RESPONSE`.
+
+**Loading, and one more try.** In the first real runs the first mail took 60 s with one model and
+timed out at 120 s with a larger one, because the model was still being loaded (details in the next
+section). So before the first mail the probe loads the model with a request that asks for no
+answer. Ollama's FAQ says that a model can be preloaded "by sending the Ollama server an empty
+request" (<https://docs.ollama.com/faq.md>, "How can I preload a model into Ollama to get faster
+response times?"); the example is `POST /api/chat` with the model name and nothing else. The probe
+sends the model name, `"stream": false` and `options.num_ctx` (the same window as the mails; that
+the server would otherwise reload a model whose window differs is an assumption, the pages read do
+not say) and leaves `keep_alive` out (the FAQ: idle models are unloaded after about five minutes;
+every mail asked resets that). The API reference
+(<https://docs.ollama.com/api/chat.md>) does not describe the empty request, so the FAQ is the only
+source. It has its own limit, `--ollama-load-timeout` (default 600 s). One line is printed when it
+starts and one with the seconds it took, which are recorded as `ollama.load_seconds` and are not
+part of any mail's seconds. If loading fails or times out the run stops with one sentence before any
+mail is sent, and writes no files. A mail whose request ends in a timeout or a lost connection
+(`OllamaTimeout`, `OllamaConnectionError`) is asked once more; the `seconds` of such a mail are those
+of both attempts, and `rows.json` has `attempts` 2. No other outcome is asked again (not an HTTP
+error, a reply that is not valid, nor a prompt that did not fit), and nothing is repeated on the
+OpenAI path.
 
 **A prompt that did not fit.** Ollama's documentation does not say what the server does with a
 prompt longer than the window, so this is a heuristic and not a documented signal. A mail is
@@ -859,8 +881,146 @@ what they are) unless `--force`. `--out FILE` writes the same numbers as JSON; a
 repository that git does not ignore is refused. "Equal" says that two readers gave the same value
 for a mail, not that the value is right: the base run is a reference for agreement, not for truth.
 
-**Not verified.** No local model was run: nothing is known yet about quality, speed or memory. The
-client and the scripts were tested against a fake HTTP opener only, with invented mails. That
-Ollama accepts the schema of the request (nullable types and enums), that `think: false` is
-accepted by every model, and how a real server behaves on a prompt that is too long are all
-unchecked.
+**Not verified.** The first real runs are in the next section. What is still unchecked: how a real
+server behaves on a prompt that is too long (none reached the window in those runs), and the
+warm-up request and the one more try, which were written after those runs and tested against a fake
+HTTP opener only, with invented mails.
+
+## Local model probe: first runs (2026-11-19)
+
+Three local models and OpenAI were run on the same 40 saved real mails. Numbers only; no mail, sender
+or brand is named.
+
+**Setup.** A laptop GPU with 12 GB of memory; Ollama 0.32.5; `num_ctx` 8192, temperature 0, thinking
+off. Three models: `qwen3.5:4b` (3.4 GB), `qwen3.5` at 9B (6.6 GB) and `gemma4:12b` (8.0 GB). The
+baseline is OpenAI `gpt-6-luna`, effort low, run the same day on the same 40 saved mails with the
+same task and the same eight columns, after the cut fix.
+
+**What the server accepted.** The JSON schema and `think: false` were accepted for all three models.
+No prompt reached the context window (about 1,250 prompt tokens a mail).
+
+| | Baseline | 4b | 9B | 12B |
+| --- | --- | --- | --- | --- |
+| Found | 33 | 33 | 33 | 34 |
+| Not about the task | 7 | 7 | 7 | 5 |
+| Failed | 0 | 0 | 0 | 1 |
+| Values kept | 178 | 135 | 154 | 223 |
+| of them literal | 108 | 86 | 89 | 126 |
+| Dropped by the checks | 3 | 24 | 28 | 5 |
+| Median seconds a mail | 4.87 | 5.08 | 8.03 | 6.17 |
+
+**Agreement with the baseline where both gave a value** (4b, 9B, 12B): `Amount` 25 of 25, 24 of 25,
+25 of 25; `Paid on` 11 of 13, 9 of 10, 16 of 16.
+
+**Noise floor.** Two OpenAI runs a day apart (the text of two mails differs between them because of
+the cut fix) disagree on the outcome of 1 mail, on `Item` in 4 of 30, and on at most 1 value in
+every other column.
+
+**What the differences are.** The two smaller models lose many values to "quote not in text" (13 of
+the 4b's are the currency) and give the product where the baseline gives the seller (6 and 3 mails,
+against 2 for the 12B). The 12B fills more cells than the baseline: 9 more `Paid on` (8 of them
+literal) and 19 more `Billing cycle` (all derived). A literal mark proves the value stands in the
+mail, not that it is the value the column asks for.
+
+**Loading.** The first mail took 60 s (4b) and timed out at 120 s (12B; the second mail took 79 s).
+
+**First ground truth, from the owner,** for the two mails where the baseline and the 12B disagree on
+the outcome: both are advertisements, nearly identical, from one sender. The baseline said "not about
+the task" for both (right); the 12B found 6 and 5 values in them (wrong); each of the smaller models
+was wrong on one of the two. Before the cut fix the baseline had "found" one of them from the 290
+characters that were left of it.
+
+**Conclusion.** A comparison between models does not say who is right. The 12B reads amounts and
+dates as the baseline does and is weaker at the boundary of what is a record. A truth table is
+needed, which is what the two scripts in the next section are for.
+
+## Truth table and scoring
+
+Comparing runs with each other measures agreement, not truth. The owner fixes the truth for the
+saved mails once, by hand, and every reader (OpenAI, a local model, later rules) is scored against
+it. Two scripts, both outside the application, make that hand work small and the scoring honest.
+
+**`scripts/make_mail_truth.py RUN_DIR [RUN_DIR ...] --out FILE.xlsx`** merges several runs of the
+same task and the same target columns (it refuses otherwise, saying `task` or `columns`, never
+what they are) into one workbook. A run is named by its folder name. The sheets:
+
+- `Truth`: one row per mail in the order of the first run: `Source` (the key; the column is locked,
+  and so are `Received`, `From` and `Subject`, which only help to recognise the mail), `Is a record`
+  (drop-down `yes`, `no`, `?`), then one column per target column, named as in the runs. `Is a record`
+  is `yes` when every run that voted found values, `no` when every one said "not applicable", and
+  `?` otherwise; a run that failed on a mail has no vote, and "nothing found" is a vote for neither.
+  A value cell holds the value all runs agree on after the normalisation of `compare_mail_runs`
+  (agreed, not coloured); the value some runs give, all equal, while the others give nothing (partly,
+  prefilled, light yellow); `?` when runs give different values (conflict, orange; the candidates are
+  in the cell's comment as `run-name: value`); or nothing. For a text column one wording holding the
+  other is still a conflict. Numbers are numbers, dates are text `YYYY-MM-DD`, a choice column
+  has a drop-down of its options and `-`.
+- `Candidates`: one row for every value a run wrote (mail, column, run, value, mark, quote): the
+  material for deciding. Runs that wrote nothing for a cell have no row.
+- `Info`: the task, the columns with kind and options, the runs merged (folder, executor,
+  configuration), the counts of agreed, partly, conflict and empty cells and of `?` in `Is a
+  record`, and three lines of instruction. The scorer reads the task and the columns from here.
+
+It prints the counts and the path only. The workbook holds subjects, senders, values and quotes, so
+it is written only into a folder git ignores (for instance `artifacts/`) or outside the repository.
+
+**Filling it.** Settle every `?`: in `Is a record` choose `yes` or `no`; in a value cell type the
+value the mail gives, or `-` when the mail gives no such value (an empty cell means the same). Rows
+with `Is a record` = `no` have their value cells ignored. Check the coloured cells first; the others
+are the runs' agreement, which is not the truth, so look at a few of them too.
+
+**`scripts/score_mail_runs.py TRUTH.xlsx RUN_DIR [RUN_DIR ...] [--out FILE.json]`** refuses while
+any `?` is left (it prints how many, in `Is a record` and in value cells; a `?` in a row that is
+`no` is ignored), a cell that does not fit its column, a run whose task or columns differ from the
+`Info` sheet, and a `Source` that is missing on either side. Per run it prints numbers only:
+
+- **Records**: found (truth yes, run found values); missed (truth yes, the run said "not applicable"
+  or found nothing); false records (truth no, run found values) with how many values were written
+  into them; correct rejections (truth no, nothing written); failed mails.
+- **Values**, per column and in total, over the mails the truth calls a record: `correct` (equal
+  after normalising); `close` (text columns only: one wording holds the other); `wrong` (a different
+  value); `missing` (the truth has a value, the run none); `extra` (the truth has none, the run wrote
+  one). The values of a mail the run missed or failed on are `missing`. Values written into false
+  records are counted only with the false records.
+- The same totals by the run's mark (`literal`, `derived`; there is no mark for a `missing` value),
+  and the run's dropped values by reason.
+- Two shares with their counts: of everything the run wrote, including into false records, the share
+  that is `correct` (`close` is not counted as correct); and of everything the truth holds, the
+  share the run gave correctly.
+
+With several runs one compact table shows them as columns; `--out` writes the same numbers as JSON
+(a file inside the repository that git does not ignore is refused). It never prints a subject, a
+sender, a value or a quote.
+
+POSIX shell:
+
+```
+uv run python -m scripts.make_mail_truth \
+  artifacts/mail-extraction/<openai-run> artifacts/mail-extraction/<local-run> \
+  --out artifacts/mail-extraction/truth.xlsx
+
+# open truth.xlsx, settle every ?, save
+
+uv run python -m scripts.score_mail_runs artifacts/mail-extraction/truth.xlsx \
+  artifacts/mail-extraction/<openai-run> artifacts/mail-extraction/<local-run> \
+  --out artifacts/mail-extraction/scores.json
+```
+
+PowerShell:
+
+```
+uv run python -m scripts.make_mail_truth `
+  artifacts/mail-extraction/<openai-run> artifacts/mail-extraction/<local-run> `
+  --out artifacts/mail-extraction/truth.xlsx
+
+# open truth.xlsx, settle every ?, save
+
+uv run python -m scripts.score_mail_runs artifacts/mail-extraction/truth.xlsx `
+  artifacts/mail-extraction/<openai-run> artifacts/mail-extraction/<local-run> `
+  --out artifacts/mail-extraction/scores.json
+```
+
+**Not verified: no truth table has been made yet.** The two scripts were tested offline on invented
+runs and on the ten fixture mails with fake clients; the workbook was read back by the scorer after a
+round trip through openpyxl but was not opened in Excel, so the locked columns, the drop-downs and the
+colours have not been seen there.
