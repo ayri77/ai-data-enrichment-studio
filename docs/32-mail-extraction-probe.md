@@ -756,3 +756,111 @@ the hosted demo. The wording of the notes and the Ukrainian and German texts wer
 native speaker. Browsers other than the one used by the tests were not tried, and nor was a
 selection of 500 files or of 32 MiB through a real file dialog (the bounds are tested with sizes
 set on the file objects).
+
+## Local model probe (Ollama)
+
+**What it is for.** To measure whether a model that runs on this machine can replace the external
+one for reading mails. It is the same probe with another reader: `--ollama-model NAME` sends, for
+every mail, the same instructions, the same cleaned and masked text and the same strict JSON schema
+to a local [Ollama](https://docs.ollama.com/) server, and the reply goes through the same reader as
+before. Every check and every mark (`literal`, `derived`, the drops and their reasons) is computed
+by the existing code; the local model only supplies the claim. It is a measurement outside the
+application: the client (`providers/text_extraction_ollama.py`) is imported by the probe script
+only, it is not a binding, and the application has no setting, route or interface for it.
+
+**What leaves the machine.** Nothing, as long as `--ollama-url` is a loopback address (the default
+is `http://127.0.0.1:11434`). A host that is not `localhost` or a loopback IP address is refused
+unless `--ollama-allow-remote` is also given, because the text of every mail is sent to it; an
+address with a user name, a path or a scheme other than http and https is refused either way. The
+connection ignores proxy settings and follows no redirect. No OpenAI key is needed and none is read.
+The outputs in `artifacts/` hold quotes from your mails, as before.
+
+**Commands.** Pull the model once (`ollama pull <model>`), keep the server running, and run on the
+saved `.eml` folder of an earlier OpenAI run, with the same `--task` and `--target` options as that
+run (the comparison refuses runs with a different task or columns). `--ollama-num-ctx` (default
+8192) is the context window in tokens and `--ollama-timeout` (default 120) the seconds per mail.
+`--ollama-think default` leaves the `think` field out of the request instead of sending `false`,
+for a server that refuses the field for a model without thinking; the
+first mail also pays for loading the model.
+
+POSIX shell:
+
+```
+uv run python -m scripts.experiment_mail_extraction \
+  --eml-dir artifacts/mail-extraction/mails --ollama-model <model> \
+  --out-dir artifacts/mail-extraction/local-run \
+  --task "Payments and subscriptions: what was paid, or what changes for a subscription" \
+  --target "Service:text" --target "Amount:number" --target "Paid on:date"
+
+uv run python -m scripts.compare_mail_runs \
+  artifacts/mail-extraction/<openai-run-folder> artifacts/mail-extraction/local-run \
+  --out artifacts/mail-extraction/compare.json
+```
+
+PowerShell:
+
+```
+uv run python -m scripts.experiment_mail_extraction `
+  --eml-dir artifacts/mail-extraction/mails --ollama-model <model> `
+  --out-dir artifacts/mail-extraction/local-run `
+  --task "Payments and subscriptions: what was paid, or what changes for a subscription" `
+  --target "Service:text" --target "Amount:number" --target "Paid on:date"
+
+uv run python -m scripts.compare_mail_runs `
+  artifacts/mail-extraction/<openai-run-folder> artifacts/mail-extraction/local-run `
+  --out artifacts/mail-extraction/compare.json
+```
+
+`--dry-run` with `--ollama-model` prints the body of the `POST /api/chat` request for the first
+mail and contacts nobody. Before the first mail a real run asks `GET /api/version` and
+`GET /api/tags`, and stops with one sentence when the server does not answer or the model is not
+pulled (`ollama pull <model>`). The outputs are the same files as before; `summary.json` has
+`"executor": "ollama"`, `configuration_id` `ollama-text-extraction-p1-<model>`, and an `ollama`
+block: the model's name, digest and size from `/api/tags`, the Ollama version, `num_ctx`,
+temperature, how many mails did not fit, and seconds per mail (median and maximum). There is no
+cost estimate: the model is local.
+
+**What is sent.** `POST /api/chat`, not streamed, with `format` set to the JSON schema,
+`think: false`, and `options` `temperature` 0, `num_ctx`, and `num_predict` (the request's output
+limit, at most half the window). The instructions are the system message, followed by the schema
+written out as text (the structured outputs page advises passing it in the prompt too); the user
+message is the same text as for OpenAI. The answer is read from `message.content` only;
+`message.thinking`, if the server returns any, is never read. Tokens come from
+`prompt_eval_count` and `eval_count`.
+
+**Failures** use the existing outcome codes: no connection, a timeout, a body that is not JSON and
+a prompt that did not fit are `PROVIDER_ERROR` (the message names the kind: `OllamaConnectionError`,
+`OllamaTimeout`, `OllamaBadResponse`, `PromptDidNotFit`); HTTP 401 and 403 are
+`SOURCE_ACCESS_DENIED`; any other 4xx, including the 404 for a model that is not pulled, is
+`REQUEST_REFUSED` and stops the run; a reply cut by the length limit is `RESPONSE_INCOMPLETE`; a
+reply that is not the JSON asked for is `INVALID_RESPONSE`.
+
+**A prompt that did not fit.** Ollama's documentation does not say what the server does with a
+prompt longer than the window, so this is a heuristic and not a documented signal. A mail is
+reported as `PromptDidNotFit`, and not read, when the prompt tokens (`prompt_eval_count` plus
+`prompt_eval_cached_count`) plus the reply's `eval_count` reach `num_ctx`. It is counted in
+`summary.json` and flagged in `rows.json` (`prompt_did_not_fit`). It can report a mail that did fit
+and it can miss a truncation the server does not show in these counts. Raise `--ollama-num-ctx`
+(more memory) or lower `--max-chars` when mails are reported.
+
+**What the comparison shows.** `scripts/compare_mail_runs.py BASE_DIR OTHER_DIR` reads the two
+runs' `rows.json` and `summary.json` and prints numbers only, never a mail:
+
+- mails matched (by file name, else by message id) and the ones left on each side;
+- the outcome table: found, not applicable, nothing found, failed, in BASE against in OTHER;
+- per target column: filled in both, only in BASE, only in OTHER; of those filled in both, how many
+  are equal after normalising (numbers numerically, dates as dates, text without case and extra
+  spacing) and how many differ, and the same for the values marked `literal` in BASE;
+- values kept by mark and dropped by reason, seconds per mail (median) and in all, and tokens, for
+  each run.
+
+It refuses two runs with a different task or different columns (it says `task` or `columns`, not
+what they are) unless `--force`. `--out FILE` writes the same numbers as JSON; a file inside the
+repository that git does not ignore is refused. "Equal" says that two readers gave the same value
+for a mail, not that the value is right: the base run is a reference for agreement, not for truth.
+
+**Not verified.** No local model was run: nothing is known yet about quality, speed or memory. The
+client and the scripts were tested against a fake HTTP opener only, with invented mails. That
+Ollama accepts the schema of the request (nullable types and enums), that `think: false` is
+accepted by every model, and how a real server behaves on a prompt that is too long are all
+unchecked.
