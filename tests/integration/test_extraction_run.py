@@ -124,6 +124,7 @@ def run_extraction(
     *,
     api: RowApi | None = None,
     reuse: tuple[SQLiteOperationCache, SQLiteResolutionCache] | None = None,
+    **options: Any,
 ) -> Run:
     tmp_path.mkdir(parents=True, exist_ok=True)
     source = tmp_path / "mail.xlsx"
@@ -163,6 +164,7 @@ def run_extraction(
         dataset_id="mail",
         preserve_existing_outputs=True,
         sources_in_workbook=mode,
+        **options,
     )
     return Run(output, plan, result, api, usage)
 
@@ -336,3 +338,49 @@ def test_what_the_cache_holds_on_disk_for_this_capability(tmp_path: Path) -> Non
     assert "Sam" not in stored and "Hallo" not in stored
     # The extracted values and their quotes are stored in clear.
     assert "Gesamt: 10,00 EUR" in stored and "Cloudbox Plus" in stored
+
+
+def test_the_text_column_can_be_emptied_in_the_result_and_the_notes_stay(tmp_path: Path) -> None:
+    run = run_extraction(tmp_path, "notes", clear_columns=["Text"])
+    values = cells(run.output)
+    assert values["D1"] == "Text"  # the header stays
+    assert not any(key.startswith("D") and key != "D1" for key in values)
+    # The other columns are as they were, the values are written, and the quote is in a note.
+    assert values["C3"] and values["F3"] == 10
+    workbook = load_workbook(run.output)
+    try:
+        assert "Quote: Gesamt: 10,00 EUR" in workbook[SHEET]["F3"].comment.text
+    finally:
+        workbook.close()
+    # Without the option the text is where it was.
+    kept = cells(run_extraction(tmp_path / "again").output)
+    assert "Gesamt: 10,00 EUR" in kept["D3"]
+
+
+def test_a_column_to_empty_that_is_not_in_the_table_is_refused_before_anything_runs(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="not in the selected table"):
+        run_extraction(tmp_path, clear_columns=["Body"])
+
+
+def test_a_failure_to_add_the_sources_logs_the_class_only_for_a_plan_that_reads_texts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from ai_data_enrichment.orchestration import excel_runner
+
+    def failing(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("MARKER-A-LIBRARY-QUOTES-A-CELL")
+
+    monkeypatch.setattr(excel_runner, "annotate_workbook", failing)
+    private = run_extraction(tmp_path / "private", "notes", private_text=True)
+    assert private.result.sources_applied is False
+    assert "Adding sources to the workbook failed (RuntimeError)" in caplog.text
+    assert "MARKER-A-LIBRARY-QUOTES-A-CELL" not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
+    caplog.clear()
+    # As it always was for every other plan: the traceback is logged.
+    ordinary = run_extraction(tmp_path / "ordinary", "notes")
+    assert ordinary.result.sources_applied is False
+    assert "Adding sources to the workbook failed" in caplog.text
+    assert "MARKER-A-LIBRARY-QUOTES-A-CELL" in caplog.text

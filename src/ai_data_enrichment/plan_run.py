@@ -17,7 +17,7 @@ from time import monotonic
 from typing import Annotated, Any, Literal
 from uuid import uuid4
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse, JSONResponse
 from openai import OpenAI
 from openpyxl.utils import get_column_letter
@@ -26,6 +26,12 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 from starlette.concurrency import run_in_threadpool
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from ai_data_enrichment.capabilities.extraction import (
+    ExtractionPlanError,
+    ExtractionRequest,
+    ExtractionTarget,
+    build_extraction_plan,
+)
 from ai_data_enrichment.capabilities.fallback import (
     FallbackPlanError,
     FallbackRequest,
@@ -36,9 +42,12 @@ from ai_data_enrichment.capabilities.fallback import (
     is_fallback_plan,
     plan_shape,
 )
+from ai_data_enrichment.capabilities.plan_registry import registry_for_plan
 from ai_data_enrichment.domain.dataset_profile import DatasetProfile
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan
 from ai_data_enrichment.execution.job_models import JobExecutionResult, classify_row_outcome
+from ai_data_enrichment.execution.step_tally import is_settled_not_applicable, outcome_kinds
+from ai_data_enrichment.ingestion.excel_inspector import inspect_workbook
 from ai_data_enrichment.ingestion.excel_profiler import profile_worksheet
 from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.output.excel_output_mapping import build_output_header_writes
@@ -48,6 +57,8 @@ from ai_data_enrichment.plan_run_worker import (
     MAX_RUN_ROWS,
     ApiFactory,
     ExecutorFactory,
+    ExtractionApiFactory,
+    ExtractionSettings,
     LookupSettings,
     MountainPolicy,
     RunTask,
@@ -58,7 +69,9 @@ from ai_data_enrichment.plan_run_worker import (
     offered_categories,
     offered_descriptions,
     openai_api,
+    openai_extraction_api,
     progress_slots,
+    read_extraction_usage,
     read_lookup_usage,
     read_progress,
 )
@@ -69,6 +82,15 @@ from ai_data_enrichment.planning.llm_planner import (
 )
 from ai_data_enrichment.planning.model_catalog import model_client as catalog_client
 from ai_data_enrichment.provider_settings import ProviderConfiguration
+from ai_data_enrichment.providers.text_extraction import (
+    DEFAULT_EFFORT as EXTRACTION_REASONING_EFFORT,
+)
+from ai_data_enrichment.providers.text_extraction import (
+    DEFAULT_MODEL as TEXT_EXTRACTION_DEFAULT_MODEL,
+)
+from ai_data_enrichment.providers.text_extraction import (
+    configuration_id as extraction_configuration_id,
+)
 from ai_data_enrichment.providers.web_lookup import configuration_id
 from ai_data_enrichment.resolution.input_errors import MAX_NAME_LENGTH
 from ai_data_enrichment.resolution.models import (
@@ -114,6 +136,7 @@ from ai_data_enrichment.validation.plan_validator import (
 from ai_data_enrichment.workspace_errors import WorkspaceError
 
 LOOKUP_NUMBERS = ("requests", "input_tokens", "output_tokens", "web_searches")
+EXTRACTION_NUMBERS = ("requests", "input_tokens", "output_tokens")
 MAX_PLANS = 32
 MAX_JOBS = 16
 MAX_PLAN_BYTES = 64 * 1024
@@ -126,13 +149,16 @@ WEB_LOOKUP_REASONING_EFFORT = "low"
 _MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}")
 # A draft made by the planner (or brought along) has no "kind"; one the server built for
 # the web lookup says so: "fallback" (the lookup step alone) or "mixed" (the planner's steps
-# for the columns that have a source and one lookup step for the others). The kind is part
-# of what the fingerprint covers.
+# for the columns that have a source and one lookup step for the others); one the server built
+# to read values out of a text column says "extraction" (one step, nothing else). The kind is
+# part of what the fingerprint covers.
 FALLBACK_KIND = "fallback"
 MIXED_KIND = "mixed"
-PLAN_KINDS = ("planner", FALLBACK_KIND, MIXED_KIND)
-# No route builds a plan that reads texts yet: wherever a plan comes in, one is refused.
-EXTRACTION_PLAN_REFUSED = "A plan that reads texts cannot be made, validated or run yet."
+EXTRACTION_KIND = "extraction"
+PLAN_KINDS = ("planner", FALLBACK_KIND, MIXED_KIND, EXTRACTION_KIND)
+# A plan that reads texts comes from its own route and nowhere else: a supplied plan, a plan
+# the planner returns, and a draft whose kind does not agree with its plan are refused.
+EXTRACTION_PLAN_REFUSED = "A plan that reads texts can only be made by the extraction route."
 # What a draft gains after its fingerprint was made; everything else is covered by it.
 _AFTER_FINGERPRINT = frozenset(
     {"plan_id", "fingerprint", "status", "created_at", "approved_at", "validation"}
@@ -149,7 +175,9 @@ class PlanBodyLimit:
         if (
             scope["type"] != "http"
             or scope.get("method") != "POST"
-            or not scope["path"].startswith(("/api/plans", "/api/fallback-plans"))
+            or not scope["path"].startswith(
+                ("/api/plans", "/api/fallback-plans", "/api/extraction-plans")
+            )
         ):
             await self.app(scope, receive, send)
             return
@@ -216,6 +244,8 @@ class PlanRunSettings:
     web_lookup_model: str = WEB_LOOKUP_DEFAULT_MODEL
     # `ENRICHMENT_ALLOW_MAIL`: tables built from e-mails; offered on a local installation only.
     allow_mail: bool = False
+    # `ENRICHMENT_TEXT_EXTRACTION_MODEL`: the model that reads values out of a text column.
+    text_extraction_model: str = TEXT_EXTRACTION_DEFAULT_MODEL
     # `ENRICHMENT_USAGE_FILE`: None when unset (the entry point decides), "off", or the
     # path of the file that keeps the usage events across restarts.
     usage_file: str | None = None
@@ -223,18 +253,24 @@ class PlanRunSettings:
     def __post_init__(self) -> None:
         if not _MODEL_ID.fullmatch(self.web_lookup_model):
             raise ValueError("The web lookup model must be one short model id.")
+        if not _MODEL_ID.fullmatch(self.text_extraction_model):
+            raise ValueError("The text extraction model must be one short model id.")
 
     @classmethod
     def from_environment(cls) -> "PlanRunSettings":
         model = (os.getenv("ENRICHMENT_WEB_LOOKUP_MODEL") or "").strip()
         if model and not _MODEL_ID.fullmatch(model):
             raise RuntimeError("ENRICHMENT_WEB_LOOKUP_MODEL must be one short model id.")
+        extraction_model = (os.getenv("ENRICHMENT_TEXT_EXTRACTION_MODEL") or "").strip()
+        if extraction_model and not _MODEL_ID.fullmatch(extraction_model):
+            raise RuntimeError("ENRICHMENT_TEXT_EXTRACTION_MODEL must be one short model id.")
         return cls(
             allow_network=os.getenv("ENRICHMENT_ALLOW_NETWORK") == "1",
             llm_model=os.getenv("OPENAI_MODEL") or None,
             allow_web_lookup=os.getenv("ENRICHMENT_ALLOW_WEB_LOOKUP") == "1",
             web_lookup_model=model or WEB_LOOKUP_DEFAULT_MODEL,
             allow_mail=os.getenv("ENRICHMENT_ALLOW_MAIL") == "1",
+            text_extraction_model=extraction_model or TEXT_EXTRACTION_DEFAULT_MODEL,
             usage_file=parse_usage_file(os.getenv("ENRICHMENT_USAGE_FILE")),
         )
 
@@ -311,6 +347,38 @@ class FallbackPlanRequest(BaseModel):
             self.question is None
         ):
             raise WorkspaceError("invalid_request", "Check the request fields.")
+
+
+class ExtractionTargetBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    column: str = Field(min_length=1, max_length=200)
+    kind: Literal["text", "number", "date", "yes_no", "one_of"]
+    # The answers a choice column may hold; the builder checks the rest.
+    options: list[Annotated[str, Field(max_length=200)]] | None = Field(default=None, max_length=20)
+
+
+class ExtractionPlanRequest(BaseModel):
+    """Ask for the plan that reads values out of a text column: what to read, and into what.
+
+    Only structure and size are checked here; ``ExtractionRequest`` and
+    ``build_extraction_plan`` check what the task may hold. There is no plan, no kind and no
+    model in the body: the server builds the plan and sets the kind. Without a table
+    selection the plan is made for the first worksheet of the dataset and the table found on
+    it; the columns to fill are the existing columns of that name, and new columns after the
+    last column of the table, in the order of ``targets``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    dataset_id: str = Field(min_length=1, max_length=64)
+    question: str = Field(min_length=1, max_length=4000)
+    text_column: str = Field(min_length=1, max_length=200)
+    targets: list[ExtractionTargetBody] = Field(min_length=1, max_length=100)
+    # Both or neither: which table of the dataset to read.
+    sheet_name: str | None = Field(default=None, min_length=1, max_length=31)
+    range_ref: str | None = Field(default=None, min_length=1, max_length=32)
+    # Whether the result workbook says where each written value came from; the quote it
+    # rests on is the evidence a person checks, so the default is a note on each cell.
+    sources_in_workbook: Literal["none", "notes", "sheet"] = "notes"
 
 
 class ApprovalRequest(BaseModel):
@@ -407,6 +475,7 @@ class PlanRunService:
         usage: UsageLog | None = None,
         offline_lookup_api: ApiFactory | None = None,
         mail_available: bool = False,
+        offline_extraction_api: ExtractionApiFactory | None = None,
     ) -> None:
         self.datasets, self.lock, self.settings = datasets, lock, settings
         # Whether tables of e-mails can be made here (the setting, on a local installation),
@@ -415,6 +484,8 @@ class PlanRunService:
         self.mail_datasets: set[str] = set()
         # Trusted injection for tests: made inside the worker in place of the real client.
         self.offline_lookup_api = offline_lookup_api
+        # The same for the text extraction (tests only; never reachable from a request).
+        self.offline_extraction_api = offline_extraction_api
         self.provider = provider
         # Counted events of this workspace: kinds and numbers, never content.
         self.usage = usage or UsageLog()
@@ -636,18 +707,52 @@ class PlanRunService:
                 "web_lookup_no_key", "The universal search needs an OpenAI API key on the server."
             )
 
+    def extraction_offered(self) -> bool:
+        """Whether an extraction plan could be created here: tables of mail are offered
+        (the setting, on a local installation) and the server has an OpenAI key.
+
+        The text of a cell is sent to OpenAI, so it is never offered on a hosted app, whatever
+        the environment says (``mail_available`` is false there).
+        """
+        return (
+            self.mail_available
+            and self.provider.key_present
+            and not self._extraction_without_stand_in()
+        )
+
+    def extraction_available(self) -> bool:
+        """Whether an extraction plan could be created and run now: no promise about a request."""
+        return self.extraction_offered() and (
+            self.settings.allow_network or self.offline_executor_factory is not None
+        )
+
+    def _extraction_without_stand_in(self) -> bool:
+        """An application assembled offline (tests) that was given no stand-in client: its
+        runs skip the network gate, so an extraction would reach the real service."""
+        return self.offline_executor_factory is not None and self.offline_extraction_api is None
+
+    def extraction_gate(self) -> None:
+        """Refuse the extraction unless tables of mail are offered and there is a key."""
+        if not self.extraction_offered():
+            raise WorkspaceError(
+                "extraction_not_allowed",
+                "Reading values out of texts is not available on this server.",
+                403,
+            )
+
     @staticmethod
     def plan_gate(draft: dict, plan: EnrichmentPlan) -> None:
-        """A plan with the web lookup is a fallback or a mixed draft and nothing else is.
+        """A plan with the web lookup is a fallback or a mixed draft, one that reads texts is
+        an extraction draft, and nothing else is.
 
         Whatever the draft says, the plan decides: a draft of another kind, or one whose
         kind and plan do not agree, is not run, validated or approved. ``planner``: no
         web lookup step; ``fallback``: the lookup step alone; ``mixed``: the lookup step
-        with other steps.
+        with other steps; ``extraction``: the extraction step alone.
         """
-        if plan_shape(plan) == "extraction":
-            raise WorkspaceError("extraction_plan_refused", EXTRACTION_PLAN_REFUSED)
         kind = draft.get("kind", "planner")
+        if (plan_shape(plan) == "extraction") != (kind == EXTRACTION_KIND):
+            raise WorkspaceError("extraction_plan_refused", EXTRACTION_PLAN_REFUSED)
         if kind not in PLAN_KINDS or plan_shape(plan) != kind:
             raise WorkspaceError(
                 "web_lookup_plan_refused",
@@ -672,6 +777,8 @@ class PlanRunService:
             registry = (
                 builtin_registry()
                 if kind == "planner"
+                else registry_for_plan(plan, profile.columns, builtin_registry())
+                if kind == EXTRACTION_KIND
                 else fallback_registry(
                     plan, profile.columns, builtin_registry() if kind == MIXED_KIND else None
                 )
@@ -680,6 +787,11 @@ class PlanRunService:
             return {
                 "valid": False,
                 "errors": [{"code": "fallback_plan_invalid", "message": str(exc)}],
+            }
+        except ExtractionPlanError as exc:
+            return {
+                "valid": False,
+                "errors": [{"code": "extraction_plan_invalid", "message": str(exc)}],
             }
         # The same reduction the planner's loop applied: the plan writes the chosen columns
         # minus the unfilled ones, and a wrongly named unfilled target is reported here too.
@@ -728,12 +840,18 @@ class PlanRunService:
             raise WorkspaceError("dataset_not_found", "Upload the workbook again.", 404)
         if len(body.model_dump_json().encode()) > MAX_PLAN_BYTES:
             raise WorkspaceError("plan_limit", "Plan request exceeds 64 KiB.")
+        return self._profile_table(path, body.dataset_id, body.sheet_name, body.range_ref)
+
+    @staticmethod
+    def _profile_table(
+        path: Path, dataset_id: str, sheet_name: str, range_ref: str
+    ) -> tuple[Path, DatasetProfile]:
         try:
-            selection = TableSelection(body.sheet_name, body.range_ref)
+            selection = TableSelection(sheet_name, range_ref)
             min_col, min_row, max_col, max_row = selection.bounds
             if max_row - min_row > MAX_RUN_ROWS or max_col > 100 or min_col < 1:
                 raise ValueError("Selection limit")
-            profile = profile_worksheet(path, body.sheet_name, body.dataset_id, selection=selection)
+            profile = profile_worksheet(path, sheet_name, dataset_id, selection=selection)
             if profile.row_count is None or profile.row_count < 1:
                 raise ValueError("Empty selection")
         except ValueError as exc:
@@ -915,6 +1033,92 @@ class PlanRunService:
             kind=FALLBACK_KIND,
         )
 
+    def create_extraction_plan(self, body: ExtractionPlanRequest) -> dict:
+        """The plan that reads values out of a text column, built by the server and kept as a
+        draft of kind ``extraction``. No model is asked to build it."""
+        self.extraction_gate()
+        try:
+            request = ExtractionRequest(
+                question=body.question,
+                text_column=body.text_column,
+                targets=tuple(
+                    ExtractionTarget(
+                        column=item.column, kind=item.kind, options=tuple(item.options or ())
+                    )
+                    for item in body.targets
+                ),
+            )
+        except ValidationError as exc:
+            message = str(exc.errors()[0]["msg"]).removeprefix("Value error, ")
+            raise WorkspaceError("extraction_plan_invalid", message) from None
+        if (body.sheet_name is None) != (body.range_ref is None):
+            raise WorkspaceError(
+                "extraction_plan_invalid", "Give both the worksheet and the range, or neither."
+            )
+        path = self.datasets.get(body.dataset_id)
+        if path is None:
+            raise WorkspaceError("dataset_not_found", "Upload the workbook again.", 404)
+        sheet_name, range_ref = body.sheet_name, body.range_ref
+        if sheet_name is None or range_ref is None:
+            sheet_name, range_ref = self._whole_table(path)
+        path, profile = self._profile_table(path, body.dataset_id, sheet_name, range_ref)
+        min_col, _, max_col, _ = TableSelection(sheet_name, range_ref).bounds
+        # Where each target goes: its own column when the table has one of that name,
+        # otherwise the next free column after the table, in the order of the request.
+        letters = {
+            column.name: get_column_letter(min_col + index)
+            for index, column in enumerate(profile.columns)
+        }
+        output_columns: dict[str, str] = {}
+        added = 0
+        for target in request.targets:
+            letter = letters.get(target.column)
+            if letter is None:
+                added += 1
+                letter = get_column_letter(max_col + added)
+            output_columns[target.column] = letter
+        as_plan_request = PlanRequest(
+            dataset_id=body.dataset_id,
+            sheet_name=sheet_name,
+            range_ref=range_ref,
+            instruction=body.question,
+            output_columns=output_columns,
+            sources_in_workbook=body.sources_in_workbook,
+        )
+        try:
+            plan = build_extraction_plan(request, profile.columns)
+        except ExtractionPlanError as exc:
+            raise WorkspaceError("extraction_plan_invalid", str(exc)) from None
+        return self._store_draft(
+            as_plan_request,
+            path,
+            plan,
+            decision="ready",
+            reason=None,
+            planning_attempts=[],
+            source="extraction_plan",
+            kind=EXTRACTION_KIND,
+            extra={
+                # Whether the result workbook will have the cells of the text column emptied:
+                # a table the application built from mail. Inside the fingerprint.
+                "text_column_emptied": body.dataset_id in self.mail_datasets
+            },
+        )
+
+    @staticmethod
+    def _whole_table(path: Path) -> tuple[str, str]:
+        """The first worksheet of a workbook and the table found on it, as a range."""
+        try:
+            sheets = inspect_workbook(path).worksheets
+        except Exception as exc:
+            raise WorkspaceError("invalid_selection", "Select a valid table within A:CV.") from exc
+        if not sheets or not sheets[0].columns:
+            raise WorkspaceError("invalid_selection", "Select a valid table within A:CV.")
+        sheet = sheets[0]
+        if sheet.table_range is not None:
+            return sheet.name, sheet.table_range
+        return sheet.name, f"A1:{get_column_letter(len(sheet.columns))}{sheet.row_count + 1}"
+
     @staticmethod
     def _lookup_request(body: FallbackPlanRequest, question: str) -> FallbackRequest:
         return FallbackRequest(
@@ -1031,6 +1235,9 @@ class PlanRunService:
                 "web_lookup": self.lookup_available(),
                 # Whether a table can be made from e-mails here.
                 "mail": self.mail_available,
+                # Whether values can be read out of a text column here: where tables of
+                # e-mails are offered, with a key and, for a live run, the network gate open.
+                "text_extraction": self.extraction_available(),
             }
 
         @router.get("/capabilities")
@@ -1101,6 +1308,18 @@ class PlanRunService:
                 if body.plan_id is None:
                     self.make_room_for_plan()
                 return await run_in_threadpool(self.create_fallback_plan, body)
+
+        # The gate is a dependency, so that it is answered before the body is checked: a
+        # server that does not offer this says so whatever is sent.
+        @router.post(
+            "/extraction-plans", status_code=201, dependencies=[Depends(self.extraction_gate)]
+        )
+        async def create_extraction(body: ExtractionPlanRequest):
+            async with self.lock:
+                # Again, under the lock, before anything is dropped or read.
+                self.extraction_gate()
+                self.make_room_for_plan()
+                return await run_in_threadpool(self.create_extraction_plan, body)
 
         @router.get("/plans/{plan_id}")
         async def read(plan_id: str):
@@ -1458,15 +1677,20 @@ class PlanRunService:
         kind = draft.get("kind", "planner")
         fallback = kind == FALLBACK_KIND
         searching = kind in (FALLBACK_KIND, MIXED_KIND)
+        extracting = kind == EXTRACTION_KIND
         if searching:
             # Switched off, or the key removed, since the draft was made: not run.
             self.lookup_gate()
-        if fallback:
+        if extracting:
+            # The same: tables of mail no longer offered, or the key removed.
+            self.extraction_gate()
+        if fallback or extracting:
             # A resume carries the user's decisions on names that were not settled; a
             # fallback plan has no name to settle, so its jobs have none. Running the
             # plan again (the run route) is what continues it: answers already given are
             # kept. This refusal is not about repeated lookups. A mixed plan has source
-            # steps with names to settle: it is resumed like a planner plan.
+            # steps with names to settle: it is resumed like a planner plan. An extraction
+            # plan has no name to settle either.
             if resume_selections is not None or previous_job_id is not None:
                 raise WorkspaceError(
                     "review_not_available", "This job has nothing left to review.", 409
@@ -1499,19 +1723,28 @@ class PlanRunService:
             "progress": None,
             "artifacts": {},
             "execution_mode": "offline_fixture" if self.offline_executor_factory else "live",
-            # A run with the web lookup has the longest limit a run may have unless the
-            # request names a shorter one: its rows are asked one after another and each
-            # takes seconds.
+            # A run with the web lookup or the text extraction has the longest limit a run may
+            # have unless the request names a shorter one: its rows are asked one after
+            # another and each takes seconds.
             "timeout_seconds": (
                 MAX_TIMEOUT_SECONDS
-                if searching and "timeout_seconds" not in body.model_fields_set
+                if (searching or extracting) and "timeout_seconds" not in body.model_fields_set
                 else body.timeout_seconds
             ),
             # A resume is a new job; the earlier job and its report stay untouched.
             "previous_job_id": previous_job_id,
             "review_decisions": decisions,
-            **({"kind": kind} if searching else {}),
+            **({"kind": kind} if searching or extracting else {}),
         }
+        extraction = None
+        if extracting:
+            extraction = ExtractionSettings(
+                model=self.settings.text_extraction_model,
+                reasoning_effort=EXTRACTION_REASONING_EFFORT,
+                api_key=SecretStr(self.provider.api_key() or ""),
+                deadline_seconds=lookup_deadline_seconds(job["timeout_seconds"]),
+                api_factory=self.offline_extraction_api or openai_extraction_api,
+            )
         lookup = None
         if searching:
             lookup = LookupSettings(
@@ -1541,6 +1774,10 @@ class PlanRunService:
             previous_job_id=previous_job_id,
             reuse_directory=reuse_directory,
             lookup=lookup,
+            extraction=extraction,
+            # A table the application built from mail: its text does not leave in the result.
+            clear_text_column=extracting
+            and bool(draft.get("text_column_emptied") or draft["dataset_id"] in self.mail_datasets),
         )
         self.jobs[job_id] = job
         self.selections[job_id] = dict(resume_selections or {})
@@ -1561,16 +1798,20 @@ class PlanRunService:
         # Two counters the worker writes and this side only reads: how far the
         # run is. Results still arrive only through the worker's files.
         step_ids = [step.id for step in task.plan.steps]
+        extracting = task.extraction is not None
         counters = context.Array(
-            "i", progress_slots(len(step_ids), lookup=task.lookup is not None), lock=False
+            "i",
+            progress_slots(len(step_ids), lookup=task.lookup is not None, extraction=extracting),
+            lock=False,
         )
+        kinds = outcome_kinds(extraction=extracting)
         process = context.Process(
             target=execute_workbook,
             args=(task, self.offline_executor_factory or live_executor, counters),
         )
 
         def publish_progress() -> None:
-            seen = read_progress(counters, step_ids)
+            seen = read_progress(counters, step_ids, kinds)
             if seen is None:
                 return
             done, total, steps = seen
@@ -1616,10 +1857,25 @@ class PlanRunService:
                 # Rows not looked up because every chosen cell already had a
                 # value. Everything above and below counts the other rows only.
                 job["rows_skipped"] = len(execution.get("skipped_rows", []))
-                # Technical completion can still contain unresolved values.
+                # Technical completion can still contain unresolved values. A text the model
+                # says is not about the task is a settled outcome of an extraction run, not
+                # a problem: only that code of that capability, for no other plan.
+                settled = 0
+                if extracting:
+                    capability_of = {step.id: step.capability for step in task.plan.steps}
+                    settled = sum(
+                        classify_row_outcome(record.row_result) != "success"
+                        and all(
+                            step.result.status == "success"
+                            or is_settled_not_applicable(capability_of[step.step_id], step.result)
+                            for step in record.row_result.steps
+                        )
+                        for record in result.records
+                    )
+                    job["rows_not_applicable"] = settled
                 job["status"] = (
                     "needs_review"
-                    if result.metrics.successful_rows < result.metrics.total_rows
+                    if result.metrics.successful_rows + settled < result.metrics.total_rows
                     else "completed"
                 )
                 source_rows = execution.pop("source_rows", {})
@@ -1663,12 +1919,28 @@ class PlanRunService:
                             if task.lookup is not None
                             else {}
                         ),
+                        # An extraction run: each value read from the text, with its quote.
+                        **(
+                            {
+                                "extracted": source_rows.get(record.record_id, {}).get(
+                                    "extracted", []
+                                )
+                            }
+                            if extracting
+                            else {}
+                        ),
                     }
                     for record in result.records
                 ]
                 job["artifacts"]["result"] = f"/api/jobs/{task.job_id}/artifacts/result"
-        except Exception:
-            logging.getLogger(__name__).exception("Local job supervision failed")
+        except Exception as exc:
+            if extracting:
+                # The class only: a validation message of a reply could quote a cell.
+                logging.getLogger(__name__).error(
+                    "Local job supervision failed (%s)", type(exc).__name__
+                )
+            else:
+                logging.getLogger(__name__).exception("Local job supervision failed")
             job.update(
                 status="failed",
                 error={"code": "execution_failed", "message": "The workbook run failed."},
@@ -1710,6 +1982,25 @@ class PlanRunService:
                     # worker that did not finish has not said, so it is 0 there.
                     "answers_kept": int(reported["answers_kept"]) if reported else 0,
                 }
+            extracted: dict | None = None
+            if task.extraction is not None:
+                reported = execution.get("text_extraction")
+                finished_run = job["status"] in {"completed", "needs_review"}
+                extracted = (
+                    reported
+                    if reported and finished_run
+                    else {
+                        "configuration_id": extraction_configuration_id(
+                            task.extraction.model, task.extraction.reasoning_effort
+                        ),
+                        **(
+                            {key: int(reported[key]) for key in EXTRACTION_NUMBERS}
+                            if reported
+                            else read_extraction_usage(counters, len(step_ids))
+                        ),
+                        "answers_kept": 0,
+                    }
+                )
             job["finished_at"] = timestamp()
             if job["status"] not in {"completed", "needs_review"}:
                 execution = {}
@@ -1741,6 +2032,7 @@ class PlanRunService:
                 },
                 **execution,
                 **({"web_lookup": spent} if spent else {}),
+                **({"text_extraction": extracted} if extracted else {}),
             }
             (task.directory / "report.json").write_text(
                 json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -1759,6 +2051,16 @@ class PlanRunService:
                     input_tokens=spent["input_tokens"],
                     output_tokens=spent["output_tokens"],
                     web_searches=spent["web_searches"],
+                )
+            if task.extraction is not None and extracted and extracted["requests"]:
+                # Failed requests, and those of a run that was stopped, are counted too.
+                self.usage.record(
+                    "model",
+                    purpose="text_extraction",
+                    model=task.extraction.model,
+                    requests=extracted["requests"],
+                    input_tokens=extracted["input_tokens"],
+                    output_tokens=extracted["output_tokens"],
                 )
             self.usage.record(
                 "run_finished",

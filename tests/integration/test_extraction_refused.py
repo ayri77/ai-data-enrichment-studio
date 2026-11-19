@@ -1,8 +1,10 @@
-"""A plan that reads texts is refused everywhere a plan can come in, until a route builds one.
+"""What is still refused about a plan that reads texts.
 
-No route makes such a plan yet. It must never be taken for a plan of the planner, nor passed
-on to the web lookup by accident: the normal plan route, a planner's reply, the gate of
-validate, approve and run, and the run worker each refuse it with a fixed sentence.
+Only ``POST /api/extraction-plans`` makes one (``tests/integration/test_extraction_api.py``).
+Everywhere else a plan can come in it is still refused with a fixed sentence: the normal plan
+route, a planner's reply, a draft whose kind and plan do not agree (the gate of validate,
+approve and run), and a worker that was not given the extraction's settings. It must never
+be taken for a plan of the planner, nor passed on to the web lookup by accident.
 """
 
 import json
@@ -29,12 +31,17 @@ from ai_data_enrichment.evaluation.plan_run_fixtures import offline_executor
 from ai_data_enrichment.ingestion.excel_profiler import profile_worksheet
 from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.plan_run import PlanRunService, PlanRunSettings
-from ai_data_enrichment.plan_run_worker import LookupSettings, RunTask, execute_workbook
+from ai_data_enrichment.plan_run_worker import (
+    ExtractionSettings,
+    LookupSettings,
+    RunTask,
+    execute_workbook,
+)
 from ai_data_enrichment.workspace_errors import WorkspaceError
 
 SHEET = "Mail"
 CODE = "extraction_plan_refused"
-MESSAGE = "A plan that reads texts cannot be made, validated or run yet."
+MESSAGE = "A plan that reads texts can only be made by the extraction route."
 
 
 def workbook_bytes() -> bytes:
@@ -112,8 +119,8 @@ def test_a_reply_of_the_planner_with_such_a_plan_never_becomes_a_draft(
         assert app.state.plan_run.plans == {}
 
 
-@pytest.mark.parametrize("kind", ["planner", "fallback", "mixed", "extraction", "other", None])
-def test_the_gate_of_validate_approve_and_run_refuses_it_whatever_the_draft_says(
+@pytest.mark.parametrize("kind", ["planner", "fallback", "mixed", "other", None])
+def test_the_gate_refuses_a_plan_that_reads_texts_in_a_draft_of_another_kind(
     plan: EnrichmentPlan, kind: str | None
 ) -> None:
     draft = {} if kind is None else {"kind": kind}
@@ -123,6 +130,39 @@ def test_the_gate_of_validate_approve_and_run_refuses_it_whatever_the_draft_says
     # The sentence is the one thing the user is told, not the web lookup's.
     assert "web" not in refused.value.message and "search" not in refused.value.message
     assert plan_run.EXTRACTION_PLAN_REFUSED == MESSAGE
+
+
+def test_the_gate_lets_an_extraction_draft_with_an_extraction_plan_through(
+    plan: EnrichmentPlan,
+) -> None:
+    PlanRunService.plan_gate({"kind": "extraction"}, plan)
+    assert "extraction" in plan_run.PLAN_KINDS
+
+
+@pytest.mark.parametrize("shape", ["planner", "fallback"])
+def test_the_gate_refuses_an_extraction_draft_whose_plan_is_of_another_shape(shape: str) -> None:
+    other = (
+        EnrichmentPlan(version="1.0", steps=[], outputs=[], assumptions=[])
+        if shape == "planner"
+        else EnrichmentPlan.model_validate(
+            {
+                "version": "1.0",
+                "steps": [
+                    {
+                        "id": "lookup",
+                        "capability": "web_lookup",
+                        "inputs": {"task": {"kind": "literal", "value": "x"}},
+                        "parameters": {},
+                    }
+                ],
+                "outputs": [],
+                "assumptions": [],
+            }
+        )
+    )
+    with pytest.raises(WorkspaceError) as refused:
+        PlanRunService.plan_gate({"kind": "extraction"}, other)
+    assert (refused.value.code, refused.value.message) == (CODE, MESSAGE)
 
 
 def test_the_planner_gate_still_refuses_the_lookup_with_its_own_sentence() -> None:
@@ -153,18 +193,10 @@ def run_task(tmp_path: Path, plan: EnrichmentPlan, **changes: Any) -> RunTask:
     )
 
 
-@pytest.mark.parametrize("with_lookup", [False, True])
-def test_the_worker_refuses_it_and_writes_nothing_but_the_error(
-    tmp_path: Path, plan: EnrichmentPlan, caplog: pytest.LogCaptureFixture, with_lookup: bool
+def test_the_worker_refuses_it_without_the_extraction_settings_and_writes_only_the_error(
+    tmp_path: Path, plan: EnrichmentPlan, caplog: pytest.LogCaptureFixture
 ) -> None:
-    lookup = (
-        LookupSettings(
-            model="m", reasoning_effort="low", api_key=SecretStr("sk-test"), deadline_seconds=60.0
-        )
-        if with_lookup
-        else None
-    )
-    task = run_task(tmp_path, plan, lookup=lookup)
+    task = run_task(tmp_path, plan)
     execute_workbook(task, offline_executor)
     assert sorted(path.name for path in task.directory.iterdir()) == ["error.json"]
     assert json.loads((task.directory / "error.json").read_text("utf-8")) == {
@@ -172,5 +204,32 @@ def test_the_worker_refuses_it_and_writes_nothing_but_the_error(
         "message": "The workbook run failed.",
     }
     # Refused by name, not by the web lookup's own registry check.
-    assert "not run by this worker yet" in caplog.text
+    assert "run for an extraction plan only" in caplog.text
     assert "fallback plan" not in caplog.text
+
+
+def test_the_worker_refuses_the_lookup_settings_for_it(
+    tmp_path: Path, plan: EnrichmentPlan, caplog: pytest.LogCaptureFixture
+) -> None:
+    lookup = LookupSettings(
+        model="m", reasoning_effort="low", api_key=SecretStr("sk-test"), deadline_seconds=60.0
+    )
+    task = run_task(tmp_path, plan, lookup=lookup)
+    execute_workbook(task, offline_executor)
+    assert sorted(path.name for path in task.directory.iterdir()) == ["error.json"]
+    assert "run for an extraction plan only" in caplog.text
+
+
+def test_the_worker_refuses_the_extraction_settings_for_any_other_plan(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    ordinary = EnrichmentPlan(version="1.0", steps=[], outputs=[], assumptions=[])
+    settings = ExtractionSettings(
+        model="m", reasoning_effort="low", api_key=SecretStr("sk-test"), deadline_seconds=60.0
+    )
+    task = run_task(tmp_path, ordinary, extraction=settings)
+    execute_workbook(task, offline_executor)
+    assert sorted(path.name for path in task.directory.iterdir()) == ["error.json"]
+    # A run that holds the extraction's settings logs the class of an error and nothing else.
+    assert "Workbook worker failed (ValueError)" in caplog.text
+    assert "extraction plan only" not in caplog.text

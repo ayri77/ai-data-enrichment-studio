@@ -212,3 +212,19 @@ def test_a_cache_entry_with_another_basis_is_still_refused() -> None:
     stored = serialize_success(result).replace('"basis":"literal"', '"basis":"verified"', 1)
     with pytest.raises(ValueError, match="Cached basis"):
         deserialize_success(stored)
+
+
+def test_a_value_that_is_not_kept_is_counted_by_its_reason_code_only() -> None:
+    reply = answer(
+        value_1=entry("Cloudbox Plus", "Cloudbox Pro, monthly."),  # not in the text
+        value_2=entry(9.99, "Total: 9,99 EUR"),
+        value_3=entry("2025-12-30", "Paid on 3 Nov 2026"),  # neither the day nor the year is quoted
+    )
+    handler_, usage = handler(FakeApi(response(reply)))
+    assert handler_.execute(inputs=inputs(), parameters={}).status == "success"
+    assert usage.dropped() == {"quote_not_in_text": 1, "date_not_in_quote": 1}
+    # Nothing but the codes is kept; a text that is not about the task drops nothing.
+    handler_.execute(inputs=inputs(text=TEXT + " "), parameters={})
+    other, other_usage = handler(FakeApi(response(answer(applies=False))))
+    other.execute(inputs=inputs(), parameters={})
+    assert other_usage.dropped() == {} and usage.dropped()["quote_not_in_text"] == 2

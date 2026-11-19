@@ -8,7 +8,10 @@ from email.message import EmailMessage
 from pathlib import Path
 
 import openpyxl
+import pytest
 from fastapi.testclient import TestClient
+from tests.integration.test_extraction_api import FOUND, NOT_ABOUT_IT, mail_zip
+from tests.support.extraction_api import RECEIPT, SENTINEL, LoggedExtractionApiFactory
 
 from ai_data_enrichment.api import create_app
 from ai_data_enrichment.evaluation.plan_run_fixtures import offline_executor
@@ -228,3 +231,113 @@ def zip_bytes(entries: dict[str, bytes]) -> bytes:
         for name, data in entries.items():
             archive.writestr(name, data)
     return buffer.getvalue()
+
+
+EXTRACTION_MARKERS = (
+    "MARKER-TASK-TEXT",
+    "MARKER-COLUMN-AMOUNT",
+    "MARKER-COLUMN-PAID",
+    "MARKER-COLUMN-RENEWS",
+    "MARKER-FILE-NAME",
+    SENTINEL,
+    RECEIPT,
+    "Paid on 3 Nov 2026",
+    "Receipt FIRST",
+    "shop@example.com",
+)
+
+
+def test_an_extraction_run_leaves_only_counts_and_fixed_words_in_the_usage_file_and_logs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key-not-a-secret-0123456789")
+    caplog.set_level(logging.DEBUG)
+    kept = tmp_path / "usage" / "events.jsonl"
+    app = create_app(
+        settings=PlanRunSettings(allow_mail=True, usage_file=str(kept)),
+        local_browser_configuration=True,
+        offline_executor_factory=offline_executor,
+        offline_extraction_api=LoggedExtractionApiFactory(
+            "sk-test-key-not-a-secret-0123456789", tmp_path / "requests.jsonl"
+        ),
+        usage_lines=True,
+    )
+    with TestClient(app) as client:
+        dataset = client.post(
+            "/api/mail-datasets",
+            params={"filename": "MARKER-FILE-NAME.zip"},
+            content=mail_zip(FOUND + NOT_ABOUT_IT),
+        ).json()
+        created = client.post(
+            "/api/extraction-plans",
+            json={
+                "dataset_id": dataset["dataset_id"],
+                "question": "MARKER-TASK-TEXT: what was paid?",
+                "text_column": "Text",
+                "targets": [
+                    {"column": "MARKER-COLUMN-AMOUNT", "kind": "number"},
+                    {"column": "MARKER-COLUMN-PAID", "kind": "date"},
+                    {"column": "MARKER-COLUMN-RENEWS", "kind": "yes_no"},
+                ],
+            },
+        )
+        assert created.status_code == 201, created.text
+        draft = created.json()
+        approved = client.post(
+            f"/api/plans/{draft['plan_id']}/approve",
+            json={"approved": True, "fingerprint": draft["fingerprint"]},
+        )
+        assert approved.status_code == 200, approved.text
+        job = client.post(f"/api/plans/{draft['plan_id']}/runs", json={}).json()
+        for _ in range(1200):
+            job = client.get(f"/api/jobs/{job['job_id']}").json()
+            if job["status"] in {"completed", "needs_review", "failed"}:
+                break
+        assert job["status"] == "completed", job
+        assert client.get(job["artifacts"]["result"]).status_code == 200
+        body = client.get("/api/usage").json()
+
+    text = kept.read_text("utf-8")
+    events = [json.loads(line) for line in text.splitlines()]
+    assert [event["kind"] for event in events] == [
+        "mail_import",
+        "plan",
+        "run_started",
+        "model",
+        "run_finished",
+        "download",
+    ]
+    assert events == list(reversed(body["recent"]))
+    plan, model, finished = events[1], events[3], events[4]
+    assert (plan["source"], plan["capabilities"]) == ("extraction_plan", ["text_extraction"])
+    assert (model["purpose"], model["model"], model["requests"]) == (
+        "text_extraction",
+        "gpt-6-luna",
+        3,
+    )
+    assert (finished["status"], finished["rows"], finished["rows_filled"]) == ("completed", 3, 2)
+    logged = "\n".join(
+        record.getMessage() for record in caplog.records if not record.name.startswith("httpx")
+    )
+    for secret in (
+        *EXTRACTION_MARKERS,
+        dataset["dataset_id"],
+        job["job_id"],
+        draft["plan_id"],
+        draft["fingerprint"],
+        "sk-test-key",
+        "testclient",
+    ):
+        assert secret not in text, secret
+        assert secret not in logged, secret
+        assert secret not in json.dumps(body), secret
+    # Every value of every line is a number, a flag, nothing or one short word.
+    for event in events:
+        for value in event.values():
+            members = value.values() if isinstance(value, dict) else [value]
+            for member in members if not isinstance(value, list) else value:
+                assert (
+                    member is None
+                    or isinstance(member, bool | int | float)
+                    or (isinstance(member, str) and len(member) <= 64 and " " not in member)
+                )

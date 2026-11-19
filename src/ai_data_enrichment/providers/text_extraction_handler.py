@@ -107,7 +107,11 @@ class TextExtractionHandler:
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
             )
-        return parse_reply(response, task, text)
+        result = parse_reply(response, task, text)
+        for dropped in result.dropped:
+            # Counted by reason code only: no value, quote or column leaves this call.
+            self._usage.drop(dropped.reason)
+        return result
 
     def _task(self, text: str) -> ExtractionTask | None:
         task = self._tasks.get(text)

@@ -12,7 +12,7 @@ from typing import Any
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
 from ai_data_enrichment.evaluation.smoke import OfflineWikidataTransport
 from ai_data_enrichment.execution.job_executor import JobExecutor
-from ai_data_enrichment.orchestration.live_executor import WebLookupOptions
+from ai_data_enrichment.orchestration.live_executor import ExtractionOptions, WebLookupOptions
 from ai_data_enrichment.plan_run_worker import (
     MountainPolicy,
     ResumeSelections,
@@ -131,12 +131,14 @@ def offline_executor(
     reuse: Reuse | None = None,
     registry: CapabilityRegistry | None = None,
     web_lookup: WebLookupOptions | None = None,
+    text_extraction: ExtractionOptions | None = None,
 ) -> JobExecutor:
     """Top-level and picklable on Windows: same registered, audited live stack.
 
     A fallback or mixed plan also gets its own ``registry`` and the ``web_lookup`` options
     (with the test's fake API object): its source steps are answered by the fixtures here,
-    its lookup step by that object.
+    its lookup step by that object. An extraction plan gets its own ``registry`` and the
+    ``text_extraction`` options in the same way.
     """
     return live_executor(
         capabilities,
@@ -147,6 +149,7 @@ def offline_executor(
         reuse=reuse,
         registry=registry,
         web_lookup=web_lookup,
+        text_extraction=text_extraction,
     )
 
 

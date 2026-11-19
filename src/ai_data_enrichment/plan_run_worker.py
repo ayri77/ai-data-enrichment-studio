@@ -21,23 +21,43 @@ from ai_data_enrichment.capabilities.bindings import (
     binding_for,
 )
 from ai_data_enrichment.capabilities.definitions import offered_capabilities
+from ai_data_enrichment.capabilities.extraction import text_column_of
 from ai_data_enrichment.capabilities.fallback import fallback_registry, plan_shape
+from ai_data_enrichment.capabilities.plan_registry import registry_for_plan
 from ai_data_enrichment.capabilities.registry import CapabilityRegistry
 from ai_data_enrichment.domain.enrichment_plan import EnrichmentPlan, required_input_columns
 from ai_data_enrichment.execution.job_executor import JobExecutor
 from ai_data_enrichment.execution.models import FoundRecord
 from ai_data_enrichment.execution.sqlite_cache import SQLiteOperationCache
-from ai_data_enrichment.execution.step_tally import OUTCOME_KINDS, StepTally
+from ai_data_enrichment.execution.step_tally import (
+    OUTCOME_KINDS,
+    StepTally,
+    is_settled_not_applicable,
+    outcome_kinds,
+)
 from ai_data_enrichment.ingestion.excel_profiler import profile_worksheet
 from ai_data_enrichment.ingestion.excel_records import read_input_batch
 from ai_data_enrichment.ingestion.table_selection import TableSelection
 from ai_data_enrichment.orchestration.excel_runner import ExcelEnrichmentRunner
-from ai_data_enrichment.orchestration.live_executor import WebLookupOptions, build_live_executor
+from ai_data_enrichment.orchestration.live_executor import (
+    ExtractionOptions,
+    WebLookupOptions,
+    build_live_executor,
+)
 from ai_data_enrichment.output.excel_output_mapping import EMPTY_FIELD_CODE, empty_output_fields
 from ai_data_enrichment.output.provenance import SourcesMode
 from ai_data_enrichment.providers.http_transport import JsonTransport
 from ai_data_enrichment.providers.openrouteservice import routing_key
 from ai_data_enrichment.providers.request_policy import ProviderRequestPolicy
+from ai_data_enrichment.providers.text_extraction import (
+    EXTRACTION_CAPABILITY,
+    ExtractionClient,
+    ExtractionUsage,
+)
+from ai_data_enrichment.providers.text_extraction import (
+    configuration_id as extraction_configuration_id,
+)
+from ai_data_enrichment.providers.text_extraction_reply import OUTCOME_NOTHING_FOUND
 from ai_data_enrichment.providers.web_lookup import (
     LOOKUP_CAPABILITY,
     WebLookupClient,
@@ -60,7 +80,8 @@ MountainPolicy = Literal["strict", "verified_only"]
 # resume_selections=... as a keyword, and a run whose plan keeps confirmed values
 # for its later runs passes reuse=... as a keyword. A run whose plan has a web lookup
 # step (a fallback or a mixed plan) passes registry=... (the one built for that plan) and
-# web_lookup=... (how to run it) as keywords; no other run passes them.
+# web_lookup=... (how to run it) as keywords; no other run passes them. A run of an extraction
+# plan passes registry=... and text_extraction=... in the same way, and nothing else of the two.
 ExecutorFactory = Callable[..., JobExecutor]
 ResumeSelections = Mapping[tuple[str, str], ResumeSelection | OtherName]
 Reuse = tuple[SQLiteOperationCache, SQLiteResolutionCache]
@@ -69,12 +90,18 @@ MAX_PLAN_STEPS = 12
 # ``responses.create(**kwargs)`` the web lookup calls. Trusted application injection
 # only (a test passes a fake that never leaves the process); never from a request.
 ApiFactory = Callable[[str], WebLookupClient]
+# The same for the text extraction (a trusted injection of tests only).
+ExtractionApiFactory = Callable[[str], ExtractionClient]
 # One lookup request may take this long; the OpenAI client is told the same.
 LOOKUP_REQUEST_SECONDS = 30.0
 # What a run keeps back from its time limit: starting the worker, writing the workbook
 # and the files, and the supervisor's own look. The lookup starts no request that
 # could end after the limit minus this.
 FINISH_RESERVE_SECONDS = 20.0
+# One extraction request may take this long, as the lookup's does.
+EXTRACTION_REQUEST_SECONDS = LOOKUP_REQUEST_SECONDS
+# What a report says instead of the text of a cell that a plan read: only its length.
+TEXT_NOT_KEPT = "[text not kept: {length} characters]"
 __all__ = ["MAX_PLAN_STEPS", "MAX_PROVIDER_REQUESTS", "MAX_RUN_ROWS"]
 
 
@@ -147,6 +174,7 @@ def live_executor(
     reuse: Reuse | None = None,
     registry: CapabilityRegistry | None = None,
     web_lookup: WebLookupOptions | None = None,
+    text_extraction: ExtractionOptions | None = None,
 ) -> JobExecutor:
     registry = registry if registry is not None else builtin_registry()
     return build_live_executor(
@@ -161,6 +189,7 @@ def live_executor(
         mountain_resolution_policy=policy if "resolve_entity" in capabilities else "strict",
         transport=transport,
         web_lookup=web_lookup,
+        text_extraction=text_extraction,
         request_policies={
             provider: ProviderRequestPolicy(
                 max_requests_per_job=MAX_PROVIDER_REQUESTS,
@@ -181,6 +210,18 @@ def openai_api(api_key: str) -> WebLookupClient:
         api_key=api_key,
         base_url="https://api.openai.com/v1",
         timeout=LOOKUP_REQUEST_SECONDS,
+        max_retries=0,
+    )
+
+
+def openai_extraction_api(api_key: str) -> ExtractionClient:
+    """The real client for the text extraction, made in the worker: no retries."""
+    from openai import OpenAI
+
+    return OpenAI(
+        api_key=api_key,
+        base_url="https://api.openai.com/v1",
+        timeout=EXTRACTION_REQUEST_SECONDS,
         max_retries=0,
     )
 
@@ -207,6 +248,18 @@ class LookupSettings:
 
 
 @dataclass(frozen=True)
+class ExtractionSettings:
+    """What a worker needs to run the text extraction: as ``LookupSettings``, for that plan."""
+
+    model: str
+    reasoning_effort: str
+    api_key: SecretStr = field(repr=False)
+    # Seconds after the worker's own start after which no request is begun.
+    deadline_seconds: float
+    api_factory: ExtractionApiFactory = openai_extraction_api
+
+
+@dataclass(frozen=True)
 class RunTask:
     job_id: str
     dataset_id: str
@@ -229,6 +282,11 @@ class RunTask:
     reuse_directory: Path | None = None
     # Set only for a fallback plan the server built; None for every other plan.
     lookup: LookupSettings | None = None
+    # Set only for an extraction plan the server built; None for every other plan.
+    extraction: ExtractionSettings | None = None
+    # Empty the cells of the plan's text column in the result workbook (a table the
+    # application built from mail). Never for another plan or another table.
+    clear_text_column: bool = False
 
 
 # Shared progress: finished rows, all rows, a sequence number, then three counts
@@ -239,12 +297,22 @@ PROGRESS_HEADER = 3
 # After the step counts of a lookup run: requests, input tokens, output tokens and
 # web searches so far. Numbers only; they survive a worker that is stopped.
 LOOKUP_SLOTS = 4
+# After the step counts of an extraction run: requests, input tokens and output tokens so far.
+EXTRACTION_SLOTS = 3
 _INT_MAX = 2**31 - 1
 
 
-def progress_slots(step_count: int, *, lookup: bool = False) -> int:
-    """How many integers the shared progress of a plan with this many steps needs."""
-    return PROGRESS_HEADER + len(OUTCOME_KINDS) * step_count + (LOOKUP_SLOTS if lookup else 0)
+def progress_slots(step_count: int, *, lookup: bool = False, extraction: bool = False) -> int:
+    """How many integers the shared progress of a plan with this many steps needs.
+
+    A plan that reads texts keeps a fourth count per step and three numbers of its requests.
+    """
+    return (
+        PROGRESS_HEADER
+        + len(outcome_kinds(extraction=extraction)) * step_count
+        + (LOOKUP_SLOTS if lookup else 0)
+        + (EXTRACTION_SLOTS if extraction else 0)
+    )
 
 
 def read_lookup_usage(shared: Sequence[int], step_count: int) -> dict[str, int]:
@@ -256,6 +324,31 @@ def read_lookup_usage(shared: Sequence[int], step_count: int) -> dict[str, int]:
     start = PROGRESS_HEADER + len(OUTCOME_KINDS) * step_count
     names = ("requests", "input_tokens", "output_tokens", "web_searches")
     return {name: int(shared[start + offset]) for offset, name in enumerate(names)}
+
+
+def read_extraction_usage(shared: Sequence[int], step_count: int) -> dict[str, int]:
+    """What an extraction run had spent when it stopped, from the shared numbers."""
+    start = PROGRESS_HEADER + len(outcome_kinds(extraction=True)) * step_count
+    names = ("requests", "input_tokens", "output_tokens")
+    return {name: int(shared[start + offset]) for offset, name in enumerate(names)}
+
+
+class MirroredExtractionUsage(ExtractionUsage):
+    """Counts of the extraction's requests, also written to the shared numbers after each one."""
+
+    def __init__(self, shared: MutableSequence[int] | None, start: int) -> None:
+        super().__init__()
+        self._shared, self._start = shared, start
+
+    def add(self, *, input_tokens: int = 0, output_tokens: int = 0) -> None:
+        super().add(input_tokens=input_tokens, output_tokens=output_tokens)
+        if self._shared is None:
+            return
+        totals = self.totals()
+        for offset, number in enumerate(
+            (totals.requests, totals.input_tokens, totals.output_tokens)
+        ):
+            self._shared[self._start + offset] = min(number, _INT_MAX)
 
 
 class MirroredUsage(WebLookupUsage):
@@ -278,7 +371,9 @@ class MirroredUsage(WebLookupUsage):
 
 
 def read_progress(
-    shared: Sequence[int], step_ids: Sequence[str]
+    shared: Sequence[int],
+    step_ids: Sequence[str],
+    kinds: Sequence[str] = OUTCOME_KINDS,
 ) -> tuple[int, int, dict[str, dict[str, int]]] | None:
     """Finished rows, all rows and the counts per step, or None if the worker is mid-write.
 
@@ -292,10 +387,8 @@ def read_progress(
     steps: dict[str, dict[str, int]] = {}
     if done > 0:
         for index, step_id in enumerate(step_ids):
-            start = PROGRESS_HEADER + len(OUTCOME_KINDS) * index
-            steps[step_id] = {
-                kind: shared[start + offset] for offset, kind in enumerate(OUTCOME_KINDS)
-            }
+            start = PROGRESS_HEADER + len(kinds) * index
+            steps[step_id] = {kind: shared[start + offset] for offset, kind in enumerate(kinds)}
     return None if shared[2] != before else (done, total, steps)
 
 
@@ -324,11 +417,17 @@ def _found_values(
     job_result: Any,
     row_by_record_id: Mapping[str, int],
     kept: Sequence[str],
+    *,
+    extraction: bool = False,
 ) -> dict[str, list[dict[str, Any]]]:
     """For each record, the values written from a web search: column, basis, link count.
 
     No link, value or quote is repeated: those are in the step evidence and the provenance.
     A cell that kept its earlier value, and a column nothing was found for, are not listed.
+
+    For a value read from a text (``extraction``) the entry has the column, the basis
+    (``literal`` or ``derived``) and the quote it rests on, and no links: a quote is the
+    evidence a person checks it against, and there is no page.
     """
     found: dict[str, list[dict[str, Any]]] = {}
     for record in job_result.records:
@@ -345,10 +444,78 @@ def _found_values(
             if slot is None or slot.value is None:
                 continue
             entries.append(
-                {"column": output.target_column, "basis": slot.basis, "links": len(slot.sources)}
+                {"column": output.target_column, "basis": slot.basis, "quote": slot.quote}
+                if extraction
+                else {
+                    "column": output.target_column,
+                    "basis": slot.basis,
+                    "links": len(slot.sources),
+                }
             )
         found[record.record_id] = entries
     return found
+
+
+def _inputs_for_report(task: RunTask, values: Mapping[str, Any]) -> dict[str, Any]:
+    """The cell values a row was read from, as the report keeps them.
+
+    A plan that reads texts must not copy them (a whole mail) into the report: a fixed marker
+    with the length stands in for each value, and a missing value stays missing. Every other
+    plan's values are returned unchanged.
+    """
+    if task.extraction is None:
+        return dict(values)
+    return {
+        name: None if value is None else TEXT_NOT_KEPT.format(length=len(str(value)))
+        for name, value in values.items()
+    }
+
+
+def _extraction_report(
+    task: RunTask,
+    settings: ExtractionSettings,
+    job_result: Any,
+    usage: ExtractionUsage,
+) -> dict[str, Any]:
+    """The ``text_extraction`` section of the report: numbers and fixed words only.
+
+    Rows by what became of their text, values kept by basis (including those taken over
+    from an earlier run's kept answers) and values dropped by reason (only for the
+    requests this run made: a dropped value is not kept for a later run). A text that is
+    not about the task is its own number and is not among the failed rows.
+    """
+    capability_of = {step.id: step.capability for step in task.plan.steps}
+    rows = {"found": 0, "nothing_found": 0, "not_applicable": 0, "failed": 0}
+    basis = {"literal": 0, "derived": 0}
+    for record in job_result.records:
+        for step in record.row_result.steps:
+            result = step.result
+            if result.status == "success":
+                rows["found"] += 1
+                if isinstance(result.value, FoundRecord):
+                    for slot in result.value.slots.values():
+                        if slot.value is not None and slot.basis in basis:
+                            basis[slot.basis] += 1
+            elif is_settled_not_applicable(capability_of[step.step_id], result):
+                rows["not_applicable"] += 1
+            elif result.error_code == OUTCOME_NOTHING_FOUND:
+                rows["nothing_found"] += 1
+            else:
+                rows["failed"] += 1
+    totals = usage.totals()
+    return {
+        "configuration_id": extraction_configuration_id(settings.model, settings.reasoning_effort),
+        "requests": totals.requests,
+        "input_tokens": totals.input_tokens,
+        "output_tokens": totals.output_tokens,
+        # Rows an earlier run's kept answer settled: no request, no budget.
+        "answers_kept": job_result.kept_answers.get(EXTRACTION_CAPABILITY, 0),
+        "rows": rows,
+        "values_kept": basis,
+        "values_dropped": dict(sorted(usage.dropped().items())),
+        # The result workbook has the cells of the text column emptied (a table of mail).
+        "text_column_emptied": task.clear_text_column,
+    }
 
 
 def _open_reuse(opened: ExitStack, task: RunTask) -> Reuse | None:
@@ -383,9 +550,16 @@ def execute_workbook(
     decide anything.
     """
     started = monotonic()
-    tally = StepTally(step.id for step in task.plan.steps)
+    extraction = task.extraction
+    tally = StepTally(
+        (step.id for step in task.plan.steps),
+        extraction_steps=(
+            step.id for step in task.plan.steps if step.capability == EXTRACTION_CAPABILITY
+        ),
+    )
     lookup = task.lookup
     usage: WebLookupUsage = WebLookupUsage()
+    extraction_usage = ExtractionUsage()
 
     def report(done: int, total: int) -> None:
         assert progress is not None
@@ -394,8 +568,8 @@ def execute_workbook(
         progress[1] = total
         progress[0] = done
         for index, counts in enumerate(tally.snapshot().values()):
-            start = PROGRESS_HEADER + len(OUTCOME_KINDS) * index
-            for offset, kind in enumerate(OUTCOME_KINDS):
+            start = PROGRESS_HEADER + len(tally.kinds) * index
+            for offset, kind in enumerate(tally.kinds):
                 progress[start + offset] = counts[kind]
         progress[2] += 1
 
@@ -403,13 +577,14 @@ def execute_workbook(
         if sha256(task.source_path.read_bytes()).hexdigest() != task.source_sha256:
             raise ValueError("Source changed")
         capabilities = frozenset(step.capability for step in task.plan.steps)
-        # No route hands this worker a plan that reads texts yet, and it must not be taken
-        # for one of the web lookup's.
-        if plan_shape(task.plan) == "extraction":
-            raise ValueError("A plan that reads texts is not run by this worker yet.")
+        shape = plan_shape(task.plan)
+        # A plan that reads texts runs with the extraction's own registry and options, and
+        # only then; no other plan may, and it must not be taken for one of the web lookup's.
+        if (shape == "extraction") != (extraction is not None):
+            raise ValueError("The text extraction is run for an extraction plan only.")
         # A plan with the web lookup runs with the lookup's own registry and options, and
         # only then; no other plan may, and a plan with the lookup may not run without them.
-        if (plan_shape(task.plan) != "planner") != (lookup is not None):
+        if (shape in ("fallback", "mixed")) != (lookup is not None):
             raise ValueError("The web lookup is run for a fallback or mixed plan only.")
         options: dict[str, Any] = {}
         if task.resume_selections:
@@ -421,7 +596,30 @@ def execute_workbook(
             reuse = _open_reuse(opened, task)
             if reuse is not None:
                 options["reuse"] = reuse
-            if lookup is None:
+            if extraction is not None:
+                profile = profile_worksheet(
+                    task.source_path,
+                    task.selection.sheet_name,
+                    task.dataset_id,
+                    selection=task.selection,
+                )
+                registry = registry_for_plan(task.plan, profile.columns, builtin_registry())
+                extraction_usage = MirroredExtractionUsage(
+                    progress, PROGRESS_HEADER + len(tally.kinds) * len(task.plan.steps)
+                )
+                api = extraction.api_factory(extraction.api_key.get_secret_value())
+                opened.callback(_close, api)
+                options["registry"] = registry
+                options["text_extraction"] = ExtractionOptions(
+                    api=api,
+                    model=extraction.model,
+                    reasoning_effort=extraction.reasoning_effort,
+                    usage=extraction_usage,
+                    timeout_seconds=EXTRACTION_REQUEST_SECONDS,
+                    # From this process's own start, on its own clock.
+                    deadline=started + extraction.deadline_seconds,
+                )
+            elif lookup is None:
                 registry = builtin_registry()
             else:
                 profile = profile_worksheet(
@@ -468,6 +666,11 @@ def execute_workbook(
                 sources_in_workbook=task.sources_in_workbook,
                 on_record_done=report if progress is not None else None,
                 on_row_result=tally.add if progress is not None else None,
+                # A table the application built from mail loses its text in the result.
+                clear_columns=(
+                    [text_column_of(task.plan)] if extraction and task.clear_text_column else []
+                ),
+                private_text=extraction is not None,
             )
         if sha256(task.source_path.read_bytes()).hexdigest() != task.source_sha256:
             raise ValueError("Source changed")
@@ -491,8 +694,14 @@ def execute_workbook(
         # (its step succeeded): per record, the column, the field and why.
         gaps = empty_output_fields(task.plan, result.job_result)
         found_values = (
-            _found_values(task, result.job_result, batch.row_by_record_id, result.preserved_cells)
-            if lookup is not None
+            _found_values(
+                task,
+                result.job_result,
+                batch.row_by_record_id,
+                result.preserved_cells,
+                extraction=extraction is not None,
+            )
+            if lookup is not None or extraction is not None
             else {}
         )
         payload: dict[str, Any] = {
@@ -500,7 +709,7 @@ def execute_workbook(
             "source_rows": {
                 record.record_id: {
                     "row": batch.row_by_record_id[record.record_id],
-                    "inputs": record.model_dump(mode="json")["values"],
+                    "inputs": _inputs_for_report(task, record.model_dump(mode="json")["values"]),
                     # What happened to an output cell that already held a value:
                     # kept as it was, or replaced (with what it held).
                     "kept_outputs": sorted(
@@ -524,6 +733,13 @@ def execute_workbook(
                         if lookup is not None
                         else {}
                     ),
+                    # An extraction run only: each value read from the text, as its column,
+                    # its basis and the quote it rests on.
+                    **(
+                        {"extracted": found_values.get(record.record_id, [])}
+                        if extraction is not None
+                        else {}
+                    ),
                 }
                 for record in batch.records
             },
@@ -533,7 +749,7 @@ def execute_workbook(
                 {
                     "record_id": record.record_id,
                     "row": batch.row_by_record_id[record.record_id],
-                    "inputs": record.model_dump(mode="json")["values"],
+                    "inputs": _inputs_for_report(task, record.model_dump(mode="json")["values"]),
                     "reason": "already_filled",
                     "kept_outputs": [
                         target
@@ -585,9 +801,16 @@ def execute_workbook(
                 # Rows an earlier run's kept answer settled: no request, no budget.
                 "answers_kept": result.job_result.kept_answers.get(LOOKUP_CAPABILITY, 0),
             }
+        if extraction is not None:
+            payload["text_extraction"] = _extraction_report(
+                task, extraction, result.job_result, extraction_usage
+            )
         (task.directory / "execution.json").write_text(json.dumps(payload), encoding="utf-8")
     except Exception as exc:
-        if lookup is None:
+        if extraction is not None:
+            # The class only: a message could quote a cell, a column or the model's reply.
+            logging.getLogger(__name__).error("Workbook worker failed (%s)", type(exc).__name__)
+        elif lookup is None:
             logging.getLogger(__name__).exception("Workbook worker failed")
         else:
             # No traceback: a library's message could quote the request, and with it the key.

@@ -460,8 +460,7 @@ access log, which a person starting the local launcher sees, shows the request l
 ## In the application: the extraction capability (step 2)
 
 **What exists.** The capability layer of the probe's extraction, built by the pattern of the AI
-web search and tested offline with a fake model client. Nothing here can be reached from the
-application yet.
+web search and tested offline with a fake model client.
 
 - `capabilities/extraction.py`: `ExtractionRequest` (the task sentence, the name of the text
   column, up to 20 targets of the kinds `text`, `number`, `date`, `yes_no`, `one_of`, a choice
@@ -497,12 +496,27 @@ is not stored), the extracted values and their quotes in clear (a quote is a pas
 task is not stored. The result workbook, when sources are asked for, repeats the quote in the
 note or on the `Sources` sheet of each written cell.
 
-**What does not exist.** No HTTP route builds an extraction plan, the run worker does not run
-one (it refuses it), and there is no interface. A plan of this shape is refused by the normal
-plan route, by the gate of validate, approve and run, and by the worker, each with a fixed
-sentence. Nothing has been run against a real model through the application; the end-to-end
-test runs the ten invented fixture mails through the real handler, reply reader, executor and
-workbook writer with a fake client.
+**Update (step 3).** The route and the run now exist; see the next section.
 
 **Not decided here.** The text of a cell is sent as it is (a cell holds at most 32,767
 characters; the body of a mail made by the application at most 6,000).
+
+## In the application: planning and running it through the API (step 3)
+
+**What exists.** `POST /api/extraction-plans` builds the one-step plan; validate, approve and
+run are the ordinary routes, through the same worker and executor path, with the model reading
+`ENRICHMENT_TEXT_EXTRACTION_MODEL`. Offered only on a local installation with
+`ENRICHMENT_ALLOW_MAIL=1`, an OpenAI key and (live) the network gate; the hosted app answers 403.
+Rows whose text is not about the task are settled (`not_applicable`) and do not stop a run from
+being `completed`; they are asked again on a later run. The text is replaced in the report by a
+marker with its length, is absent from logs, usage events, errors and the cache, and is emptied
+from the result workbook of a mail table. Quotes stay in the report and the workbook notes, by
+design. Contract and errors: [the plan/run API](22-m5-plan-run-api.md), "Values read out of mail
+texts".
+
+**What does not exist.** No interface. A plan of this shape that is supplied or returned by the
+planner, or mixed with other steps, is refused.
+
+**Not verified.** Everything above is tested offline with fake clients and invented mails. Nothing
+has been run on real mail or a real model through the application, so the real reply quality, cost
+and the time of a 40 to 100 row run are unmeasured.

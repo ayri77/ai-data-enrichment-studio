@@ -38,6 +38,23 @@
   interface yet, the planner is not told about it, and a plan of this kind is refused wherever a
   plan comes in. `FoundValue.basis` also takes `literal` and `derived`. See
   [the note](docs/32-mail-extraction-probe.md).
+- The extraction from texts can be planned, approved and run through the API (no interface):
+  `POST /api/extraction-plans` builds the one-step plan from a text column and typed target
+  columns (201, kind `extraction`; 403 `extraction_not_allowed`; 422 `extraction_plan_invalid`),
+  and the ordinary validate, approve and run routes carry it through the same worker and executor
+  path. It is offered only on a local installation with `ENRICHMENT_ALLOW_MAIL=1`, an OpenAI key
+  and, for a live run, the network gate (`GET /api/limits` gains `text_extraction`; model:
+  `ENRICHMENT_TEXT_EXTRACTION_MODEL`); the hosted app refuses it. A supplied or planner-returned
+  extraction plan, and an extraction step mixed with others, are still refused. A text that is not
+  about the task (`NOT_APPLICABLE`) is a settled row, counted separately in the step tally and the
+  job counts; a run whose rows are all successful or such is `completed`, and a later run asks
+  those rows again. The report gains a `text_extraction` section (values with their quote and
+  mark, counts of requests, tokens and dropped values). The text does not travel on: the report
+  shows a marker with the length instead of the text, logs, usage events, errors and the value
+  cache hold none of it, and the result workbook of a table built from mail has its text column
+  emptied (quotes in the report and the workbook notes are by design). Tested offline with fakes
+  only; nothing has been run on real mail or a real model through the application. See
+  [the plan/run API](docs/22-m5-plan-run-api.md) and [the note](docs/32-mail-extraction-probe.md).
 
 ## 0.4.0 — beta (2026-11-18)
 

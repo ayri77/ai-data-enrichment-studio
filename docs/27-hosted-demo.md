@@ -138,6 +138,7 @@ either.
 | `ENRICHMENT_ALLOW_NETWORK` | for live runs | `1` opens the server network gate; each run still needs the visitor's own consent |
 | `ENRICHMENT_ALLOW_WEB_LOOKUP` | no | Off unless `1`. Switch it on only deliberately on a hosted instance: every lookup costs model tokens and a search fee, paid from the instance's key by whoever holds an access code ([plan/run API](22-m5-plan-run-api.md), "The universal search") |
 | `ENRICHMENT_ALLOW_MAIL` | no | Has no effect here: the hosted app never offers a table made from e-mails (`POST /api/mail-datasets` answers 403), whatever this says; it is for the local launcher only ([mail note](32-mail-extraction-probe.md)) |
+| `ENRICHMENT_TEXT_EXTRACTION_MODEL` | no | Has no effect here: the hosted app never offers the extraction of values from mail texts (`POST /api/extraction-plans` answers 403 `extraction_not_allowed`, and `GET /api/limits` says `text_extraction: false`) ([mail note](32-mail-extraction-probe.md)) |
 | `ENRICHMENT_STATIC_DIR` | no | Built frontend, default `frontend/dist` (set in the image) |
 | `PORT` | no | Listening port, default `10000` in the image |
 

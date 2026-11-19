@@ -75,6 +75,7 @@ provide the dataset ID and actual worksheet/range; the range includes headers.
 | Action | Route | Behavior |
 | --- | --- | --- |
 | What a plan may use | `GET /api/capabilities` | Every capability registered on this installation, in the order the planner is shown them: its contract (`id`, `version`, `description`, `inputs`, `parameters`, `output`), `source` — the id of the source its values come from, or `local` for a calculation — and `trust`, the kind of trust behind its values as a lowercase word: `computed` (calculated here), `record` (read from an identified record of the source), `resolved_name` (a name matched to a record of the source) or `service` (calculated by an outside service, with no record to check it against). and `category`, what a person wants to do with it (`lookup`, `distance`, `calculate`; declared with the binding). The response also has `categories`: the declared order of categories, restricted to those with at least one capability offered here (`distance` stays without a routing key because of the straight-line distance; `web_search` is never listed, since the web search is not offered to a plan). `source`, `trust` and `category` are not part of the contract the planner is shown; a client must show an entry without `category` (an older server) in one group, and treat a category it has no wording for as its id made readable; a client must treat a `trust` it does not know as "unknown kind". `GET /api/limits` carries the same ids with the bounds of one run |
+| An extraction plan | `POST /api/extraction-plans` | 201, kind `extraction`; see "Values read out of mail texts". 403 `extraction_not_allowed` where it is not offered; 422 `extraction_plan_invalid` with the builder's message |
 | A table from e-mails | `POST /api/mail-datasets?filename=…` | 201; the raw body is one `.zip` of `.eml` files or one `.eml`; the answer is that of an upload plus `mail` (counts). 403 `mail_not_allowed` unless the server sets `ENRICHMENT_ALLOW_MAIL=1` **and** is the local launcher; never on the hosted app. Details and errors: [the mail note](32-mail-extraction-probe.md), "In the application" |
 | Task ideas from the model | `POST /api/task-ideas` | 200; up to three tasks that could be asked for with the selected table, in the language asked for; plans and writes nothing |
 | Create draft | `POST /api/plans` | 201; generate with `LLMPlanner`, or validate a supplied `plan` |
@@ -774,6 +775,45 @@ and never invents values for failed operations. Existing nonempty output cells a
 skipped and listed in `preserved_cells`; other empty destinations can still fill.
 Workbook-specific target checks happen again before any provider executes.
 Other CLI/library callers retain the runner's default strict collision behavior.
+
+### Values read out of mail texts
+
+Offered only when the server is the local launcher with `ENRICHMENT_ALLOW_MAIL=1` and holds an
+OpenAI key; a live run also needs the network gate and the run's own consent. `GET /api/limits`
+gains the boolean `text_extraction`, true only then; the hosted app answers 403
+`extraction_not_allowed` and says false. The model is `ENRICHMENT_TEXT_EXTRACTION_MODEL`
+(default `gpt-6-luna`; one short model id).
+
+`POST /api/extraction-plans` takes `dataset_id`, `question`, `text_column`, `targets` (`column`,
+`kind` of `text`, `number`, `date`, `yes_no`, `one_of`, and `options` for a choice), optional
+`sheet_name` and `range_ref` (both or neither) and `sources_in_workbook` (default `notes`). The
+server builds the plan and sets the kind `extraction`; the body carries no plan, kind or model.
+The planner, the task ideas and the AI web search still refuse a mail table. A supplied plan or a
+planner-returned plan of this shape, an extraction step with other steps, and a draft of this kind
+where extraction is unavailable are refused (`extraction_plan_refused`). Validate, approve and run
+are the ordinary routes; the run's timeout defaults to the server maximum, the row limit is
+unchanged, and a run cannot be resumed.
+
+**Status.** A row whose answer is `NOT_APPLICABLE` (the text is not about the task) is settled:
+the step tally and the job counts show it as `not_applicable`, apart from successful and failed
+rows. A run where every row is successful or `NOT_APPLICABLE` is `completed`; otherwise
+`needs_review`. The rule is narrow: only the `text_extraction` capability and only that code.
+Such a row is never kept in the value cache, so running again asks those rows again. A text that
+is about the task but gave no value that could be traced (`NOTHING_FOUND`) is a failed row as
+for every other plan, so such a run ends `needs_review` although there is nothing to choose.
+
+**Report.** The section `text_extraction` holds the configuration id, request, token and
+answer counts, rows by outcome (`found`, `nothing_found`, `not_applicable`, `failed`), values
+kept by basis (`literal`, `derived`), values dropped, and `text_column_emptied`. Each value is
+shown with its basis and quote and no link. If the job did not finish, only numbers are given.
+
+**The text does not travel on.** In the report the text input of a row is a fixed marker with its
+length (`[text not kept: N characters]`). Logs name an exception class only; usage events hold
+counts and fixed words; errors are fixed sentences, except the 422 of the plan route, which
+names the columns the request itself gave; the value cache holds a digest, not the text.
+The quotes are the evidence and are in the report and, with `notes` or `sheet`, in the result
+workbook by design. For a table built from mail the result workbook has its text column emptied.
+Verified by an end-to-end test with a sentinel and fakes; nothing was run against a real model.
 
 ### A table from e-mails
 
