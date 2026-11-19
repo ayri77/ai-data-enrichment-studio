@@ -184,15 +184,16 @@ plan shown.
 that setting), and more only when their number is not zero. A banner "The check holds" writes the
 sum out from the parts shown (for example "7 added + 3 duplicates = 10 in the source"); when the
 server says it does not hold, an error banner stands there instead. The banner also says how many
-rows the table had and that none has changed: the interface compares, cell by cell, the rows it
-read from the table before the run with the same rows of the new table (the values as the preview
-route shows them, in the table's columns); a difference turns the banner into an error, and the
-line is left out when the two cannot be compared. Right after the run the interface asks the preview route about the **new** table with the same plan and says what a second
-run on the same files would add (0 is the good answer; with "add it and mark it" duplicates are
-added again by design). The last rows of the new table are read with the ordinary preview route and
-the written ones are marked. "Download workbook" saves the new table under the name the client
-knows plus `-rows-added`; "Continue with this table" makes it the table of the first step with a
-fresh task. Execution and Review are not steps of this task and are marked unavailable.
+rows the table had and that none has changed: the interface compares, cell by cell, the rows it read
+from the table before the run with the same rows of the new table (the values as the preview route
+shows them, in the table's columns); a difference turns the banner into an error, and the line is
+left out when the two cannot be compared. Right after the run the interface asks the preview route
+about the **new** table with the same plan and says what a second run on the same files would add (0
+is the good answer; with "add it and mark it" duplicates are added again by design). The last rows
+of the new table are read with the ordinary preview route and the written ones are marked. "Download
+workbook" saves the new table under the name the client knows plus `-rows-added`; "Continue with
+this table" makes it the table of the first step with a fresh task. Execution and Review are not
+steps of this task and are marked unavailable.
 
 **The download route.** `GET /api/datasets/{dataset_id}/workbook` serves the stored workbook as an
 `.xlsx` attachment under the fixed name `workbook.xlsx` (the client names the file it saves) and is
