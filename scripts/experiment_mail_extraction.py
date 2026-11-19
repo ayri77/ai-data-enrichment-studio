@@ -25,6 +25,12 @@ browser, a client file from your own Google Cloud project):
         --gmail-query "category:purchases newer_than:180d" --limit 40 \\
         --gmail-client ~/secrets/client_secret.json --task ... --target ...
 
+A local model instead of OpenAI (no key is read, nothing leaves the machine while the URL
+is a loopback address):
+
+    uv run python -m scripts.experiment_mail_extraction --ollama-model <model> \
+        --eml-dir samples/probe/mail --task ... --target ...
+
 Privacy: the cleaned and masked text of every message (plus its subject, sender and date)
 is sent to the model provider, and the answers with their quotes are written to
 artifacts/mail-extraction/ (ignored by git). Masking covers card tails, phone numbers
@@ -37,6 +43,7 @@ import argparse
 import json
 import os
 import re
+import statistics
 import subprocess
 import sys
 from collections import Counter
@@ -79,6 +86,19 @@ from ai_data_enrichment.providers.text_extraction import (
     configuration_id,
 )
 from ai_data_enrichment.providers.text_extraction_handler import TextExtractionHandler
+from ai_data_enrichment.providers.text_extraction_ollama import (
+    DEFAULT_NUM_CTX,
+    DEFAULT_TIMEOUT_SECONDS,
+    DEFAULT_URL,
+    OllamaClient,
+    OllamaUnavailable,
+    chat_body,
+    check_base_url,
+    is_loopback_url,
+)
+from ai_data_enrichment.providers.text_extraction_ollama import (
+    configuration_id as ollama_configuration_id,
+)
 from ai_data_enrichment.providers.text_extraction_reply import (
     OUTCOME_FOUND,
     ExtractionResult,
@@ -264,13 +284,14 @@ def summarize(
     prices: Prices,
     stopped: str | None,
     source: dict[str, Any] | None = None,
+    ollama: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     input_tokens = sum(r["input_tokens"] for r in rows)
     output_tokens = sum(r["output_tokens"] for r in rows)
     masking = Counter[str]()
     for row in rows:
         masking.update(row["masking"])
-    return {
+    summary: dict[str, Any] = {
         "configuration_id": configuration_id(model, effort),
         "prompt_version": PROMPT_VERSION,
         "model": model,
@@ -313,6 +334,24 @@ def summarize(
             "output_per_mtok": prices.output_per_mtok,
         },
     }
+    if ollama is not None:
+        # A local model: no price, and its own configuration.
+        seconds = [r["seconds"] for r in rows]
+        del summary["estimated_cost"], summary["prices_used"]
+        summary.update(
+            configuration_id=ollama_configuration_id(model),
+            executor="ollama",
+            reasoning_effort=None,
+            ollama={
+                **ollama,
+                "prompt_did_not_fit": sum(1 for r in rows if r.get("prompt_did_not_fit")),
+                "seconds_per_mail": {
+                    "median": round(statistics.median(seconds), 2) if seconds else 0.0,
+                    "max": max(seconds, default=0.0),
+                },
+            },
+        )
+    return summary
 
 
 def _counts(counts: dict[str, int]) -> str:
@@ -322,7 +361,6 @@ def _counts(counts: dict[str, int]) -> str:
 def print_summary(summary: dict[str, Any]) -> None:
     messages = summary["messages"]
     usage = summary["usage"]
-    prices = summary["prices_used"]
     source = summary["source"]
     print()
     print(f"Configuration: {summary['configuration_id']}")
@@ -346,6 +384,21 @@ def print_summary(summary: dict[str, Any]) -> None:
     print(f"Messages cut at {summary['max_chars']} characters: {summary['truncated_messages']}")
     print(f"Tokens in / out: {usage['input_tokens']} / {usage['output_tokens']}")
     print(f"Seconds: {summary['seconds']}")
+    if "ollama" in summary:
+        local = summary["ollama"]
+        print(
+            f"Local model: {local['name']} (digest {local['model_digest'][:19]}, "
+            f"{local['model_size_bytes']} bytes), Ollama {local['version']}, "
+            f"num_ctx {local['num_ctx']}, temperature {local['temperature']}"
+        )
+        print(
+            f"Seconds per mail: median {local['seconds_per_mail']['median']}, "
+            f"max {local['seconds_per_mail']['max']}"
+        )
+        print(f"Mails whose prompt did not fit the context: {local['prompt_did_not_fit']}")
+        print("No cost estimate: the model runs on this machine.")
+        return
+    prices = summary["prices_used"]
     print(
         f"Estimated cost: {summary['estimated_cost']} USD at {prices['input_per_mtok']}/"
         f"{prices['output_per_mtok']} per 1M tokens in/out"
@@ -436,6 +489,43 @@ def build_parser() -> argparse.ArgumentParser:
         "--price-output-per-mtok", type=float, default=DEFAULT_PRICE_OUTPUT_PER_MTOK
     )
     parser.add_argument(
+        "--ollama-model",
+        metavar="NAME",
+        help="Let a local model, served by Ollama, answer instead of OpenAI. No OpenAI key is "
+        "needed or read. The model must be pulled already (ollama pull NAME).",
+    )
+    parser.add_argument(
+        "--ollama-url",
+        metavar="URL",
+        help=f"The Ollama server (default {DEFAULT_URL}). A host that is not a loopback address "
+        "is refused unless --ollama-allow-remote is given: the text of every mail is sent there.",
+    )
+    parser.add_argument(
+        "--ollama-allow-remote",
+        action="store_true",
+        help="Allow --ollama-url to name a host that is not this machine",
+    )
+    parser.add_argument(
+        "--ollama-num-ctx",
+        type=int,
+        metavar="N",
+        help=f"Context window in tokens, sent as options.num_ctx (default {DEFAULT_NUM_CTX}). "
+        "A mail whose prompt does not fit is reported, not answered.",
+    )
+    parser.add_argument(
+        "--ollama-think",
+        choices=("off", "default"),
+        help='Thinking of the local model: off (the default; "think": false is sent) or '
+        "default (the field is left out and the model decides). Use default if the server "
+        "refuses the request for a model that has no thinking.",
+    )
+    parser.add_argument(
+        "--ollama-timeout",
+        type=float,
+        metavar="SECONDS",
+        help=f"Seconds per mail (default {DEFAULT_TIMEOUT_SECONDS:g})",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print the request for the first message and what masking replaced; send nothing "
@@ -488,6 +578,7 @@ def run(
     argv: Sequence[str] | None = None,
     client: Any = None,
     gmail_opener: GmailOpener | None = None,
+    ollama_opener: Any = None,
 ) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -537,13 +628,40 @@ def run(
     except ValueError as exc:
         parser.error(str(exc))
 
-    api_key = os.getenv("OPENAI_API_KEY")
+    use_ollama = args.ollama_model is not None
+    reader = "Ollama" if use_ollama else "OpenAI"
+    ollama_url = args.ollama_url or DEFAULT_URL
+    num_ctx = DEFAULT_NUM_CTX if args.ollama_num_ctx is None else args.ollama_num_ctx
+    ollama_timeout = DEFAULT_TIMEOUT_SECONDS if args.ollama_timeout is None else args.ollama_timeout
+    if not use_ollama and (
+        args.ollama_url
+        or args.ollama_allow_remote
+        or args.ollama_num_ctx is not None
+        or args.ollama_timeout is not None
+        or args.ollama_think is not None
+    ):
+        parser.error("The --ollama-* options go with --ollama-model")
+    if use_ollama:
+        if not args.ollama_model.strip():
+            parser.error("--ollama-model cannot be empty")
+        if num_ctx < 512 or ollama_timeout <= 0:
+            parser.error("--ollama-num-ctx must be at least 512 and --ollama-timeout positive")
+        try:
+            check_base_url(ollama_url, allow_remote=args.ollama_allow_remote)
+        except ValueError as exc:
+            parser.error(str(exc))
+
+    # "off" sends think=false; "default" leaves the field out.
+    ollama_think: bool | None = None if args.ollama_think == "default" else False
+
+    # With a local model no OpenAI key is needed, so none is read.
+    api_key = None if use_ollama else os.getenv("OPENAI_API_KEY")
     source: dict[str, Any] | None = None
     known: set[str] = set()
     if use_gmail:
         if args.save_eml and (reason := check_save_dir(args.save_eml)):
             parser.error(reason)
-        if not args.dry_run and client is None and not api_key:
+        if not args.dry_run and client is None and not use_ollama and not api_key:
             parser.error("Set OPENAI_API_KEY in the local shell or an ignored .env file")
         limit = args.limit or DEFAULT_GMAIL_LIMIT
         client_file = args.gmail_client or (
@@ -568,9 +686,9 @@ def run(
             f"Reading up to {limit} messages matching {args.gmail_query!r} from Gmail, "
             "read-only; "
             + (
-                "nothing will be sent to OpenAI (--dry-run)."
+                f"nothing will be sent to {reader} (--dry-run)."
                 if args.dry_run
-                else "their cleaned and masked text will be sent to OpenAI."
+                else f"their cleaned and masked text will be sent to {reader}."
             ),
             flush=True,
         )
@@ -616,8 +734,8 @@ def run(
         if not messages:
             parser.error(f"No readable .eml files in {args.eml_dir} ({len(skipped)} skipped)")
     asked = messages[: args.limit] if args.limit else messages
-    model = args.model
-    effort = args.reasoning_effort or None
+    model = args.ollama_model if use_ollama else args.model
+    effort = None if use_ollama else args.reasoning_effort or None
     prepared = [prepare(messages, message, not args.no_mask, known) for message in asked]
 
     if args.dry_run:
@@ -627,31 +745,75 @@ def run(
             total.update(item)
         print(f"First of {len(asked)} messages ({asked[0].source}); nothing is sent.")
         if use_gmail:
-            print("The messages were read from Gmail; nothing is sent to OpenAI (--dry-run).")
+            print(f"The messages were read from Gmail; nothing is sent to {reader} (--dry-run).")
         print(
             f"Masking replaced in this message: {_counts(counts)}; "
             f"in all {len(asked)}: {_counts(dict(total))}"
             + ("" if not args.no_mask else " (masking is off)")
         )
         request = build_request(task, document, model=model, reasoning_effort=effort)
-        print(json.dumps({**request, "timeout": args.timeout}, ensure_ascii=False, indent=2))
+        if use_ollama:
+            # The body of POST /api/chat; the server is not contacted.
+            body = chat_body(request, num_ctx=num_ctx, think=ollama_think)
+            print(json.dumps({**body, "timeout": ollama_timeout}, ensure_ascii=False, indent=2))
+        else:
+            print(json.dumps({**request, "timeout": args.timeout}, ensure_ascii=False, indent=2))
         return 0
 
-    if client is None:
+    ollama_client: OllamaClient | None = None
+    ollama_facts: dict[str, Any] | None = None
+    if use_ollama:
+        ollama_client = OllamaClient(
+            ollama_url,
+            num_ctx=num_ctx,
+            think=ollama_think,
+            allow_remote=args.ollama_allow_remote,
+            opener=ollama_opener,
+        )
+        try:
+            version = ollama_client.version()
+            found = ollama_client.find_model(model)
+        except OllamaUnavailable:
+            print(
+                f"Ollama does not answer at {ollama_client.url}; start it (ollama serve) "
+                "or check --ollama-url.",
+                file=sys.stderr,
+            )
+            return 1
+        if found is None:
+            print(
+                f"The model {model} is not available on this Ollama server; "
+                f"pull it first with: ollama pull {model}",
+                file=sys.stderr,
+            )
+            return 1
+        ollama_facts = {
+            "name": found.name,
+            "model_digest": found.digest,
+            "model_size_bytes": found.size,
+            "version": version,
+            "num_ctx": num_ctx,
+            "temperature": ollama_client.temperature,
+            "think": "default" if ollama_think is None else "off",
+            "loopback": is_loopback_url(ollama_client.url),
+        }
+        reader_client: Any = ollama_client
+    elif client is None:
         if not api_key:
             parser.error("Set OPENAI_API_KEY in the local shell or an ignored .env file")
         from openai import OpenAI
 
-        client = OpenAI(timeout=args.timeout, max_retries=0)
+        reader_client = RecordingClient(OpenAI(timeout=args.timeout, max_retries=0), api_key)
+    else:
+        reader_client = RecordingClient(client, api_key)
 
     usage = ExtractionUsage()
-    recording = RecordingClient(client, api_key)
     handler = TextExtractionHandler(
-        recording,
+        reader_client,
         model=model,
         reasoning_effort=effort,
         usage=usage,
-        timeout_seconds=args.timeout,
+        timeout_seconds=ollama_timeout if use_ollama else args.timeout,
     )
     prices = Prices(0.0, args.price_input_per_mtok, args.price_output_per_mtok)
     print(
@@ -668,6 +830,8 @@ def run(
         seconds = round(perf_counter() - started, 2)
         records.append((message, result))
         rows.append(json_row(message, result, counts, seconds))
+        if ollama_client is not None:
+            rows[-1]["prompt_did_not_fit"] = ollama_client.last_prompt_did_not_fit
         detail = (
             f"{len(result.kept)} kept, {len(result.dropped)} dropped"
             if not result.failed
@@ -679,7 +843,15 @@ def run(
         if result.outcome in STOP_CODES:
             stopped = f"{result.outcome} at message {number}"
             print(f"Stopped after {message.source}: {result.outcome}: {result.message}")
-            if result.outcome == "REQUEST_REFUSED":
+            if use_ollama:
+                print(
+                    "Ollama did not accept the request (for instance the model is gone or does "
+                    "not take the options). If the model has no thinking, try "
+                    "--ollama-think default. Run with --dry-run to see exactly what is sent."
+                    if result.outcome == "REQUEST_REFUSED"
+                    else "Something in front of Ollama refused the request; check --ollama-url."
+                )
+            elif result.outcome == "REQUEST_REFUSED":
                 print(
                     "The API did not accept the request shape. Run with --dry-run to see "
                     "exactly what is sent."
@@ -701,6 +873,7 @@ def run(
         prices=prices,
         stopped=stopped,
         source=source,
+        ollama=ollama_facts,
     )
     (directory / "rows.json").write_text(
         json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8"
