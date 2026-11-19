@@ -41,7 +41,8 @@ search: the model may use only the text it is given.
    in plain text too. Invisible padding characters that marketing mails use (zero-width
    characters, U+034F, soft hyphen, braille blank, non-breaking spaces) are removed or
    turned into normal spaces, spaces are collapsed and blank lines are limited to one. The
-   body is cut at `--max-chars` (default 6000) on a line boundary, and the message is then
+   body is cut at `--max-chars` (default 6000), at the end of a line or a word when one is
+   near the limit, and the message is then
    counted as truncated.
 3. **Mask.** Card tails, phone numbers and the mailbox owner's own address are replaced by
    `[card]`, `[phone]` and `[me]` (see below). `--no-mask` skips this step.
@@ -655,4 +656,42 @@ not stop a run from being `completed`.
 with a fake model client and the invented fixtures. It was also run once (2026-11-18) against the
 application as a real server process on the loopback address, through its real HTTP transport,
 with the same fake model client: ten fixture mails, three files written, the text column empty
-in the workbook. Real mail and a real model have not been run through the application.
+in the workbook. For real mail and a real model see the next section.
+
+## First run through the application (2026-11-19)
+
+The owner ran the acceptance script on the 40 real mails of the probe (the saved `.eml` files),
+with the task and the eight columns of the probe's second run. Numbers only; no mail is quoted.
+
+**The run.** 40 of 40 mails read and asked, 169 s (about 4 s a mail), 39,635 input and 11,309
+output tokens, job `completed`. 32 found, 8 not about the task, none failed. 175 values kept
+(105 literal, 70 derived), 4 dropped (3 `quote_not_in_text`, 1 `number_not_in_quote`). The text
+column of the result workbook is empty.
+
+**Against the probe's second run, mail by mail.**
+
+- Outcome: the same for 38 of 40. The two that differ were "found" in the probe and are "not
+  about the task" here. By their senders and filled columns they look like two of the three rows
+  the probe's second run should not have taken in (an inference; the mails were not reread).
+  The boundary of the task is not stable from run to run.
+- `Amount` and `Paid on`: no difference in any mail where both runs gave a value.
+- The other columns move: `Billing cycle` is filled in only one of the two runs for 6 mails,
+  the currency for 5; the wording of `Item` differs in 4.
+
+**Is the text the same?** Checked offline, without a model: for all 40 mails the cell the
+application reads is identical, character for character, to the document the probe sent. All 175
+quotes kept by the application stand in that text, and all 186 quotes of the probe's run would
+pass the application's check. The four dropped values are therefore the model's own (a quote it
+altered), not an effect of the table or the workbook. **Which** values they were cannot be seen:
+the report counts dropped values by reason and does not name the row or the column.
+
+**Found by this run: the cut threw most of a long mail away.** Two mails were counted as cut,
+yet no text was longer than 2,274 characters. The cut went back to the last line break before
+the limit, and in both mails that was at character 290 of about 17,000, because the next line
+alone was more than 8,000 characters long (a table that arrives as one line). The probe's second
+run had the same loss. The cut now takes a line or word boundary only in the last fifth of the
+allowance; on these two mails it keeps 5,977 and 5,997 characters. Neither run above was made
+with the fix.
+
+**Still not verified.** The values against real payments; a second run of the same plan (kept
+answers); a run that reaches the time limit; more than 40 mails.

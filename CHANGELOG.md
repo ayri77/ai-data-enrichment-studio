@@ -61,6 +61,11 @@
   `register.xlsx`, `report.json` and `summary.json` under the ignored `artifacts/`. Tested
   against the real application with a fake model, in process and once as a real server process;
   not run on real mail. See [the note](docs/32-mail-extraction-probe.md).
+- Fixed: the text of a long mail was cut back to the last line break before the limit, which can
+  be far from it. Two real mails of about 17,000 characters kept 290, because their next line
+  alone was longer than the limit. The cut now takes a line or word boundary only in the last
+  fifth of the allowance. The first run of real mail through the application is recorded in
+  [the note](docs/32-mail-extraction-probe.md).
 
 ## 0.4.0 — beta (2026-11-18)
 

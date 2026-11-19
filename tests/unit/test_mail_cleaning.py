@@ -113,7 +113,25 @@ def test_exactly_at_the_limit_is_not_cut() -> None:
     text, truncated = clean_text("a" * 50 + "\n" + "b" * 49, None, max_chars=100)
     assert (len(text), truncated) == (100, False)
     text, truncated = clean_text("a" * 50 + "\n" + "b" * 50, None, max_chars=100)
-    assert truncated and text == "a" * 50
+    # The line break is far from the limit: the cut does not go back to it.
+    assert truncated and text == "a" * 50 + "\n" + "b" * 49
+
+
+def test_a_long_line_after_a_short_one_is_not_cut_back_to_the_short_one() -> None:
+    # A receipt whose table arrives as one line: the old cut kept only the greeting.
+    table = " ".join(f"item{i:03d} 9.99" for i in range(100))
+    text, truncated = clean_text("Hello,\n" + table, None, max_chars=200)
+    assert truncated
+    assert 160 <= len(text) <= 200
+    assert text.startswith("Hello,\nitem000 9.99 item001")
+    # It ends at the end of a word, not inside one.
+    assert ("Hello,\n" + table)[len(text)] == " "
+
+
+def test_a_line_break_near_the_limit_is_preferred_to_a_word_break() -> None:
+    plain = "w " * 45 + "\n" + "tail " * 10
+    text, truncated = clean_text(plain, None, max_chars=100)
+    assert truncated and text == ("w " * 45).strip()
 
 
 def test_a_single_long_line_is_cut_hard() -> None:
